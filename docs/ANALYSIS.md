@@ -2,7 +2,7 @@
 
 ## Import pipeline
 
-Input is a verified immutable recording plus format profile and raw metadata. Prefer a version-compatible WPILib reader; if Python bindings do not support the exact 2027 alpha format/structs, use a small pinned Java extractor with the installed Alpha 7 libraries. Keep language bindings behind one extractor contract. Do not silently feed nanoseconds into a 2026 microsecond parser.
+Input is a verified immutable recording plus format profile and raw metadata. Prefer a version-compatible WPILib reader; if Python bindings do not support the exact 2027 alpha format/structs, use a small pinned Java extractor with the installed Alpha 7 libraries. Keep language bindings behind one extractor contract. Distinguish binary header microseconds, Alpha 7 reader API nanoseconds, AdvantageKit `/Timestamp` payload nanoseconds, and `SystemStats/EpochTime` payload microseconds. Convert each exactly once; schema metadata on a payload does not change the binary header unit.
 
 Extract source field path, type/schema, units, timestamps, values, validity/freshness, and source artifact/record provenance. Decode geometry/struct arrays through recorded schemas. Preserve high-rate odometry arrays with their sample timestamps; do not treat a whole array as a single 20 ms measurement. Handle record start/finish and field-ID reuse according to the actual format.
 

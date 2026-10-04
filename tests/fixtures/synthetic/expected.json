@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "source_type": "SYNTHETIC",
+  "profile": "wpilib-2027.0.0-alpha-7_akit-27.0.0-alpha-6",
+  "generator": "tools/fixtures/src/GenerateFixtures.java",
+  "record_header_unit_on_disk": "microseconds",
+  "reader_timestamp_unit": "nanoseconds",
+  "timestamp_payload_unit": "nanoseconds",
+  "epoch_unit": "microseconds",
+  "odometry_timestamp_unit": "seconds",
+  "older_profile": {
+    "status": "unsupported",
+    "reason": "No reviewed version-matched 2026 fixture/reader has been verified."
+  },
+  "files": [
+    {
+      "file": "alpha7-main.wpilog",
+      "size_bytes": 4530,
+      "sha256": "df79f80165f2a4577913d86a503e11069fa89037ae6ee2931d8dcbe7480cb3d5",
+      "boot_id": "synthetic-boot-a",
+      "timestamp_ns": [
+        1000000000,
+        1020000123,
+        1040000000,
+        1060000000,
+        1080000000,
+        1500000000,
+        1520000000
+      ],
+      "epoch_us": [
+        0,
+        1791003600020000,
+        1791003600040000,
+        1791003602060000,
+        0,
+        1791003602500000,
+        1791003602520000
+      ],
+      "epoch_valid": [
+        false,
+        true,
+        true,
+        true,
+        false,
+        true,
+        true
+      ],
+      "modes": [
+        "DISABLED",
+        "AUTONOMOUS",
+        "AUTONOMOUS",
+        "TELEOP",
+        "DISABLED",
+        "TELEOP",
+        "DISABLED"
+      ],
+      "terminal_event": true,
+      "record_count": 143,
+      "short_tail_name": "/Fixture/Mode",
+      "short_tail_record_bytes": 14,
+      "cases": [
+        "invalid_epoch",
+        "epoch_becomes_valid",
+        "utc_jump_plus_2s",
+        "auto_to_teleop_without_disable",
+        "two_runs",
+        "420ms_gap",
+        "disconnected_missing_odometry",
+        "sub_microsecond_timestamp_payload"
+      ]
+    },
+    {
+      "file": "alpha7-boot-b.wpilog",
+      "size_bytes": 3364,
+      "sha256": "cb0624f6ba29550546fb4969cc5efcf099dc593b11a0efd32ddbc021ce88071c",
+      "boot_id": "synthetic-boot-b",
+      "timestamp_ns": [
+        1000000000,
+        1020000000,
+        1040000000
+      ],
+      "epoch_us": [
+        1791003605000000,
+        1791003605020000,
+        1791003605040000
+      ],
+      "epoch_valid": [
+        true,
+        true,
+        true
+      ],
+      "modes": [
+        "DISABLED",
+        "TELEOP",
+        "TELEOP"
+      ],
+      "terminal_event": false,
+      "record_count": 81,
+      "short_tail_name": "/Fixture/NestedArray/2",
+      "short_tail_record_bytes": 14,
+      "cases": [
+        "reboot_overlapping_monotonic_times",
+        "enabled_last_sample_no_terminal_event"
+      ]
+    },
+    {
+      "file": "alpha7-dst-overlap.wpilog",
+      "size_bytes": 3207,
+      "sha256": "d02761e224e4c47891020e2cb932bca9a99e5a7fbe08bd853c4e0f9c52439bc1",
+      "boot_id": "synthetic-boot-fall",
+      "timestamp_ns": [
+        1000000000,
+        3601000000000
+      ],
+      "epoch_us": [
+        1793514600000000,
+        1793518200000000
+      ],
+      "epoch_valid": [
+        true,
+        true
+      ],
+      "modes": [
+        "DISABLED",
+        "DISABLED"
+      ],
+      "terminal_event": true,
+      "record_count": 69,
+      "short_tail_name": "/Fixture/NestedArray/2",
+      "short_tail_record_bytes": 15,
+      "cases": [
+        "America/Chicago_2026-11-01_01:30_twice_distinct_utc"
+      ]
+    },
+    {
+      "file": "alpha7-dst-gap.wpilog",
+      "size_bytes": 3194,
+      "sha256": "efe65346fea3d8fc08a4bbca898b3b504f17b7fac14bec16abd131fd0087caf8",
+      "boot_id": "synthetic-boot-spring",
+      "timestamp_ns": [
+        1000000000,
+        2000000000
+      ],
+      "epoch_us": [
+        1772956799000000,
+        1772956800000000
+      ],
+      "epoch_valid": [
+        true,
+        true
+      ],
+      "modes": [
+        "DISABLED",
+        "DISABLED"
+      ],
+      "terminal_event": true,
+      "record_count": 69,
+      "short_tail_name": "/Fixture/NestedArray/2",
+      "short_tail_record_bytes": 14,
+      "cases": [
+        "America/Chicago_2026-03-08_01:59:59_to_03:00:00"
+      ]
+    }
+  ]
+}

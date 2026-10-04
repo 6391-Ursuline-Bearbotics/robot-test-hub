@@ -6,7 +6,7 @@ There are at least four domains: robot monotonic time, collector monotonic time,
 
 For a continuous valid interval fit `utc_ns = scale * (robot_ns - origin_ns) + utc_origin_ns`. Centering avoids floating-point loss on epoch-size values. Normally scale is near one. Use piecewise mappings when UTC jumps or a boot changes. Reject invalid epoch samples and flag implausible discontinuities; do not smear a clock correction across the whole run.
 
-The pinned AdvantageKit logs epoch microseconds; multiply by 1000 to normalize to ns after validating metadata/version. Log record time is already ns in the Alpha 7 profile. Unknown format profiles are unsupported until inspected. A filename date is at most an uncertain fallback.
+The pinned AdvantageKit logs epoch microseconds; multiply by 1000 to normalize to ns after validating metadata/version. The Alpha 7 official reader returns record time in ns, but the on-disk record header is still microseconds. A raw decoder converts that header once; code consuming the official reader must not convert again. The AdvantageKit `/Timestamp` value itself is ns. Unknown format profiles are unsupported until inspected. A filename date is at most an uncertain fallback.
 
 Collector clock exchanges can provide supporting anchors with round-trip uncertainty; use midpoint estimates only with an explicit error bound. Prefer trusted robot epoch samples when valid and cross-check them. Cache mappings per boot. If no valid mapping exists, index by robot-relative time and show wall-clock unavailable. When later evidence permits a mapping, create a new revision and reindex without changing raw observations.
 

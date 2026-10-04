@@ -69,6 +69,7 @@ Ctrl+C stops the foreground host; SIGTERM and Windows Ctrl+Break are handled too
 - Recovery from missing partials, uncommitted tails, and a crash after final rename.
 - Loopback demo UI with queue size/count, progress, transfer rate, and idle-time ETA.
 - 37 local automated tests, including the original collector cases, migration/configuration checks, stalled-I/O HTTP checks, and subprocess ownership/shutdown. CI configuration covers Windows/Linux and Python 3.10/3.13; the T01 suite was run locally on Windows with Python 3.10.7.
+- Four genuine synthetic Alpha 7 WPILOG fixtures, a pinned Java generator/official-reader verifier, and nine portable fixture checks. See [fixture tooling](tools/fixtures/README.md). This fixture suite is separate from the opaque transfer demo and is the qualification input for the forthcoming importer.
 
 The demo intentionally has no credentials or robot address. `.logdata` artifacts are opaque synthetic payloads, not recordings for AdvantageScope. Test success demonstrates the collector model, not actual SystemCore transfer latency or physical robot operation.
 

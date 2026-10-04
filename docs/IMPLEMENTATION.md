@@ -80,7 +80,9 @@ Acceptance: browser tests for enable/pause/reconnect, stale data, unknown throug
 
 ## T04 — Genuine WPILOG fixture generator
 
-Status: **planned**. Depends: T01. Read ROBOT_INTEGRATION and VALIDATION.
+Status: **implemented for the pinned Alpha 7 profile; official-reader and portable checks passed** (October 3, 2026). Depends: T01. Read ROBOT_INTEGRATION and VALIDATION.
+
+Evidence: four tiny public synthetic logs generated with actual AdvantageKit 27.0.0-alpha-6 and WPILib 2027.0.0-alpha-7 on JDK 25. Separate-process regeneration matches every log and manifest byte. Matching official WPILib reader and AK replay checks pass with the documented short-tail iterator limitation. Nine portable tests are included in standard CI discovery. See [fixture tool and exact units](../tools/fixtures/README.md). AdvantageScope GUI opening and older profiles remain unverified; no robot project was modified or run.
 
 Work: create a reproducible generator using pinned Alpha 7/AK source-compatible libraries, optionally in a small isolated Java fixture project. Produce tiny logs with known fields, schemas, nested arrays, metadata, valid/invalid epoch, mode transitions, and gaps. Document generation and expected values. Add a separate older-version fixture/profile for cross-year time tests when exact dependencies or reviewed sample data are available.
 
