@@ -40,6 +40,7 @@ ODOMETRY_ARRAY_TIMESTAMPS.update({f"/Drive/Module{i}/OdometryTurnPositions": f"/
 POSE_FIELDS = {"/Drive/Pose", "/Drive/PoseArray", "/RealOutputs/Odometry/Robot",
                "/ReplayOutputs/Odometry/Robot", "/RealOutputs/Odometry/TrajectorySetpoint",
                "/ReplayOutputs/Odometry/TrajectorySetpoint"}
+LONG_NS_FIELDS = {f"/{category}/TestHub/RobotMonotonicNs" for category in ("RealOutputs", "ReplayOutputs")}
 
 
 class FormatError(ValueError):
@@ -318,6 +319,10 @@ def extract(path: Path, profile=PROFILE):
                 found_timestamp = True
             if entry["field"] == "/SystemStats/EpochTime" and (entry["type"] != "double" or _unit(entry) != "microseconds"):
                 raise UnsupportedProfile("Alpha7 epoch time requires double microseconds metadata")
+            if entry["field"] in LONG_NS_FIELDS and (entry["type"] != "int64" or _unit(entry) not in (None, "nanoseconds")):
+                raise UnsupportedProfile("TestHub RobotMonotonicNs requires int64 nanoseconds")
+            if entry["field"] in {name + "Unit" for name in LONG_NS_FIELDS} and (entry["type"] != "string" or _text(record.payload) != "nanoseconds"):
+                raise UnsupportedProfile("TestHub RobotMonotonicNsUnit differs from nanoseconds")
             if entry["field"] == "/Metadata/FixtureProfile":
                 if entry["type"] != "string" or _text(record.payload) != profile:
                     raise UnsupportedProfile("Embedded profile differs from selected profile")
@@ -370,6 +375,8 @@ def extract(path: Path, profile=PROFILE):
                 row["raw_hex"] = record.payload.hex()
             if unsupported:
                 row["unavailable_reason"] = unsupported
+            if field in LONG_NS_FIELDS and row["unit"] is None:
+                row["unit"], row["unit_source"] = "nanoseconds", "explicit_profile_mapping"
             if row["unit"] == "nanoseconds" and entry["type"] in ("int64", "int64[]") and unsupported is None:
                 row["value"] = [str(item) for item in value] if isinstance(value, list) else str(value)
                 row["value_representation"] = "decimal_string_int64_array" if isinstance(value, list) else "decimal_string_int64"

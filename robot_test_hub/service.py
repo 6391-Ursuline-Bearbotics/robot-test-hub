@@ -110,7 +110,7 @@ class HubService:
         self.cache = {"state": "starting", "reason": "Opening catalog and recovering checkpoints", "error": None,
                       "files": [], "pending_files": 0, "completed_files": 0, "remaining_bytes": 0,
                       "bytes_per_second": None, "eta_seconds": None, "active_id": None, "discovery_complete": False}
-        self.health = {"collector": {"state": "starting"}, "status": {"state": "starting"}}
+        self.health = {"collector": {"state": "starting"}, "status": {"state": "starting"}, 'indexer':{'state':'starting'}}
         self.started = False
         self.closed = False
         self.threads = []
@@ -141,7 +141,8 @@ class HubService:
             raise RuntimeError("Service cannot be started twice or after close")
         self.started = True
         self.threads = [threading.Thread(target=self._status_worker, name="hub-status"),
-                        threading.Thread(target=self._collector_worker, name="hub-collector")]
+                        threading.Thread(target=self._collector_worker, name="hub-collector"),
+                        threading.Thread(target=self._pipeline_worker,name='hub-indexer')]
         for thread in self.threads:
             thread.start()
 
@@ -159,6 +160,26 @@ class HubService:
             with self.cache_lock:
                 if self.health["status"]["state"] != "failed":
                     self.health["status"] = {"state": "stopped", "error_code": None}
+
+    def _pipeline_worker(self):
+        from .pipeline import Pipeline
+        db=None
+        self._health('indexer','running')
+        try:
+            db=open_catalog(self.root)
+            pipeline=Pipeline(self.root,db)
+            while not self.stop.is_set():
+                pipeline.tick()
+                self.stop.wait(0.5)
+        except Exception as exc:
+            self._health('indexer','failed','indexer_failed')
+            self.diagnostics.record('indexer_failed','Local import/indexing stopped; originals preserved. Check catalog/storage and restart',exception=exc)
+        finally:
+            if db is not None:
+                db.close()
+            with self.cache_lock:
+                if self.health['indexer']['state']!='failed':
+                    self.health['indexer']={'state':'stopped','error_code':None}
 
     def _collector_worker(self):
         collector = None

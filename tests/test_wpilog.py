@@ -156,6 +156,13 @@ class WpilogTests(unittest.TestCase):
         self.assertEqual(scalar["value"], "42")
         self.assertEqual(array["value"], ["42", "1791003600020000001"])
         self.assertEqual(array["value_representation"], "decimal_string_int64_array")
+        hub_rows = self.rows(log_bytes(start(2, "/RealOutputs/TestHub/RobotMonotonicNs", "int64"), wire_record(2, struct.pack("<q", 42)),
+                                      start(3, "/RealOutputs/TestHub/RobotMonotonicNsUnit", "string"), wire_record(3, b"nanoseconds")))
+        hub = next(r for r in hub_rows if r["kind"] == "observation" and r["field"] == "/RealOutputs/TestHub/RobotMonotonicNs")
+        self.assertEqual(hub["value"], "42")
+        self.assertEqual(hub["unit_source"], "explicit_profile_mapping")
+        with self.assertRaises(UnsupportedProfile):
+            self.rows(log_bytes(start(2, "/RealOutputs/TestHub/RobotMonotonicNsUnit", "string"), wire_record(2, b"microseconds")))
 
     def test_explicit_profile_and_payload_units_reject_incompatible_inputs(self):
         with self.assertRaises(UnsupportedProfile):

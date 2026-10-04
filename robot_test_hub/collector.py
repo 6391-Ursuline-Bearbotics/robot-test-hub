@@ -565,6 +565,7 @@ class Collector:
             self._failure(exc, identity)
 
     def snapshot(self):
+        last_archive = self.db.execute("SELECT MAX(CAST(verified_utc_ns AS INTEGER)) FROM verification_jobs WHERE state='complete'").fetchone()[0]
         rows = [dict(r) for r in self.db.execute('''SELECT f.*,m.attempts,m.next_retry,m.error_code,m.priority,m.urgent,m.available,m.format_status,m.selection_reason
             FROM files f JOIN transfer_meta m ON f.id=m.file_id ORDER BY f.created_at DESC,f.id''')]
         pending = [r for r in rows if r['state'] != 'complete']
@@ -576,6 +577,7 @@ class Collector:
         active = self.state == 'downloading'
         eta = self.throughput.estimate(remaining, self.clock(), active=active, complete=self.discovery_complete, blocked=bool(blocked) or pending_digest_bytes > 0)
         return {'state': self.state, 'reason': self.reason, 'error': self.error, 'files': rows,
+                'last_archive_utc_ns':str(last_archive) if last_archive is not None else None,
                 'paused_by_operator': self.paused, 'active_id': self.active_id,
                 'remaining_bytes': remaining + blocked_bytes, 'transferable_bytes': remaining,
                 'blocked_bytes': blocked_bytes, 'blocked_files': len(blocked),

@@ -8,6 +8,8 @@ htmlcov/
 data/
 *.wpilog
 !tests/fixtures/synthetic/*.wpilog
+build/
+dist/
 *.hoot
 *.revlog
 *.dslog

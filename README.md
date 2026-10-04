@@ -2,7 +2,7 @@
 
 Design and implementation workspace for turning physical robot testing into searchable evidence: automatic log collection, run history, driver observations, synchronized practice video, and repeatable health reports.
 
-**Current status: design plus a tested transfer prototype with the T01 service foundation. No real robot connection, WPILOG importer, log rotation, video integration, or health analysis is implemented.** Synthetic demo files are not valid WPILOGs.
+**Current status: working local collection demo, qualified Alpha 7 WPILOG importer, searchable run history, and offline driver notebook.** Transfer, indexing, and status run independently. Real SystemCore transport, camera integration, and hardware qualification are still in progress. The transfer demo uses opaque synthetic bytes; separate genuine synthetic WPILOG fixtures exercise the importer.
 
 ## Start here
 
@@ -13,10 +13,12 @@ Design and implementation workspace for turning physical robot testing into sear
 
 ## Run the local demo
 
-Python 3.10+; the prototype has no runtime dependencies. From this repository:
+Python 3.10+. Install into a virtual environment; the pinned timezone database makes time search consistent on Windows and Linux. From this repository:
 
 ```powershell
-python -m robot_test_hub.server
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\python.exe -m robot_test_hub.server
 ```
 
 Open **http://127.0.0.1:6391**. The demo uses a three-second idle delay and about 36 MiB of deterministic synthetic data. Enable the simulated robot, disconnect it, freeze its heartbeat, or vary its speed to exercise pause/resume. Use Ctrl+C to stop. Restart with the same data directory to recover saved progress.
@@ -50,7 +52,7 @@ CLI options remain supported. Optional JSON configuration must specify `schema_v
 python -m robot_test_hub.server --config data/hub-config.json
 ```
 
-Invalid or unknown settings fail with field-specific guidance before service data is modified. Existing prototype catalogs migrate transactionally to schema 1, retaining offsets, filenames, transfer states, and operator pause. Catalogs from a newer schema are rejected; preserve the data directory and use its matching newer hub version.
+Invalid or unknown settings fail with field-specific guidance before service data is modified. Existing catalogs migrate transactionally, retaining offsets, filenames, transfer states, and operator pause. Catalogs from a newer schema are rejected; preserve the data directory and use its matching newer hub version.
 
 Durations must be finite numbers: idle delay is 0–86400 seconds; freshness is positive and at most 3600 seconds; tick/status intervals are positive and at most 60 seconds; shutdown timeout is positive and at most 300 seconds. Port is 1–65535 and read chunks are 1 byte–16 MiB. These validation limits protect worker waits; they are not hardware commissioning recommendations.
 
@@ -68,19 +70,22 @@ Ctrl+C stops the foreground host; SIGTERM and Windows Ctrl+Break are handled too
 - Bounded reads, checkpoint resume, SHA-256 verification, corrupt-file quarantine.
 - Recovery from missing partials, uncommitted tails, and a crash after final rename.
 - Loopback demo UI with queue size/count, progress, transfer rate, and idle-time ETA.
-- 37 local automated tests, including the original collector cases, migration/configuration checks, stalled-I/O HTTP checks, and subprocess ownership/shutdown. CI configuration covers Windows/Linux and Python 3.10/3.13; the T01 suite was run locally on Windows with Python 3.10.7.
-- Four genuine synthetic Alpha 7 WPILOG fixtures, a pinned Java generator/official-reader verifier, and nine portable fixture checks. See [fixture tooling](tools/fixtures/README.md). This fixture suite is separate from the opaque transfer demo and is the qualification input for the forthcoming importer.
+- Paged manifest discovery, persisted retries, priority/aging, async verification, and historical paused ETA with explicit blocked or unknown backlog.
+- Four genuine synthetic Alpha 7 WPILOG fixtures and a portable streaming importer qualified against all 362 physical records using the pinned official reader. See [import commands](docs/IMPORTER.md).
+- Automatic indexing of verified supported recordings, immutable run/time revisions, and local date/time search with explicit DST choices and clock gaps. See [run catalog](docs/RUNS.md).
+- A driver notebook with revision history, immediate/seconds-ago/historical notes, durable browser outbox, offline reload, and automatic retry. Browser verification confirmed original incident time survives hub outage and reload. See [notebook](docs/NOTEBOOK.md).
+- Automated regression suites covering transfer faults, migration/ownership, importer precision, time mapping, notebook retries, and service integration. CI covers Windows/Linux and Python 3.10/3.13.
 
 The demo intentionally has no credentials or robot address. `.logdata` artifacts are opaque synthetic payloads, not recordings for AdvantageScope. Test success demonstrates the collector model, not actual SystemCore transfer latency or physical robot operation.
 
 ## Prototype limitations
 
-Read the [implementation gap table](docs/IMPLEMENTATION.md#prototype-gap-table) before treating any prototype behavior as the production design. Examples: the ETA resets when paused; discovery is not persisted as a complete snapshot; queue priority is newest-first without aging; manifest checksums are supplied by the fake source; local verification runs inline in the transfer worker; there is no source retry backoff, production service packaging, or real WPILOG validation. Status/API responsiveness is tested with synthetic blocked operations, not a real network transport.
+Read the [implementation gap table](docs/IMPLEMENTATION.md#prototype-gap-table) before using this as a production system. Source digest generation and cancellation are still exercised against synthetic sources. The service has no live robot credentials or address. Notebook access is loopback only; phone pairing and robot marker delivery remain unfinished. Indexing has not been qualified on season-scale archives. Video, independent backup/restore, autostart packaging, and physical load measurements remain open tasks.
 
 ## Data handling
 
 This is a **public source-code repository**. Keep real logs, video, notes, database files, credentials, robot access configuration, and generated reports in ignored local data directories or the team's private archive. Git stores code, design, and explicitly reviewed synthetic fixtures. Original robot recordings are never edited by the analysis pipeline.
 
-## First next task
+## Continuing implementation
 
-Implement **T02** in [IMPLEMENTATION.md](docs/IMPLEMENTATION.md): the production queue, bounded cancelable I/O, discovery snapshots, retry/fairness, verification jobs, and honest ETA. Hardware work can wait until the source adapter contract and the physical acceptance checklist are ready.
+Follow the dependency-ready tasks in [IMPLEMENTATION.md](docs/IMPLEMENTATION.md). Robot metadata/status instrumentation is implemented and tested in the sibling robot project; [T09 evidence](docs/T09_IMPLEMENTATION.md) records exact topics and limitations. Receiver rotation, transport, analysis review, and video work must retain the documented distinction between synthetic tests and physical qualification.

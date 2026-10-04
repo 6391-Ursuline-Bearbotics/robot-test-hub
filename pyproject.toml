@@ -7,10 +7,13 @@ name = "robot-test-hub"
 version = "0.1.0"
 description = "FRC Team 6391 robot testing hub"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["tzdata==2026.1"]
 
 [project.scripts]
 robot-test-hub = "robot_test_hub.server:main"
 
 [tool.setuptools.package-data]
 robot_test_hub = ["static/*.html", "static/*.css", "static/*.js"]
+
+[tool.setuptools.packages.find]
+include = ["robot_test_hub*"]

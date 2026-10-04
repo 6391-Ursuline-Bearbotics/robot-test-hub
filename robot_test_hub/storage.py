@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class OwnershipError(RuntimeError):
@@ -79,9 +79,28 @@ def open_catalog(root: Path) -> sqlite3.Connection:
             if version <= 1:
                 from .transfer_schema import migrate_transfer
                 migrate_transfer(db)
-            for table in ('transfer_meta', 'manifest_snapshots', 'manifest_items', 'verification_jobs', 'transfer_events'):
-                if not db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+            required_transfer_columns = {
+                'transfer_meta': {'file_id','attempts','next_retry','error_code','priority','urgent','available','checkpoint_digest','checkpoint_offset','format_status','selection_reason','last_selected'},
+                'manifest_snapshots': {'snapshot_id','revision','complete','observed_utc_ns','observed_monotonic_ns','open_bytes','pending_digest_bytes','error_code'},
+                'manifest_items': {'snapshot_id','file_id','metadata_json'},
+                'verification_jobs': {'file_id','state','digest','error_code','elapsed_seconds','verified_utc_ns','format_status'},
+                'transfer_events': {'event_id','file_id','code','monotonic_ns','detail'},
+            }
+            for table, columns in required_transfer_columns.items():
+                actual = {row['name'] for row in db.execute(f'PRAGMA table_info({table})')}
+                if not columns <= actual:
                     raise SchemaError("Catalog transfer schema is incomplete; preserve the data directory")
+            if version <= 2:
+                from .notebook import install_schema as notebook_schema
+                from .importer import install_schema as import_schema
+                from .runs import install_schema as run_schema
+                for install in (notebook_schema, import_schema, run_schema):
+                    install(db)
+                db.execute("INSERT INTO schema_migrations VALUES (3,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+                db.execute('PRAGMA user_version=3')
+            for table in ('annotation_revisions','import_jobs','import_artifacts','import_requests','run_catalog_revisions','run_catalog_state'):
+                if not db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
+                    raise SchemaError('Catalog evidence schema is incomplete; preserve the data directory')
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")

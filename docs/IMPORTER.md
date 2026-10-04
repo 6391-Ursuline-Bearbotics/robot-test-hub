@@ -13,6 +13,8 @@ python tools/importer/qualify.py
 
 The first three commands require only Python 3.10 or newer. Qualification reuses T04's locked installed Windows JDK25/library/native dependencies; it downloads nothing. `--expected-sha256` checks an external digest independently from format validity. `--retry` explicitly retries failed/unsupported jobs; a previous `running` job resumes automatically. CLI output is the persistent job state; non-success returns a nonzero exit code. The manual CLI owns the normal data-root lock, so stop the hub before importing into its data directory. Raw files remain private under the ignored data root. `--synthetic` is an explicit provenance assertion for invented data, not a way to sanitize real recordings.
 
+T09's long `/RealOutputs/TestHub/RobotMonotonicNs` and equivalent ReplayOutputs field use an exact profile nanosecond mapping because pinned Logger has no long-with-unit overload. The adjacent `RobotMonotonicNsUnit`, when recorded, must equal `nanoseconds`; conflicting types/units remain unsupported. These payloads also stay decimal strings even at small timestamps.
+
 ## Storage and idempotency
 
 `Importer(root, db)` uses the caller's owned catalog connection. `install_schema(db)` creates the `import_artifacts`, `import_jobs`, and `import_requests` tables within the caller's transaction without committing or changing `user_version`; the main catalog migration can call it. The standalone CLI calls it transactionally after `open_catalog`. Automatic ingestion-worker, HTTP, and run-catalog integration belongs to the parent implementation and is not provided by these two modules alone.
