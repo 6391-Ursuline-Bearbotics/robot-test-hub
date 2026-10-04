@@ -312,8 +312,10 @@ class IndependentTransferTests(unittest.TestCase):
             service.start()
             try:
                 self.assertTrue(entered.wait(2))
-                wait_for(lambda: len(source.reads) == 2)
-                self.assertEqual(service.snapshot()['verification_pending_files'], 2)
+                # The transport records a read before fsync/catalog publication.
+                # Wait for the published checkpoint, not the earlier I/O entry.
+                wait_for(lambda: service.snapshot().get('verification_pending_files') == 2)
+                self.assertEqual(len(source.reads), 2)
                 source.enabled = True
                 wait_for(lambda: service.snapshot()['source_status']['enabled'])
                 release.set()
