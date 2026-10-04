@@ -96,7 +96,9 @@ Acceptance: opens in the matching official reader/AdvantageScope; independent ex
 
 ## T05 — Versioned log importer
 
-Status: **planned**. Depends: T04. Read ANALYSIS and CONTRACTS.
+Status: **implemented as a manual local importer; Alpha 7 profile qualified** (October 3, 2026). Depends: T04. Read ANALYSIS and CONTRACTS.
+
+Evidence: strict portable extraction agrees with the pinned official reader on all 362 physical records in the four genuine synthetic recordings. Twelve extractor and twelve importer tests pass, covering complete short tails, corrupt/truncated data, timestamp units, entry reuse, nested structs/arrays, explicit unsupported fields, disconnected/missing samples, checksum-vs-format separation, immutable archive conflicts, idempotency, and interrupted publication. See [importer contract and commands](IMPORTER.md). Automatic service ingestion and run/UI integration are separate integration work; older profiles and real recordings remain unqualified.
 
 Work: choose/pin compatible reader (Python if verified, otherwise small Java extractor), normalize signals with provenance/units, validate format separately from checksum, decode struct arrays and sample timestamps, persist import status/idempotency. Reject unknown profiles visibly. Retain originals byte-for-byte.
 

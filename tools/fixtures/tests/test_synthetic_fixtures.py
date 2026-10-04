@@ -56,7 +56,7 @@ class SyntheticFixtureTests(unittest.TestCase):
         for changed in (b"BROKEN" + data[6:], data + b"\x00", data[:10],
                         data[:6] + b"\x01\x01" + data[8:],
                         data[:8] + struct.pack("<I", len(data)) + data[12:],
-                        data[:23] + bytes([data[23] | 0x80]) + data[24:]):
+                        data[:24] + bytes([data[24] | 0x80]) + data[25:]):
             with self.assertRaises(AssertionError):
                 framed_records(changed)
 
