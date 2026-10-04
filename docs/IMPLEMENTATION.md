@@ -14,7 +14,7 @@ For hardware integration, replace the last sentence with the specific authorized
 
 ```text
 T00 prototype (done)
-  T01 foundation -> T02 production queue -> T03 queue UI
+  T01 foundation (done, local tests) -> T02 production queue -> T03 queue UI
   T01 -> T04 genuine log fixtures -> T05 importer -> T06 run/time catalog
   T01 -> T07 notebook -> T08 offline/robot markers
   T01 -> T09 robot metadata/status -> T10 rotation manifest
@@ -32,19 +32,19 @@ Useful release A: T01–T07 and T09–T12 (collection, time search, hub notebook
 
 | Area | Implemented reference | Still required / task |
 | --- | --- | --- |
-| Persistence | SQLite offsets, fsync ordering, restart recovery | Schema migrations, process ownership, jobs, independent verification; T01/T02 |
+| Persistence | SQLite offsets, fsync ordering, restart recovery, v0-to-v1 migration, process ownership | Jobs, independent verification; T02 |
 | Source | Deterministic synthetic source only | Status + immutable manifest + real transport; T09–T12 |
-| Gate | Disabled, freshness, boot/generation, operator pause | Independent production status worker/cancellation, negotiated limits; T02/T11 |
+| Gate | Disabled, freshness, boot/generation, durable operator pause/generation, independent cached status worker | Production adapter cancellation/deadlines, negotiated limits; T02/T11 |
 | Queue | Newest-first, identity/rename checks | Fairness, complete discovery snapshots, retry policy, missing source states; T02 |
 | ETA | Active read/write samples; resets on pause | Historical paused estimate, uncertainty, link profiles, blocked backlog; T02/T03 |
 | Checksums | Fake-source digest, local whole-file verification | Source digest generation, async verification, format checks; T02/T05/T10 |
-| UI | Loopback demo controls and queue | Target API, real/demo separation, diagnostics/search/notebook; T03/T06/T07 |
+| UI | Loopback demo controls and queue, responsive cached snapshots, worker health, redacted diagnostics endpoint | Target API, real/demo adapter separation, diagnostics UI/search/notebook; T03/T06/T07 |
 | Files | Opaque `.logdata` synthetic payloads | Genuine WPILOG validation and raw archive layout; T04/T05 |
 | Robot | None | Metadata, marker IO, status, receiver rotation; T08–T10 |
 | Analysis/video/backup | None | T13–T20 |
-| Packaging | `python -m` CLI, pyproject, CI workflow | Dependency locking, service install/autostart, supported restore procedure; T01/T18/T19 |
+| Packaging | `python -m` foreground CLI, validated JSON configuration, shutdown signals, pyproject, CI workflow | Dependency locking when dependencies are added, service install/autostart, supported restore procedure; T18/T19 |
 
-The prototype locks collector operations together. The demo source has a separate lock, so Enable can interrupt a pending synthetic read. This is not the final worker architecture: production UI and status updates cannot wait behind network reads or large local hash operations. Tests currently exercise collector logic, not a real transport.
+The transfer worker owns collector operations and publishes cached snapshots before discovery/read/verification. Independent source-status polling and HTTP access stay responsive during synthetic blocked I/O, including durable operator pause. Local verification and startup recovery still run in the transfer worker; independent jobs and production transport deadlines/cancellation remain T02/T11. The OS ownership lock is qualified only on local Windows storage. Tests exercise synthetic source/service behavior, not a real transport.
 
 ## T00 — Transfer reference prototype
 
@@ -52,11 +52,15 @@ Status: **implemented, local unit tests passed**. Includes fake source, collecto
 
 ## T01 — Configuration, schema migrations, and worker ownership
 
-Status: **ready / recommended next**. Depends: T00. Read ARCHITECTURE, CONTRACTS, UI_AND_OPERATIONS.
+Status: **implemented; local Windows acceptance tests passed** (October 3, 2026). Depends: T00. Read ARCHITECTURE, CONTRACTS, UI_AND_OPERATIONS.
 
 Work: introduce validated versioned configuration, data-root ownership lock, explicit database migrations from the current prototype schema, structured/redacted diagnostics, and clean worker lifecycle. Separate collector tick/status/API access so long I/O cannot starve UI/status handling. Keep a working demo entry point.
 
 Acceptance: existing data migrates without losing offsets/pause flag; fresh install works; second process fails clearly without modifying files; unexpected worker failure is visible; shutdown preserves checkpoints; invalid config has actionable errors. Add subprocess tests for ownership and shutdown. No new robot/library dependencies needed.
+
+Evidence: `python -m unittest discover -s tests -v` on Windows, Python 3.10.7: **37 tests passed** (18 collector and 19 foundation tests). Covers exact original-schema partial/complete/error rows and pause preservation, transactional migration rollback/retry, future schema rejection, fresh installation, configuration type/range/NaN/Infinity rejection, root-lock cleanup, second subprocess rejection without file changes, actual foreground Ctrl+Break shutdown/restart with offsets/pause retained, independent status/HTTP pause during blocked reads/discovery/hashing, pause/resume transitions during reads, operation publication after caught-up, worker failures and redaction, rotation bounds, and ownership retention on shutdown timeout. No robot/library dependency added. Existing demo controls and checkpoint durability ordering remain intact.
+
+Limits: synthetic local sources only; Linux CI configuration exists but was not run locally for this handoff. Network-share locks, production transport cancellation, independent verification jobs, service installation, and hardware operation remain unqualified. Diagnostics exports omit arbitrary exception text rather than claiming it can be perfectly redacted. A noncancelable future adapter can retain ownership and delay process exit after a reported shutdown timeout.
 
 ## T02 — Production transfer engine and ETA
 

@@ -207,6 +207,36 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.source.reads, [])
         self.assertIn("Unsafe", self.collector.snapshot()["error"])
 
+    def test_pause_resume_during_read_discards_block_and_restarts_idle_window(self):
+        preference = [False, 0]
+        self.collector._paused_provider = lambda: tuple(preference)
+        self.start()
+        def pause_resume():
+            preference[1] += 2
+        self.source.after_read = pause_resume
+        self.collector.tick()
+        self.assertEqual(self.row()["offset"], 4)
+        self.assertEqual(self.collector.snapshot()["state"], "waiting")
+        self.assertIsNone(self.collector.snapshot()["bytes_per_second"])
+        self.source.after_read = None
+        self.collector.tick()
+        self.assertEqual(len(self.source.reads), 2)
+        self.source.now += 2
+        self.collector.tick()
+        self.assertEqual(self.row()["offset"], 8)
+
+    def test_pause_resume_between_ticks_restarts_idle_window(self):
+        preference = [False, 0]
+        self.collector._paused_provider = lambda: tuple(preference)
+        self.start()
+        preference[1] += 2
+        self.collector.tick()
+        self.assertEqual(len(self.source.reads), 1)
+        self.assertEqual(self.collector.snapshot()["state"], "waiting")
+        self.source.now += 2
+        self.collector.tick()
+        self.assertEqual(self.row()["offset"], 8)
+
 
 if __name__ == "__main__":
     unittest.main()

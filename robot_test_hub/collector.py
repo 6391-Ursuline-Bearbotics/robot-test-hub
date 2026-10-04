@@ -2,7 +2,8 @@
 
 The source contract deliberately requires explicit closed-file identity and a fresh
 robot status. A directory listing and a last-known disabled value are insufficient.
-All collector methods must be serialized by the host (the server uses one lock).
+The collector tick and snapshot belong to one worker. Operator pause uses an
+independent settings connection, so it never waits behind source or hash I/O.
 """
 from __future__ import annotations
 
@@ -15,6 +16,8 @@ import re
 import sqlite3
 import time
 from typing import Callable, Protocol
+
+from .storage import DataRootOwner, open_catalog
 
 
 @dataclass(frozen=True)
@@ -53,26 +56,37 @@ class Source(Protocol):
 class Collector:
     def __init__(self, root: Path, source: Source, *, idle_delay: float = 10,
                  freshness: float = 1, chunk_size: int = 256 * 1024,
-                 clock: Callable[[], float] = time.monotonic):
-        if idle_delay < 0 or freshness <= 0 or chunk_size <= 0:
+                 clock: Callable[[], float] = time.monotonic,
+                 owner: DataRootOwner | None = None,
+                 paused: Callable[[], tuple[bool, int]] | None = None,
+                 stopping: Callable[[], bool] = lambda: False,
+                 publish: Callable[[dict], None] | None = None):
+        if (type(idle_delay) not in (int, float) or not math.isfinite(idle_delay) or idle_delay < 0
+                or type(freshness) not in (int, float) or not math.isfinite(freshness) or freshness <= 0
+                or type(chunk_size) is not int or chunk_size <= 0):
             raise ValueError("Invalid collector limits")
+        self._owner = DataRootOwner(root) if owner is None else None
+        self._paused_provider, self._stopping = paused, stopping
+        self._publish = publish
+        self.pause_generation = None
         self.root, self.source, self.clock = root, source, clock
         self.idle_delay, self.freshness, self.chunk_size = idle_delay, freshness, chunk_size
+        try:
+            self._initialize()
+        except BaseException:
+            if hasattr(self, "db"):
+                self.db.close()
+            if self._owner is not None:
+                self._owner.close()
+            raise
+
+    def _initialize(self):
+        root = self.root
+        self.db = open_catalog(root)
         self.partial = root / "partial"
         self.archive = root / "archive"
         self.partial.mkdir(parents=True, exist_ok=True)
         self.archive.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(root / "catalog.sqlite3", check_same_thread=False)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute("PRAGMA synchronous=FULL")
-        self.db.executescript("""
-            CREATE TABLE IF NOT EXISTS files (
-                id TEXT PRIMARY KEY, name TEXT NOT NULL, size INTEGER NOT NULL,
-                sha256 TEXT NOT NULL, created_at REAL NOT NULL, offset INTEGER NOT NULL DEFAULT 0,
-                state TEXT NOT NULL DEFAULT 'queued', error TEXT);
-            CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        """)
         row = self.db.execute("SELECT value FROM settings WHERE key='paused'").fetchone()
         self.paused = row is not None and row[0] == "1"
         self.state, self.reason, self.error = "waiting", "Waiting for fresh robot status", None
@@ -82,6 +96,10 @@ class Collector:
         self.samples: list[tuple[float, int]] = []
         self.active_id: str | None = None
         self._recover()
+
+    def _publish_progress(self):
+        if self._publish is not None:
+            self._publish(self.snapshot())
 
     def _digest(self, path: Path) -> str:
         h = hashlib.sha256()
@@ -97,22 +115,25 @@ class Collector:
             part = self.partial / (row["id"] + ".part")
             if final.exists():
                 if final.stat().st_size == row["size"] and self._digest(final) == row["sha256"]:
-                    self.db.execute("UPDATE files SET offset=size,state='complete',error=NULL WHERE id=?", (row["id"],))
+                    # Finish this row before hashing another file. A recovery-wide
+                    # write transaction would block durable operator pause.
+                    with self.db:
+                        self.db.execute("UPDATE files SET offset=size,state='complete',error=NULL WHERE id=?", (row["id"],))
                     continue
                 final.replace(self.partial / (row["id"] + ".invalid"))
-            if row["state"] == "complete":
-                self.db.execute("UPDATE files SET offset=0,state='queued' WHERE id=?", (row["id"],))
-                offset = 0
-            else:
-                offset = row["offset"]
+            reset_checkpoint = row["state"] == "complete"
+            offset = 0 if reset_checkpoint else row["offset"]
             actual = part.stat().st_size if part.exists() else 0
             if actual < offset:
                 offset = 0
-                self.db.execute("UPDATE files SET offset=0,state='queued' WHERE id=?", (row["id"],))
+                reset_checkpoint = True
             if part.exists():
                 with part.open("r+b") as f:
                     f.truncate(offset)
-        self.db.commit()
+            # All filesystem work stays outside SQLite's write transaction.
+            if reset_checkpoint:
+                with self.db:
+                    self.db.execute("UPDATE files SET offset=0,state='queued' WHERE id=?", (row["id"],))
 
     def set_paused(self, paused: bool) -> None:
         self.paused = paused
@@ -128,6 +149,13 @@ class Collector:
         self.db.commit()
 
     def _gate(self) -> bool:
+        if self._paused_provider is not None:
+            self.paused, generation = self._paused_provider()
+            if generation != self.pause_generation:
+                self.disabled_since = None
+                self.samples.clear()
+                self.last_discovery = None
+            self.pause_generation = generation
         status = self.source.status()
         now = self.clock()
         token = (status.boot_id, status.generation)
@@ -137,7 +165,9 @@ class Collector:
             self.last_discovery = None
         self.status_token = token
         age = now - status.observed_at
-        if self.paused:
+        if self._stopping():
+            self.state, self.reason = "paused", "Service stopping; progress saved"
+        elif self.paused:
             self.state, self.reason = "paused", "Paused by operator"
         elif not math.isfinite(age) or not 0 <= age <= self.freshness or status.enabled is None:
             self.state, self.reason = "paused", "Robot status unknown or stale"
@@ -156,6 +186,9 @@ class Collector:
         return False
 
     def _discover(self) -> None:
+        self.state, self.reason = "discovering", "Discovering closed files; queue snapshot pending"
+        self.last_discovery = None
+        self._publish_progress()
         files = self.source.list_closed_files()
         # Validate the whole manifest before changing the persistent queue.
         seen: set[str] = set()
@@ -194,14 +227,15 @@ class Collector:
                 return
             self.active_id = row["id"]
             self.state, self.reason = "downloading", "Collecting during idle time"
+            self._publish_progress()
             part = self.partial / (row["id"] + ".part")
             offset = row["offset"]
             if offset < row["size"]:
-                token = self.status_token
+                token = (self.status_token, self.pause_generation)
                 start = self.clock()
                 block = self.source.read(row["id"], offset, min(self.chunk_size, row["size"] - offset))
                 elapsed = self.clock() - start
-                if not self._gate() or token != self.status_token:
+                if not self._gate() or token != (self.status_token, self.pause_generation):
                     return  # abandon the in-flight block if permission changed
                 if not block or len(block) > min(self.chunk_size, row["size"] - offset):
                     raise OSError("Source returned an empty or oversized block")
@@ -224,6 +258,7 @@ class Collector:
             if offset == row["size"]:
                 part.touch(exist_ok=True)
                 self.state, self.reason = "verifying", "Verifying downloaded file locally"
+                self._publish_progress()
                 if self._digest(part) != row["sha256"]:
                     part.replace(self.partial / (row["id"] + ".invalid"))
                     with self.db:
@@ -255,3 +290,5 @@ class Collector:
 
     def close(self) -> None:
         self.db.close()
+        if self._owner is not None:
+            self._owner.close()

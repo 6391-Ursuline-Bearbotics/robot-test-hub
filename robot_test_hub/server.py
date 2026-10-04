@@ -1,38 +1,30 @@
-"""Loopback-only demo host. Not a production service or a robot dashboard."""
+"""Loopback-only foreground demo host. No robot is contacted."""
 from __future__ import annotations
 
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import signal
+import sqlite3
+import sys
 import threading
 from urllib.parse import urlsplit
 
-from .collector import Collector
+from .config import Config, ConfigError
 from .demo import DemoSource
+from .service import HubService
+from .storage import OwnershipError, SchemaError
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=6391)
-    parser.add_argument("--data-dir", type=Path, default=Path("data/demo"))
-    parser.add_argument("--idle-delay", type=float, default=3)
-    args = parser.parse_args()
-    if not 1 <= args.port <= 65535:
-        parser.error("port must be between 1 and 65535")
-    source = DemoSource()
-    collector = Collector(args.data_dir, source, idle_delay=args.idle_delay)
-    lock = threading.Lock()
-    stop = threading.Event()
+def create_http_server(service: HubService, source: DemoSource, port: int) -> ThreadingHTTPServer:
     page = (Path(__file__).parent / "static/index.html").read_bytes()
 
-    def worker():
-        while not stop.is_set():
-            with lock:
-                collector.tick()
-            stop.wait(0.01)
-
     class Handler(BaseHTTPRequestHandler):
+        def setup(self):
+            super().setup()
+            self.connection.settimeout(2)
+
         def log_message(self, *_):
             pass
 
@@ -50,7 +42,8 @@ def main() -> None:
                 pass
 
         def allowed_host(self):
-            return self.headers.get("Host") in (f"127.0.0.1:{args.port}", f"localhost:{args.port}")
+            bound_port = self.server.server_address[1]
+            return self.headers.get("Host") in (f"127.0.0.1:{bound_port}", f"localhost:{bound_port}")
 
         def do_GET(self):
             if not self.allowed_host():
@@ -58,17 +51,19 @@ def main() -> None:
             if self.path == "/":
                 return self.send(200, page, "text/html; charset=utf-8")
             if self.path == "/api/status":
-                with lock:
-                    result = collector.snapshot()
+                result = service.snapshot()
                 result["demo"] = source.snapshot()
+                return self.send(200, json.dumps(result, allow_nan=False).encode())
+            if self.path == "/api/diagnostics":
+                result = service.diagnostics.snapshot()
+                result["workers"] = service.snapshot()["workers"]
                 return self.send(200, json.dumps(result, allow_nan=False).encode())
             self.send(404, b'{}')
 
         def do_POST(self):
-            # JSON + custom header + strict Host/Origin, with no CORS allowance.
             origin = self.headers.get("Origin")
             if (not self.allowed_host() or self.headers.get("X-Hub-Request") != "1"
-                    or (origin and urlsplit(origin).netloc != self.headers.get("Host"))
+                    or (origin and (urlsplit(origin).netloc != self.headers.get("Host") or urlsplit(origin).scheme != "http"))
                     or self.headers.get("Content-Type") != "application/json"):
                 return self.send(403, b'{}')
             if self.path != "/api/control":
@@ -80,36 +75,68 @@ def main() -> None:
                 payload = json.loads(self.rfile.read(length))
                 action = payload["action"]
                 if action == "paused":
-                    if type(payload.get("value")) is not bool:
-                        raise ValueError("Expected a boolean")
-                    with lock:
-                        collector.set_paused(payload["value"])
+                    service.set_paused(payload.get("value"))
                 elif action == "retry":
-                    with lock:
-                        collector.retry_errors()
+                    service.retry_errors()
+                    return self.send(202, b'{"ok":true,"state":"pending"}')
                 else:
-                    # Separate source lock allows Enable to interrupt a pending read.
                     source.configure(action, payload.get("value"))
                 self.send(200, b'{"ok":true}')
-            except (ValueError, KeyError, TypeError) as exc:
-                self.send(400, json.dumps({"error": str(exc)}).encode())
+            except (ValueError, KeyError, TypeError):
+                self.send(400, b'{"error_code":"invalid_control","error":"Check action, value, and JSON request size"}')
+            except sqlite3.Error:
+                service.diagnostics.record("settings_write_failed", "Cannot save operator preference; check catalog/local storage")
+                self.send(503, b'{"error_code":"settings_write_failed","error":"Preference was not saved; check local storage"}')
 
-    httpd = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     httpd.daemon_threads = True
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-    print(f"DEMO ONLY — synthetic bytes, no robot connection: http://127.0.0.1:{args.port}", flush=True)
-    print(f"Checkpoints: {args.data_dir.resolve()}", flush=True)
+    return httpd
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, help="Versioned JSON configuration; CLI options override its values")
+    parser.add_argument("--port", type=int)
+    parser.add_argument("--data-dir")
+    parser.add_argument("--idle-delay", type=float)
+    args = parser.parse_args()
     try:
-        httpd.serve_forever(poll_interval=0.2)
-    except KeyboardInterrupt:
-        pass
+        config = Config.load(args.config, port=args.port, data_dir=args.data_dir, idle_delay=args.idle_delay)
+    except ConfigError as exc:
+        parser.error(str(exc))
+    service = None
+    httpd = None
+    shutdown = threading.Event()
+    old_handlers = {}
+    try:
+        source = DemoSource()
+        service = HubService(config, source)
+        httpd = create_http_server(service, source, config.port)
+        httpd.timeout = 0.2
+        for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+            if hasattr(signal, name):
+                number = getattr(signal, name)
+                old_handlers[number] = signal.signal(number, lambda *_: shutdown.set())
+        service.start()
+        print(f"DEMO ONLY — synthetic bytes, no robot connection: http://127.0.0.1:{config.port}", flush=True)
+        print(f"Checkpoints: {service.root}", flush=True)
+        while not shutdown.is_set():
+            httpd.handle_request()
+        return 0
+    except (OwnershipError, SchemaError) as exc:
+        print(f"Hub startup failed: {exc}", file=sys.stderr, flush=True)
+        return 2
+    except OSError:
+        print("Hub startup failed: cannot bind loopback port or open local storage; check --port and --data-dir", file=sys.stderr, flush=True)
+        return 2
     finally:
-        stop.set()
-        thread.join()
-        httpd.server_close()
-        collector.close()
+        if service is not None and not service.close():
+            print("Shutdown pending: outstanding adapter I/O; ownership retained. See diagnostics.", file=sys.stderr, flush=True)
+        if httpd is not None:
+            httpd.server_close()
+        for number, handler in old_handlers.items():
+            signal.signal(number, handler)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

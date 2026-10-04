@@ -8,7 +8,13 @@
 4. Bench testing on the actual SystemCore/USB/DS network, initially with no robot motion required.
 5. Supervised physical tests for module comparisons and video timing. Never create dangerous faults merely to validate a detector; use recorded/synthetic faults or approved low-risk setups.
 
-The current 16 tests cover only the collector model. A green Python suite is not proof of SFTP compatibility, WPILOG validity, real cancellation latency, or a correct hardware diagnosis.
+The foundation suite covers the collector model, migration, process ownership, worker lifecycle, and independent status/API access. A green Python suite is not proof of SFTP compatibility, WPILOG validity, real cancellation latency, or a correct hardware diagnosis.
+
+## Foundation validation — October 3, 2026
+
+Local Windows checks used Python 3.10.7. The original demonstration catalog migrated from schema 0 to 1 with its three complete artifacts intact: 37,748,736 bytes, each independently checked against its stored length and SHA-256. Browser checks on the restarted service confirmed durable pause, resume, enabled-state blocking, stale-heartbeat blocking, and return to caught-up after the idle delay. The ETA displays `Paused` while collection is blocked rather than falsely claiming completion. These are synthetic files and controls; no robot was contacted.
+
+Independent review identified a startup recovery transaction that could block saving operator pause while a later archive was being hashed. Recovery now commits short per-file catalog updates outside file I/O, with a regression covering pause during the second startup hash.
 
 ## Acceptance matrix
 

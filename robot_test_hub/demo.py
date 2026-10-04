@@ -16,6 +16,7 @@ class DemoSource:
         self.generation = 0
         self.speed_mib = 4.0
         self.last_status = time.monotonic()
+        self.cancellation = threading.Event()
         self.files = {}
         self.manifest = []
         for index, mib in enumerate((8, 12, 16), 1):
@@ -66,10 +67,14 @@ class DemoSource:
         deadline = time.monotonic() + length / speed
         while time.monotonic() < deadline:
             with self.lock:
-                if self.enabled or not self.connected or self.stale or self.generation != generation:
+                if self.cancellation.is_set() or self.enabled or not self.connected or self.stale or self.generation != generation:
                     raise OSError("Demo read interrupted by robot state")
-            time.sleep(min(0.01, max(0, deadline - time.monotonic())))
+            self.cancellation.wait(min(0.01, max(0, deadline - time.monotonic())))
         with self.lock:
-            if self.enabled or not self.connected or self.stale or self.generation != generation:
+            if self.cancellation.is_set() or self.enabled or not self.connected or self.stale or self.generation != generation:
                 raise OSError("Demo read interrupted by robot state")
             return self.files[file_id][offset:offset + length]
+
+    def cancel(self) -> None:
+        """Stop pending reads when the host shuts down; checkpoints are untouched."""
+        self.cancellation.set()
