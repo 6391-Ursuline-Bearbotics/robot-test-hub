@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class OwnershipError(RuntimeError):
@@ -76,6 +76,12 @@ def open_catalog(root: Path) -> sqlite3.Connection:
                 actual = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
                 if not columns <= actual:
                     raise SchemaError("Catalog schema is incomplete; preserve the data directory and restore a valid catalog")
+            if version <= 1:
+                from .transfer_schema import migrate_transfer
+                migrate_transfer(db)
+            for table in ('transfer_meta', 'manifest_snapshots', 'manifest_items', 'verification_jobs', 'transfer_events'):
+                if not db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                    raise SchemaError("Catalog transfer schema is incomplete; preserve the data directory")
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")

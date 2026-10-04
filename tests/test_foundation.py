@@ -18,7 +18,7 @@ from robot_test_hub.config import Config, ConfigError
 from robot_test_hub.diagnostics import Diagnostics, redact
 from robot_test_hub.server import create_http_server
 from robot_test_hub.service import HubService
-from robot_test_hub.storage import DataRootOwner, OwnershipError, SchemaError, open_catalog
+from robot_test_hub.storage import DataRootOwner, OwnershipError, SchemaError, SCHEMA_VERSION, open_catalog
 
 
 def wait_for(predicate, timeout=5):
@@ -128,8 +128,8 @@ class StorageTests(unittest.TestCase):
                 db = open_catalog(root)
                 self.assertEqual([tuple(row) for row in db.execute("SELECT * FROM files ORDER BY created_at")], rows)
                 self.assertEqual(db.execute("SELECT value FROM settings WHERE key='paused'").fetchone()[0], "1")
-                self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 1)
-                self.assertEqual(db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0], 1)
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
+                self.assertEqual(db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0], SCHEMA_VERSION)
                 db.close()
             finally:
                 owner.close()
@@ -149,7 +149,7 @@ class StorageTests(unittest.TestCase):
                 collector.close()
         with tempfile.TemporaryDirectory() as folder:
             db = open_catalog(Path(folder))
-            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             self.assertEqual(db.execute("SELECT count(*) FROM files").fetchone()[0], 0)
             db.close()
 

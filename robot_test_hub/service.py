@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import math
+import inspect
 from pathlib import Path
 import queue
 import threading
@@ -19,20 +20,66 @@ class CachedSource:
         self.source = source
         self.lock = threading.Lock()
         self.latest = RobotStatus(None, 0, "unknown", -1)
+        self.cancellation = None
+        self.last_sequence = None
+        self.sequence_boot = None
 
     def status(self):
         with self.lock:
             return self.latest
 
     def update(self, status):
+        valid = (isinstance(status, RobotStatus) and type(status.enabled) in (bool, type(None))
+                 and type(status.observed_at) in (int, float) and math.isfinite(status.observed_at)
+                 and isinstance(status.boot_id, str) and bool(status.boot_id)
+                 and type(status.generation) is int and status.generation >= 0
+                 and type(status.transfer_allowed) is bool
+                 and isinstance(status.link_profile, str) and bool(status.link_profile))
+        if not valid:
+            status = RobotStatus(None, 0, "unknown", -1)
         with self.lock:
+            if status.sequence is not None:
+                valid_sequence = type(status.sequence) is int and status.sequence >= 0
+                if status.boot_id == self.sequence_boot and self.last_sequence is not None:
+                    valid_sequence = valid_sequence and status.sequence > self.last_sequence
+                if not valid_sequence:
+                    # A changed or malformed replay makes permission ambiguous.
+                    previous = self.latest
+                    if (type(status.sequence) is not int or status.sequence < 0
+                            or (status.enabled, status.generation, status.transfer_allowed) !=
+                            (previous.enabled, previous.generation, previous.transfer_allowed)):
+                        self.latest = RobotStatus(None, previous.observed_at, previous.boot_id, previous.generation)
+                        if self.cancellation is not None:
+                            self.cancellation.cancel()
+                    return
+                self.last_sequence, self.sequence_boot = status.sequence, status.boot_id
+            previous = self.latest
             self.latest = status
+            if self.cancellation is not None and (status.enabled is not False or not status.transfer_allowed
+                    or (status.boot_id, status.generation) != (previous.boot_id, previous.generation)):
+                self.cancellation.cancel()
+
+    def bind_cancellation(self, cancellation):
+        with self.lock:
+            self.cancellation = cancellation
+            latest = self.latest
+            if (latest.enabled is not False or not latest.transfer_allowed or
+                    (latest.boot_id, latest.generation) != cancellation.generation[0]):
+                cancellation.cancel()
+
+    def __getattr__(self, name):
+        if name == 'discover_closed':
+            return getattr(self.source, name)
+        raise AttributeError(name)
 
     def list_closed_files(self):
         return self.source.list_closed_files()
 
-    def read(self, *args):
-        return self.source.read(*args)
+    def read(self, file_id, offset, length, *, permission_generation=None, cancellation=None):
+        read = self.source.read
+        if 'cancellation' in inspect.signature(read).parameters:
+            return read(file_id, offset, length, permission_generation=permission_generation, cancellation=cancellation)
+        return read(file_id, offset, length)
 
 
 class HubService:
@@ -67,7 +114,8 @@ class HubService:
         self.started = False
         self.closed = False
         self.threads = []
-        self.diagnostics.record("service_initialized", "Demo service initialized; no robot connection")
+        self.diagnostics.record("service_initialized", "Local source service initialized; no deployment or source deletion")
+        self.diagnostics.record("transfer_limits", f"One request outstanding; maximum {config.chunk_size} bytes; client deadline {config.io_timeout} s; source tail requires transport qualification")
 
     def _health(self, worker, state, code=None):
         with self.cache_lock:
@@ -117,14 +165,22 @@ class HubService:
         try:
             collector = self.collector_factory(self.root, self.cached_source, idle_delay=self.config.idle_delay,
                 freshness=self.config.freshness, chunk_size=self.config.chunk_size, owner=self.owner,
-                paused=self._preference, stopping=self.stop.is_set, publish=self._publish)
+                paused=self._preference, stopping=self.stop.is_set, publish=self._publish,
+                independent_verification=True, io_timeout=self.config.io_timeout,
+                discovery_page_size=self.config.discovery_page_size,
+                retry_initial=self.config.retry_initial, retry_max=self.config.retry_max,
+                retry_limit=self.config.retry_limit, eta_window=self.config.eta_window,
+                eta_minimum=self.config.eta_minimum, historical_max_age=self.config.historical_max_age)
             self._health("collector", "running")
             self._publish(collector.snapshot())
             last_error = None
             while not self.stop.is_set():
                 while not self.commands.empty():
-                    if self.commands.get_nowait() == "retry":
-                        collector.retry_errors()
+                    command = self.commands.get_nowait()
+                    if command[0] == 'retry':
+                        collector.retry_errors(command[1])
+                    elif command[0] == 'priority':
+                        collector.set_priority(command[1], command[2], command[3])
                 collector.tick()
                 snapshot = collector.snapshot()
                 if snapshot["error"] and snapshot["error"] != last_error:
@@ -159,12 +215,31 @@ class HubService:
                 if self.paused.is_set() != value:
                     self.paused.set() if value else self.paused.clear()
                     self.preference_generation += 1
+                    if value and self.cached_source.cancellation is not None:
+                        self.cached_source.cancellation.cancel()
         self.diagnostics.record("operator_pause" if value else "operator_resume", "Operator collection preference saved")
 
-    def retry_errors(self):
+    def _validate_transfer(self, identity):
+        if not isinstance(identity, str) or not identity:
+            raise ValueError("Expected a transfer identity")
+        with self.cache_lock:
+            if not any(row['id'] == identity for row in self.cache['files']):
+                raise ValueError("Unknown transfer identity")
+
+    def retry_errors(self, identity=None):
         if self.stop.is_set():
             raise ValueError("Service is stopping")
-        self.commands.put("retry")
+        if identity is not None:
+            self._validate_transfer(identity)
+        self.commands.put(('retry', identity))
+
+    def set_priority(self, identity, priority, urgent=False):
+        if self.stop.is_set():
+            raise ValueError("Service is stopping")
+        self._validate_transfer(identity)
+        if type(priority) is not int or not 0 <= priority <= 100 or type(urgent) is not bool:
+            raise ValueError("Invalid priority")
+        self.commands.put(('priority', identity, priority, urgent))
 
     def snapshot(self):
         with self.cache_lock:
@@ -173,10 +248,10 @@ class HubService:
         status = self.cached_source.status()
         age = time.monotonic() - status.observed_at
         snapshot_age = time.monotonic() - result.get("snapshot_monotonic", time.monotonic())
-        fresh = math.isfinite(age) and 0 <= age <= self.config.freshness and status.enabled is not None
+        fresh = math.isfinite(age) and 0 <= age <= self.config.freshness and type(status.enabled) is bool and type(status.transfer_allowed) is bool
         result.update({"schema_version": 1, "source_type": "synthetic_demo", "workers": health,
                        "paused_by_operator": self.paused.is_set(), "snapshot_age_seconds": max(0, snapshot_age), "source_status": {
-                           "enabled": status.enabled, "fresh": fresh, "age_seconds": age if math.isfinite(age) and age >= 0 else None}})
+                           "enabled": status.enabled, "transfer_allowed": status.transfer_allowed, "fresh": fresh, "age_seconds": age if math.isfinite(age) and age >= 0 else None}})
         if health["collector"]["state"] == "failed":
             result.update(state="attention", reason="Collector worker failed; restart the hub", error=health["collector"]["error_code"])
         elif health["status"]["state"] == "failed":
@@ -185,8 +260,8 @@ class HubService:
             result.update(state="stopping", reason="Stopping workers; preserving checkpoints")
         elif self.paused.is_set():
             result.update(state="paused", reason="Paused by operator; preference saved")
-        elif not fresh or status.enabled:
-            result.update(state="paused", reason="Robot enabled" if fresh and status.enabled else "Robot status unknown or stale")
+        elif not fresh or status.enabled or not status.transfer_allowed:
+            result.update(state="paused", reason="Robot enabled" if fresh and status.enabled else ("Source transfer permission denied" if fresh and not status.transfer_allowed else "Robot status unknown or stale"))
         if result["state"] in ("paused", "attention", "stopping", "discovering", "verifying", "starting"):
             result.update(bytes_per_second=None, eta_seconds=None)
         return result
