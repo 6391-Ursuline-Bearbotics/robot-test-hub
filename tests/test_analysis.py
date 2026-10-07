@@ -244,7 +244,7 @@ class SwerveTests(unittest.TestCase):
     def test_unconfigured_stalled_tracking_is_metrics_only_not_no_finding(self):
         out = self.analyze(series(speed=1,measured=0))
         self.assertEqual(out['outcome'],'insufficient_data')
-        self.assertEqual(self.metrics(out)['drive_rmse_mps'],1.)
+        self.assertAlmostEqual(self.metrics(out)['drive_rmse_mps'],1.,places=12)
         self.assertEqual(out['coverage']['evaluated_modules'],1)
         self.assertFalse(out['coverage']['engineering_finding_criteria_configured'])
         self.assertFalse(out['coverage']['baseline_finding_criteria_evaluated'])
