@@ -8,6 +8,7 @@ from .collector import LogFile, RobotStatus
 
 
 class DemoSource:
+    source_type = 'synthetic_demo'
     def __init__(self):
         self.lock = threading.Lock()
         self.enabled = False

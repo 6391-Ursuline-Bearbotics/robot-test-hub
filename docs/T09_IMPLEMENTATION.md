@@ -16,11 +16,11 @@ The canonical NetworkTables status topic is `/Telemetry/TestHub/Status` (string 
 
 `robot_monotonic_ns` comes from Alpha 7 `RobotController.getMonotonicTime()` and uses nanoseconds in the execution's monotonic clock domain. It is not UTC and is not comparable across boots. This deliberately avoids the overridable `getTime()` used by replay. The JSON representation preserves integers above JavaScript's exact integer range. `active_segment_id` remains null because segment rotation/manifest publication is a separate milestone.
 
-Additional typed AdvantageKit outputs under `/RealOutputs/TestHub/` are:
+The pinned Logger actually emits static metadata under `/RealMetadata/` (and `/ReplayMetadata/` during replay), verified by genuine T10 Robot recording. Additional typed AdvantageKit outputs under `/RealOutputs/TestHub/` are:
 
 | Field | Type and meaning |
 | --- | --- |
-| RobotId, BootId | string identities, also static `/Metadata/RobotId` and `/Metadata/BootId` |
+| RobotId, BootId | string identities, also static `/RealMetadata/RobotId` and `/RealMetadata/BootId` |
 | RunId, RunActive, RunStartComplete | string (empty when inactive), boolean, boolean observed-start completeness |
 | StateKnown, Enabled | boolean validity, boolean value; `Enabled=false` is only a placeholder when `StateKnown=false` |
 | Mode, OperatingMode, RuntimeMode | strings; disabled/unknown/replay or enabled robot mode, requested HAL robot mode, REAL/SIM/REPLAY |

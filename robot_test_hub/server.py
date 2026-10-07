@@ -1,4 +1,4 @@
-"""Loopback-only foreground demo host. No robot is contacted."""
+"""Loopback-only foreground hub; live source requires explicit opt-in configuration."""
 from __future__ import annotations
 
 import argparse
@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import signal
 import sqlite3
+import subprocess
 import sys
 import threading
 from urllib.parse import parse_qs, urlsplit
@@ -18,6 +19,7 @@ from .notebook import MAX_BODY, Notebook, NotebookError
 from .queue_api import status_view, transfer_page
 from . import run_api
 from .runs import install_schema as install_run_schema
+from .review import ReviewStore
 from .service import HubService
 from .storage import OwnershipError, SchemaError
 
@@ -78,6 +80,14 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                 return self.send(200,(Path(__file__).parent/'static'/self.path[1:]).read_bytes(),'application/javascript; charset=utf-8')
             if self.path == '/runs':
                 return self.send(200,(Path(__file__).parent/'static/runs.html').read_bytes(),'text/html; charset=utf-8')
+            if self.path == '/review':
+                return self.send(200,(Path(__file__).parent/'static/review.html').read_bytes(),'text/html; charset=utf-8')
+            if self.path == '/api/v1/review':
+                try:
+                    with closing(sqlite3.connect(service.root/'catalog.sqlite3',timeout=2)) as db:
+                        return self.send(200,json.dumps(ReviewStore(db).snapshot(),allow_nan=False).encode())
+                except sqlite3.Error:
+                    return self.send(503,b'{"error_code":"review_storage_unavailable"}')
             if urlsplit(self.path).path.startswith(('/api/v1/runs','/api/v1/time/')):
                 try:
                     url=urlsplit(self.path)
@@ -103,16 +113,21 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                     return self.send(200,json.dumps(result,allow_nan=False).encode())
                 except (ValueError,TypeError,OverflowError):
                     return self.send(400,b'{"schema_version":1,"error_code":"invalid_query"}')
+            if self.path == "/api/v1/backup":
+                return self.send(200,json.dumps(service.snapshot()["backup"],allow_nan=False).encode())
             if self.path in ("/api/status", "/api/v1/status"):
                 result = service.snapshot()
                 result["source_type"] = 'synthetic_demo' if isinstance(source, DemoSource) else getattr(source,'source_type','unconfigured')
                 result["demo"] = source.snapshot() if isinstance(source, DemoSource) else None
+                if hasattr(source,'connection_status'):
+                    result['connection']=source.connection_status()
                 if self.path == "/api/v1/status":
                     result = status_view(result)
                 return self.send(200, json.dumps(result, allow_nan=False).encode())
             if self.path == "/api/diagnostics":
                 result = service.diagnostics.snapshot()
                 result["workers"] = service.snapshot()["workers"]
+                result["backup"] = service.snapshot()["backup"]
                 snapshot = service.snapshot()
                 result['transfer_limits'] = {key:snapshot.get(key) for key in ('outstanding_bytes','max_outstanding_bytes','outstanding_byte_limit','source_cancellation_guarantee')}
                 return self.send(200, json.dumps(result, allow_nan=False).encode())
@@ -191,6 +206,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                 return self.reject_unread(403, b'{}')
             if self.path.startswith("/api/v1/annotations"):
                 return self.notebook_post()
+            if self.path.startswith('/api/v1/review/'):
+                return self.review_post()
             if self.path.startswith('/api/v1/collector/') or self.path.startswith('/api/v1/transfers/'):
                 return self.queue_post()
             if self.path != "/api/control":
@@ -216,6 +233,29 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
             except sqlite3.Error:
                 service.diagnostics.record("settings_write_failed", "Cannot save operator preference; check catalog/local storage")
                 self.send(503, b'{"error_code":"settings_write_failed","error":"Preference was not saved; check local storage"}')
+
+        def review_post(self):
+            actions={'assignments':'assign_component','maintenance':'record_maintenance','baselines':'approve_baseline',
+                     'findings':'review_finding','bundles':'regression_bundle'}
+            action=self.path[len('/api/v1/review/'):]
+            if action not in actions:
+                return self.reject_unread(404,b'{}')
+            if service.stop.is_set() or service.closed:
+                return self.reject_unread(503,b'{"error_code":"service_stopping"}')
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0 < length <= 16384:
+                    return self.reject_unread(400,b'{"error_code":"invalid_request_size"}')
+                payload=json.loads(self.rfile.read(length))
+                if not isinstance(payload,dict):
+                    raise ValueError('Expected a JSON object')
+                with closing(sqlite3.connect(service.root/'catalog.sqlite3',timeout=2)) as db:
+                    result=getattr(ReviewStore(db),actions[action])(payload)
+                return self.send(200,json.dumps(result,allow_nan=False).encode())
+            except (ValueError,TypeError,KeyError,OverflowError,RecursionError) as exc:
+                return self.send(400,json.dumps({'error_code':'invalid_review','error':str(exc)}).encode())
+            except sqlite3.Error:
+                return self.send(503,b'{"error_code":"review_storage_unavailable"}')
 
         def queue_post(self):
             try:
@@ -257,17 +297,32 @@ def main() -> int:
     parser.add_argument("--port", type=int)
     parser.add_argument("--data-dir")
     parser.add_argument("--idle-delay", type=float)
+    parser.add_argument('--source-config',type=Path,help='Explicit SFTP source configuration; enables live transfer')
+    parser.add_argument('--nt-host',help='Explicit authoritative status endpoint; required with --source-config')
+    parser.add_argument('--nt-port',type=int,help='Explicit authoritative NT port; required with --source-config')
+    parser.add_argument('--wpilib-install',type=Path,help='Pinned Alpha 7 installation for native status reader')
     args = parser.parse_args()
     try:
         config = Config.load(args.config, port=args.port, data_dir=args.data_dir, idle_delay=args.idle_delay)
     except ConfigError as exc:
         parser.error(str(exc))
     service = None
+    source = None
     httpd = None
     shutdown = threading.Event()
     old_handlers = {}
     try:
-        source = DemoSource()
+        if args.source_config is not None:
+            from .live import configure
+            explicit_idle=args.idle_delay is not None
+            if args.config is not None:
+                explicit_idle=explicit_idle or 'idle_delay' in json.loads(args.config.read_text(encoding='utf-8'))
+            config,source=configure(config,args.source_config,args.nt_host,args.nt_port,args.wpilib_install,
+                                    idle_delay_explicit=explicit_idle)
+        else:
+            if args.nt_host is not None or args.nt_port is not None or args.wpilib_install is not None:
+                raise ValueError('NT options require --source-config; no endpoint is inferred')
+            source = DemoSource()
         service = HubService(config, source)
         httpd = create_http_server(service, source, config.port)
         httpd.timeout = 0.2
@@ -275,8 +330,13 @@ def main() -> int:
             if hasattr(signal, name):
                 number = getattr(signal, name)
                 old_handlers[number] = signal.signal(number, lambda *_: shutdown.set())
+        if hasattr(source,'start'):
+            source.start()
         service.start()
-        print(f"DEMO ONLY — synthetic bytes, no robot connection: http://127.0.0.1:{config.port}", flush=True)
+        label='DEMO ONLY — synthetic bytes, no robot connection' if isinstance(source,DemoSource) else 'LIVE READER — physical performance unqualified'
+        print(f"{label}: http://127.0.0.1:{config.port}", flush=True)
+        if not isinstance(source,DemoSource):
+            print(f"Idle delay {config.idle_delay:g} s; freshness {config.freshness:g} s; chunk {config.chunk_size} bytes",flush=True)
         print(f"Checkpoints: {service.root}", flush=True)
         while not shutdown.is_set():
             httpd.handle_request()
@@ -287,11 +347,16 @@ def main() -> int:
     except OSError:
         print("Hub startup failed: cannot bind loopback port or open local storage; check --port and --data-dir", file=sys.stderr, flush=True)
         return 2
+    except (ValueError,RuntimeError,ImportError,subprocess.SubprocessError):
+        print('Hub source startup failed: check explicit source/NT settings, pinned sftp extra and Alpha 7 native installation',file=sys.stderr,flush=True)
+        return 2
     finally:
         if service is not None and not service.close():
             print("Shutdown pending: outstanding adapter I/O; ownership retained. See diagnostics.", file=sys.stderr, flush=True)
         if httpd is not None:
             httpd.server_close()
+        if source is not None and service is None and hasattr(source,'close'):
+            source.close()
         for number, handler in old_handlers.items():
             signal.signal(number, handler)
 

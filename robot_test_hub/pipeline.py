@@ -3,6 +3,7 @@ import json
 
 from .importer import Importer, EXTRACTOR_VERSION, MAPPING_REVISION
 from .runs import rebuild_from_imports
+from .reports import generate
 
 
 class Pipeline:
@@ -40,6 +41,7 @@ class Pipeline:
             "SELECT id,dataset_sha256 FROM import_jobs WHERE state IN ('succeeded','succeeded_with_unsupported') ORDER BY id"))
         if signature!=self.last_signature:
             document=rebuild_from_imports(self.root,self.db)
+            reports=generate(self.root,self.db,document)
             self.last_signature=signature
-            return {'state':'indexed','imports':len(signature),'runs':len(document['runs']),'revision':document['revision']}
+            return {'state':'indexed','imports':len(signature),'runs':len(document['runs']),'reports':len(reports),'revision':document['revision']}
         return {'state':'idle','imports':len(signature)}

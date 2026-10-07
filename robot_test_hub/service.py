@@ -110,7 +110,9 @@ class HubService:
         self.cache = {"state": "starting", "reason": "Opening catalog and recovering checkpoints", "error": None,
                       "files": [], "pending_files": 0, "completed_files": 0, "remaining_bytes": 0,
                       "bytes_per_second": None, "eta_seconds": None, "active_id": None, "discovery_complete": False}
+        self.backup_cache = {"schema_version": 1, "enabled": config.backup_destination is not None, "state": "starting" if config.backup_destination else "disabled", "failure_domain_qualified": False, "last_capture_utc_ns": None, "last_completed_utc_ns": None, "error_code": None}
         self.health = {"collector": {"state": "starting"}, "status": {"state": "starting"}, 'indexer':{'state':'starting'}}
+        self.health["backup"] = {"state": "starting" if config.backup_destination else "disabled"}
         self.started = False
         self.closed = False
         self.threads = []
@@ -143,6 +145,8 @@ class HubService:
         self.threads = [threading.Thread(target=self._status_worker, name="hub-status"),
                         threading.Thread(target=self._collector_worker, name="hub-collector"),
                         threading.Thread(target=self._pipeline_worker,name='hub-indexer')]
+        if self.config.backup_destination is not None:
+            self.threads.append(threading.Thread(target=self._backup_worker, name="hub-backup"))
         for thread in self.threads:
             thread.start()
 
@@ -180,6 +184,30 @@ class HubService:
             with self.cache_lock:
                 if self.health['indexer']['state']!='failed':
                     self.health['indexer']={'state':'stopped','error_code':None}
+
+    def _backup_publish(self, snapshot):
+        with self.cache_lock:
+            self.backup_cache = snapshot
+
+    def _backup_worker(self):
+        from .backup import BackupScheduler
+        self._health("backup", "running")
+        try:
+            scheduler = BackupScheduler(self.root, self.config.backup_destination,
+                interval=self.config.backup_interval, retry=self.config.backup_retry,
+                stopping=self.stop.is_set, publish=self._backup_publish, configuration=self.config)
+            while not self.stop.is_set():
+                scheduler.tick()
+                self.stop.wait(0.25)
+        except Exception as exc:
+            self._health("backup", "failed", "backup_worker_failed")
+            self.diagnostics.record("backup_worker_failed", "Backup worker stopped; local originals preserved. Check configured destination and restart", exception=exc)
+            with self.cache_lock:
+                self.backup_cache.update(state="failed", error_code="backup_worker_failed")
+        finally:
+            with self.cache_lock:
+                if self.health["backup"]["state"] != "failed":
+                    self.health["backup"] = {"state": "stopped", "error_code": None}
 
     def _collector_worker(self):
         collector = None
@@ -266,11 +294,15 @@ class HubService:
         with self.cache_lock:
             result = copy.deepcopy(self.cache)
             health = copy.deepcopy(self.health)
+            backup = copy.deepcopy(self.backup_cache)
         status = self.cached_source.status()
         age = time.monotonic() - status.observed_at
         snapshot_age = time.monotonic() - result.get("snapshot_monotonic", time.monotonic())
         fresh = math.isfinite(age) and 0 <= age <= self.config.freshness and type(status.enabled) is bool and type(status.transfer_allowed) is bool
-        result.update({"schema_version": 1, "source_type": "synthetic_demo", "workers": health,
+        capture = backup.get("last_capture_utc_ns")
+        age_ns = time.time_ns() - int(capture) if capture is not None else None
+        backup["capture_age_seconds"] = age_ns / 1e9 if age_ns is not None and age_ns >= 0 else None
+        result.update({"backup": backup, "schema_version": 1, "source_type": getattr(self.source,'source_type','unconfigured'), "workers": health,
                        "paused_by_operator": self.paused.is_set(), "snapshot_age_seconds": max(0, snapshot_age), "source_status": {
                            "enabled": status.enabled, "transfer_allowed": status.transfer_allowed, "fresh": fresh, "age_seconds": age if math.isfinite(age) and age >= 0 else None}})
         if health["collector"]["state"] == "failed":

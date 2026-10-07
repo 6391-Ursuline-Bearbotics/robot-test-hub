@@ -30,18 +30,28 @@ class Config:
     eta_window: float = 15.0
     eta_minimum: float = 2.0
     historical_max_age: float = 300.0
+    backup_destination: str | None = None
+    backup_interval: float = 3600.0
+    backup_retry: float = 60.0
 
     def __post_init__(self):
         if type(self.schema_version) is not int or self.schema_version != 1:
             raise ConfigError("schema_version must be 1; upgrade the hub for newer configuration")
         if not isinstance(self.data_dir, str) or not self.data_dir.strip() or "\x00" in self.data_dir:
             raise ConfigError("data_dir must be a nonempty local directory path")
+        if self.backup_destination is not None:
+            if not isinstance(self.backup_destination, str) or not self.backup_destination.strip() or "\x00" in self.backup_destination:
+                raise ConfigError("backup_destination must be null or an explicit directory path")
+            from pathlib import Path
+            source_root, backup_root = Path(self.data_dir).resolve(), Path(self.backup_destination).resolve()
+            if source_root == backup_root or source_root.is_relative_to(backup_root) or backup_root.is_relative_to(source_root):
+                raise ConfigError("backup_destination must be disjoint from data_dir")
         for key, low, high in (("port", 1, 65535), ("chunk_size", 1, 16 * 1024 * 1024), ("discovery_page_size", 1, 1000), ("retry_limit", 1, 100)):
             value = getattr(self, key)
             if type(value) is not int or not low <= value <= high:
                 raise ConfigError(f"{key} must be an integer between {low} and {high}")
         for key, maximum in (("idle_delay", 86400), ("freshness", 3600), ("tick_interval", 60),
-                             ("status_interval", 60), ("shutdown_timeout", 300), ("io_timeout", 300), ("retry_initial", 300), ("retry_max", 3600), ("eta_window", 3600), ("eta_minimum", 3600), ("historical_max_age", 86400)):
+                             ("status_interval", 60), ("shutdown_timeout", 300), ("io_timeout", 300), ("retry_initial", 300), ("retry_max", 3600), ("eta_window", 3600), ("eta_minimum", 3600), ("historical_max_age", 86400), ("backup_interval", 86400), ("backup_retry", 86400)):
             value = getattr(self, key)
             # Compare bounds before conversion: arbitrarily large JSON integers
             # must produce actionable validation, not OverflowError in isfinite.

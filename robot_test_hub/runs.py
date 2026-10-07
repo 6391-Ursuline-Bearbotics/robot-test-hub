@@ -45,8 +45,8 @@ def derive_runs(datasets: Iterable[tuple[str, Iterable[dict]]], *, max_gap_ns=25
         cycles = [row for row in records if row.get("kind") == "cycle"]
         fingerprints.append([segment_id, _id(cycles)])
         for row in cycles:
-            boot = _alias(row, "status_boot_id") or _alias(row, "boot_id")
-            robot = _alias(row, "status_robot_id") or _alias(row, "robot_id")
+            boot = _alias(row, "status_boot_id") or _alias(row, "real_metadata_boot_id") or _alias(row, "boot_id")
+            robot = _alias(row, "status_robot_id") or _alias(row, "real_metadata_robot_id") or _alias(row, "robot_id")
             known_boot = isinstance(boot, str) and bool(boot)
             boot = boot if known_boot else "unknown-boot:" + segment_id
             groups[(str(robot or "unknown"), boot)].append({**row, "segment_ids": [segment_id],
@@ -211,7 +211,22 @@ class RunCatalog:
 def rebuild_from_imports(root, db):
     from .importer import Importer
     importer = Importer(root, db)
-    jobs = [job for job in importer.list_jobs() if job['state'] in ('succeeded','succeeded_with_unsupported')]
+    # Old derived revisions remain immutable, but must not be mixed as if they
+    # were separate recordings of the same physical bytes.
+    latest={}
+    # Wall clocks can have equal resolution. For equal update
+    # and creation times, catalog insertion order identifies the later job;
+    # arbitrary content hashes do not establish which mapping was introduced last.
+    insertion_order={row['id']:row['rowid'] for row in db.execute('SELECT rowid,id FROM import_jobs')}
+    def revision_order(job):
+        return (job['updated_utc_ns'],job['created_utc_ns'],insertion_order[job['id']])
+    for job in importer.list_jobs():
+        if job['state'] in ('succeeded','succeeded_with_unsupported'):
+            key=(job['artifact_sha256'],job['profile'])
+            previous=latest.get(key)
+            if previous is None or revision_order(job) > revision_order(previous):
+                latest[key]=job
+    jobs=list(latest.values())
     def datasets():
         for job in jobs:
             source_type=importer.read_manifest(job['id'])['source_type']

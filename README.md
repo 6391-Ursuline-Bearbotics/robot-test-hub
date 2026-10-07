@@ -2,7 +2,7 @@
 
 Design and implementation workspace for turning physical robot testing into searchable evidence: automatic log collection, run history, driver observations, synchronized practice video, and repeatable health reports.
 
-**Current status: working local collection demo, qualified Alpha 7 WPILOG importer, searchable run history, and offline driver notebook.** Transfer, indexing, and status run independently. Real SystemCore transport, camera integration, and hardware qualification are still in progress. The transfer demo uses opaque synthetic bytes; separate genuine synthetic WPILOG fixtures exercise the importer.
+**Current status: local collection demo, opt-in live transfer adapter, qualified Alpha 7 WPILOG importer, searchable run history, and offline driver notebook.** Transfer, indexing, and status run independently. Live NT/SFTP passes local protocol tests; physical performance and camera integration remain unqualified. The transfer demo uses opaque synthetic bytes; genuine synthetic WPILOG fixtures exercise the importer.
 
 ## Start here
 
@@ -10,6 +10,10 @@ Design and implementation workspace for turning physical robot testing into sear
 - [Implementation handoff](docs/IMPLEMENTATION.md): small tasks with dependencies, acceptance tests, and suggested model prompts
 - [Decisions and unresolved hardware questions](docs/DECISIONS.md)
 - [Contributor/agent instructions](AGENTS.md)
+- [Live transfer setup and bench requirements](docs/LIVE_TRANSFER.md)
+- [Opt-in verified backup and restore](docs/BACKUP.md)
+- [Analysis/review evidence and remaining gaps](docs/ANALYSIS_REVIEW.md)
+- [Reviewed October 7 checkpoint](docs/VALIDATION_CURRENT.md)
 
 ## Run the local demo
 
@@ -80,7 +84,7 @@ The demo intentionally has no credentials or robot address. `.logdata` artifacts
 
 ## Prototype limitations
 
-Read the [implementation gap table](docs/IMPLEMENTATION.md#prototype-gap-table) before using this as a production system. Source digest generation and cancellation are still exercised against synthetic sources. The service has no live robot credentials or address. Notebook access is loopback only; phone pairing and robot marker delivery remain unfinished. Indexing has not been qualified on season-scale archives. Video, independent backup/restore, autostart packaging, and physical load measurements remain open tasks.
+Read the [implementation gap table](docs/IMPLEMENTATION.md#prototype-gap-table) before using this as a production system. The [opt-in live adapter](docs/LIVE_TRANSFER.md) passes local SSH/SFTP and Alpha 7 NT tests; it requires explicitly configured robot access. Physical USB, cancellation and robot load remain unqualified. Notebook access is loopback only; phone pairing and robot marker delivery remain unfinished. Season-scale indexing, video, independent backup qualification, autostart packaging and physical commissioning remain open tasks.
 
 ## Data handling
 

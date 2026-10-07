@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "wpilib": "2027.0.0-alpha-7",
+  "java": "25",
+  "native_platform": "windowsx86-64",
+  "sha256": {
+    "ntcore-java-2027.0.0-alpha-7.jar": "63867e59b758bf63e82fe11b19c6fb6335396c7a828788fcc121ed26dff21e49",
+    "wpiutil-java-2027.0.0-alpha-7.jar": "086803153340e3070b1f0c4a297b4775f920f6ed53cd134c6d8b28ed19d4b664",
+    "datalog-java-2027.0.0-alpha-7.jar": "1aa1042c101e159824aba21635c9750cce0545c7c06051248365d7584539ae70",
+    "gson-2.13.1.jar": "94855942d4992f112946d3de1c334e709237b8126d8130bf07807c018a4a2120",
+    "ntcore-java-2027.0.0-alpha-7-sources.jar": "7e72c539b2f687d58486e8a65d0f2a85d494601a8bc5e425aee6604e0c9f6364",
+    "wpiutil-java-2027.0.0-alpha-7-sources.jar": "d73e20cca62c4b187f3c6f87bb233221ca408c18b7b54c2c53392455570c03d9",
+    "datalog-java-2027.0.0-alpha-7-sources.jar": "87995a65e0646d9e40808bdb88509d3b7c270ad71327c2dde3b69faf3dcba341",
+    "ntcore-cpp-2027.0.0-alpha-7-windowsx86-64.zip": "3281c65553e9dafa85b7e1e590acfa01b44a1e11513f9550f43494a1ebde8117",
+    "wpiutil-cpp-2027.0.0-alpha-7-windowsx86-64.zip": "5ffc1037d7615d0d83ed44d2cbea67ba527b9d1642eb14b07f53a2a25e6554cd",
+    "datalog-cpp-2027.0.0-alpha-7-windowsx86-64.zip": "e29dc225ad1bc146ce702a106d61c73ff0b480db581126d6b03275320fd0476c",
+    "wpinet-cpp-2027.0.0-alpha-7-windowsx86-64.zip": "a4d5baea29b08e3b5b63bd7b8386fea40ffe029b22d27297af45fc06d7804ae0"
+  }
+}

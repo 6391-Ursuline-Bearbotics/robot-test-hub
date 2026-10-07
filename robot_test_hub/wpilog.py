@@ -15,7 +15,7 @@ import struct
 
 PROFILE = "wpilib-2027.0.0-alpha-7_akit-27.0.0-alpha-6"
 EXTRACTOR_VERSION = "wpilog-python-1"
-MAPPING_REVISION = "alpha7-aliases-1"
+MAPPING_REVISION = "alpha7-aliases-2"
 MAX_RECORD_BYTES = 64 * 1024 * 1024
 MAX_NS = (1 << 63) - 1
 ALIASES = {
@@ -30,6 +30,9 @@ ALIASES = {
     "status_monotonic_ns": "/RealOutputs/TestHub/RobotMonotonicNs",
     "status_generation": "/RealOutputs/TestHub/ModeGeneration", "status_sequence": "/RealOutputs/TestHub/Sequence",
     "transfer_allowed": "/RealOutputs/TestHub/TransferAllowed", "runtime_mode": "/RealOutputs/TestHub/RuntimeMode",
+    "real_metadata_robot_id": "/RealMetadata/RobotId", "real_metadata_boot_id": "/RealMetadata/BootId",
+    "source_sha256": "/RealMetadata/SourceSHA256", "artifact_sha256": "/RealMetadata/ArtifactSHA256",
+    "configuration_sha256": "/RealOutputs/TestHub/ConfigurationSHA256",
 }
 ODOMETRY = {
     f"/Drive/Module{i}/OdometryTimestamps": f"/Drive/Module{i}/OdometryDrivePositionsRad"
@@ -281,6 +284,7 @@ def _finite(value):
 
 def category(field):
     for prefix, result in (("/RealOutputs/", "real_output"), ("/ReplayOutputs/", "replay_output"),
+                           ("/RealMetadata/", "metadata"), ("/ReplayMetadata/", "replay_metadata"),
                            ("/Metadata/", "metadata"), ("/.schema/", "schema")):
         if field.startswith(prefix):
             return result

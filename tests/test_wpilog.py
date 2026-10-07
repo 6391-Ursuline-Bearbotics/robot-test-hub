@@ -34,6 +34,16 @@ def log_bytes(*events):
 
 
 class WpilogTests(unittest.TestCase):
+    def test_actual_logger_metadata_and_replay_metadata_stay_distinct(self):
+        rows=self.rows(log_bytes(start(2,'/RealMetadata/RobotId','string'),wire_record(2,b'actual-robot'),
+            start(3,'/RealMetadata/BootId','string'),wire_record(3,b'actual-boot'),
+            start(4,'/ReplayMetadata/RobotId','string'),wire_record(4,b'replay-robot')))
+        cycle=next(r for r in rows if r['kind']=='cycle')
+        self.assertEqual(cycle['aliases']['real_metadata_robot_id']['value'],'actual-robot')
+        self.assertEqual(cycle['aliases']['real_metadata_boot_id']['value'],'actual-boot')
+        replay=next(r for r in rows if r['kind']=='observation' and r.get('field')=='/ReplayMetadata/RobotId')
+        self.assertEqual(replay['category'],'replay_metadata')
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

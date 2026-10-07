@@ -32,19 +32,18 @@ Useful release A: T01–T07 and T09–T12 (collection, time search, hub notebook
 
 | Area | Implemented reference | Still required / task |
 | --- | --- | --- |
-| Persistence | SQLite offsets, fsync ordering, restart recovery, v0-to-v1 migration, process ownership | Jobs, independent verification; T02 |
-| Source | Deterministic synthetic source only | Status + immutable manifest + real transport; T09–T12 |
-| Gate | Disabled, freshness, boot/generation, durable operator pause/generation, independent cached status worker | Production adapter cancellation/deadlines, negotiated limits; T02/T11 |
-| Queue | Newest-first, identity/rename checks | Fairness, complete discovery snapshots, retry policy, missing source states; T02 |
-| ETA | Active read/write samples; resets on pause | Historical paused estimate, uncertainty, link profiles, blocked backlog; T02/T03 |
-| Checksums | Fake-source digest, local whole-file verification | Source digest generation, async verification, format checks; T02/T05/T10 |
-| UI | Loopback demo controls and queue, responsive cached snapshots, worker health, redacted diagnostics endpoint | Target API, real/demo adapter separation, diagnostics UI/search/notebook; T03/T06/T07 |
-| Files | Opaque `.logdata` synthetic payloads | Genuine WPILOG validation and raw archive layout; T04/T05 |
-| Robot | None | Metadata, marker IO, status, receiver rotation; T08–T10 |
-| Analysis/video/backup | None | T13–T20 |
-| Packaging | `python -m` foreground CLI, validated JSON configuration, shutdown signals, pyproject, CI workflow | Dependency locking when dependencies are added, service install/autostart, supported restore procedure; T18/T19 |
+| Persistence | Transactional migrations, checkpoints, ownership, durable jobs; opt-in verified backup/restore | Independent failure-domain and external-media qualification; T19 |
+| Source | Opt-in NT/SFTP transport, connection reuse and immutable manifest/page checks; loopback integration passes | Confirmed SystemCore access and physical qualification; T12 |
+| Gate | Fresh disabled permission, boot/generation, persisted pause, bounded cancellation | Real network cancellation/load measurements; T11–T12 |
+| Queue / ETA | Paged discovery, fairness/priority, backoff, independent verification, historical paused estimates | Real link profiles and commissioning defaults |
+| Import | Qualified Alpha 7 reader, immutable raw/derived archive, automatic supported-log indexing | Other version profiles and season-scale qualification |
+| UI | Transfer queue, diagnostics, run search, offline notebook, recording-quality reports, review/maintenance forms | Phone pairing, robot markers, review history and video integration |
+| Robot | T09 identity/status and T10 experimental rotation, explicit SIM/REAL recording selection | USB/load qualification, marker IO and bench run; T08–T12 |
+| Analysis | Automatic recording-quality reports, deterministic swerve metrics, explicit cohort approval and maintenance-aware comparison | Automatic swerve/cohort scheduling, plots, REAL freshness; T14–T15 |
+| Video | Design and acceptance contracts; recorder core in development | Recorder integration, native/camera qualification and alignment; T16–T17 |
+| Packaging | Foreground CLI, pinned timezone dependency, Windows/Linux CI | Autostart, upgrade/rollback and restore qualification; T18–T19 |
 
-The transfer worker owns collector operations and publishes cached snapshots before discovery/read/verification. Independent source-status polling and HTTP access stay responsive during synthetic blocked I/O, including durable operator pause. Local verification and startup recovery still run in the transfer worker; independent jobs and production transport deadlines/cancellation remain T02/T11. The OS ownership lock is qualified only on local Windows storage. Tests exercise synthetic source/service behavior, not a real transport.
+Status polling, transfers, local verification and indexing use independent workers. Tests and browser checks establish local behavior; real transport, sensor freshness, recording load, camera alignment and independent backup require their own evidence. No hardware deployment or operation has been performed.
 
 ## T00 — Transfer reference prototype
 
@@ -78,7 +77,7 @@ Limits: the legacy demo list API is atomic compatibility behavior; production ad
 
 ## T03 — Queue UI and target API
 
-Status: **planned**. Depends: T02. Read UI_AND_OPERATIONS and CONTRACTS.
+Status: **implemented; local API and browser verification passed**. Paged queue, per-file actions, source distinction, backlog/ETA/verification status and diagnostics are integrated. Real adapter UI awaits T11.
 
 Work: implement `/api/v1/status`, paged transfers, pause/resume/retry/priority actions; distinguish connection/status errors and local verification. Display count/bytes/open bytes, ETA basis, transfer speed, last successful archive, and source type. Keep demo controls exclusively in demo mode.
 
@@ -98,7 +97,7 @@ Acceptance: opens in the matching official reader/AdvantageScope; independent ex
 
 Status: **implemented as a manual local importer; Alpha 7 profile qualified** (October 3, 2026). Depends: T04. Read ANALYSIS and CONTRACTS.
 
-Evidence: strict portable extraction agrees with the pinned official reader on all 362 physical records in the four genuine synthetic recordings. Twelve extractor and twelve importer tests pass, covering complete short tails, corrupt/truncated data, timestamp units, entry reuse, nested structs/arrays, explicit unsupported fields, disconnected/missing samples, checksum-vs-format separation, immutable archive conflicts, idempotency, and interrupted publication. See [importer contract and commands](IMPORTER.md). Automatic service ingestion and run/UI integration are separate integration work; older profiles and real recordings remain unqualified.
+Evidence: strict portable extraction agrees with the pinned official reader on all 362 physical records in the four genuine synthetic recordings. Twelve extractor and twelve importer tests pass, covering complete short tails, corrupt/truncated data, timestamp units, entry reuse, nested structs/arrays, explicit unsupported fields, disconnected/missing samples, checksum-vs-format separation, immutable archive conflicts, idempotency, and interrupted publication. See [importer contract and commands](IMPORTER.md). Automatic service ingestion and run/UI integration are now implemented; older profiles and real recordings remain unqualified.
 
 Work: choose/pin compatible reader (Python if verified, otherwise small Java extractor), normalize signals with provenance/units, validate format separately from checksum, decode struct arrays and sample timestamps, persist import status/idempotency. Reject unknown profiles visibly. Retain originals byte-for-byte.
 
@@ -106,7 +105,7 @@ Acceptance: V14 unit/type fixtures; known extracted values agree with generator;
 
 ## T06 — Run catalog, time mapping, and search
 
-Status: **planned**. Depends: T05. Read CONTEXT_AND_VIDEO and CONTRACTS.
+Status: **implemented locally; scale qualification remains open**. Integer time mapping and immutable catalog revisions handle boots, mode phases, file boundaries, unknown clocks and gaps. Browser checked three genuine synthetic runs, DST overlap choices and spring-forward rejection. Verified transfers automatically import/index on an independent worker. See [RUNS](RUNS.md).
 
 Work: sessions/boots/runs/segments and interval mapping, logged and legacy run derivation, valid epoch anchors with piecewise mappings, timezone-aware search, run detail/coverage view. Create revisions when mapping improves.
 
@@ -114,7 +113,7 @@ Acceptance: V13–V14; one run across files and multiple runs per file; auto-to-
 
 ## T07 — Hub notebook and idempotent annotations
 
-Status: **planned**. Depends: T01; integrate run linking after T06. Read CONTEXT_AND_VIDEO and CONTRACTS.
+Status: **implemented; backend and browser checks passed**. Thirteen backend tests cover durable revisions/idempotency/time validation and injection-safe rendering. Run details show overlapping note candidates without claiming an exact robot match. See [NOTEBOOK](NOTEBOOK.md).
 
 Work: immediate marker, seconds-ago/exact interval entry, durable server store, revisions, idempotent event IDs, local timestamps and clock-quality fields, tags, and hub-only historical notes. Future robot delivery uses a separate outbox; do not fabricate acknowledgments.
 
@@ -122,7 +121,7 @@ Acceptance: delayed/repeated requests preserve original event time and create on
 
 ## T08 — Offline notebook and optional robot marker bridge
 
-Status: **planned**. Depends: T07, T09; separate offline-only changes if convenient. Read CONTEXT_AND_VIDEO and ROBOT_INTEGRATION.
+Status: **offline loopback notebook implemented; phone pairing and robot bridge outstanding**. Real browser saved a seconds-ago note while hub was stopped, reloaded offline and automatically synchronized with unchanged incident time after restart. Two JS harness/syntax tests supplement backend coverage. See [offline verification](OFFLINE_NOTEBOOK.md).
 
 Work: browser durable outbox, authenticated LAN pairing, stateful acknowledgment UI; bounded logged robot marker IO with event dedupe and boot-aware delivery. Preserve receipt vs intended event time; historical disconnected notes stay useful.
 
@@ -130,7 +129,7 @@ Acceptance: V15 under browser/hub/robot disconnect and reboot; press 30-seconds-
 
 ## T09 — Robot build/config identity and authoritative status
 
-Status: **planned; robot repo task**. Depends: T01. Read ROBOT_INTEGRATION and robot AGENTS.md.
+Status: **implemented in sibling robot project; build and 17 tests passed**. Dirty-source identity, artifact hash, live effective tunable revisions and advancing status are verified. USB write health remains explicitly unavailable. No hardware deployment. See [T09 evidence](T09_IMPLEMENTATION.md).
 
 Work: generated build identity/source snapshot reference, robot/boot/run IDs, config snapshots, mode generation and fresh heartbeat, logger/USB health, optional SIM recording. Keep Alpha 7 API and Commands v3 behavior intact.
 
@@ -138,7 +137,7 @@ Acceptance: different dirty builds distinguishable; tunable change logged; heart
 
 ## T10 — Rotating receiver and closed manifest
 
-Status: **planned; robot repo task**. Depends: T09 and T04. Read ROBOT_INTEGRATION, TRANSFER, CONTRACTS.
+Status: **experimental receiver implemented in the robot repository; local receiver/replay tests pass, physical qualification outstanding**. See [T10 evidence](T10_IMPLEMENTATION.md) and [live setup](LIVE_TRANSFER.md). Depends: T09 and T04. Read ROBOT_INTEGRATION, TRANSFER, CONTRACTS.
 
 Work: receiver-thread rotation at table boundaries after disabled aftermath window; stable names, full bootstrap/schema/metadata, closed/hashing-ready manifest, orphan recovery policy. Preserve disabled recording and never restart the logger for rotation.
 
@@ -146,7 +145,7 @@ Acceptance: every segment independently decodes; segmented/reassembled replay ag
 
 ## T11 — SystemCore transport adapter
 
-Status: **planned; hardware facts required for commissioning**. Depends: T02, T09, T10. Read source/permission contracts.
+Status: **implemented locally; actual SSH/SFTP and Alpha 7 NT loopback integration passes** (October 6, 2026). Explicit live CLI composition, pinned host/key authentication, bounded cancellation, durable resume and automatic import are implemented. Standard suite: 236 tests, 234 passed and two optional native skips; opt-in live integration: four passed. Confirmed bench access and physical measurements remain T12. See [setup/evidence](LIVE_TRANSFER.md). Depends: T02, T09, T10. Read source/permission contracts.
 
 Work: verify SFTP/account/host key/log root and status transport, implement bounded range reads and cancellation, pin credentials externally, advertise capabilities, handle renames/missing files/reconnect. If sender enforcement is unavailable, expose bounded client-only guarantee accurately. No root credential guess, unrestricted path browsing, or delete API.
 
@@ -162,23 +161,31 @@ Acceptance: originals match hashes; interruption/restart cases pass; loop/DS per
 
 ## T13 — Analyzer framework and coverage report
 
-Status: **planned**. Depends: T05, T06. Read ANALYSIS.
+Status: **implemented; local deterministic analyzer tests passed** (October 3, 2026). Depends: T05, T06. Read ANALYSIS.
 
-Work: versioned analyzer declaration/result contracts, idempotent job execution, required signal checks, window eligibility, unavailable reasons, provenance and report generation. Implement data-quality analyzer first.
+Implemented: `analysis.py` declares analyzer identity/version, supported profile, required/optional signals and units/categories, coverage/windows/grouping/baseline requirements. Immutable evidence references include SHA-256, source type, importer/mapping versions, run/config context and row-content digest. SQLite jobs/reports are idempotent and pinned to declarations/configuration/content; all five outcome states remain explicit. Required missing/invalid inputs yield insufficient data, mismatched profiles/units yield unsupported, and analyzer exceptions are isolated with safe error types. Configured minimum coverage prevents a no-finding outcome below its declaration. Reports list evaluated/unavailable checks and keep overall health not assessed.
 
-Acceptance: each of five outcome states exercised; missing keys produce insufficient data; failing analyzer does not block others; reruns pinned to exact versions; report shows coverage and links evidence. No model-generated numerical metrics.
+Data-quality analyzer checks cycle coverage/gaps/nonadvancing timestamps, invalid/stale/disconnected observations and invalid/unknown epoch coverage. Findings retain immutable hashes, record indices and relevant intervals. Missing physical freshness is not inferred from unchanged imported values. Analyzer code computes numerical metrics; no model-generated values are accepted as evidence.
+
+Evidence: Windows Python 3.10.7, `python -m unittest discover -s tests -p test_analysis.py -v`: **24 tests passed** across framework, swerve core and robot mapping; integrated suite: **160 tests passed**. Tests cover all five outcomes, failure isolation/redaction, exact repeated results/jobs/reports, version/config/content invalidation, required keys/units/category separation, coverage thresholds, input mutation isolation, unknown-clock/gap provenance, and explicit real/simulation distinctions.
+
+Limits: automatic analyzer worker scheduling and report UI integration are separate service work. Initial data quality uses declared imported validity and optional explicit freshness/connection flags; it cannot reconstruct unlogged physical sampling freshness or logger hardware failures. Approved baseline cohorts are not fabricated or automatically selected.
 
 ## T14 — Swerve tracking and comparable-run report
 
-Status: **planned**. Depends: T13. Read ANALYSIS and module telemetry audit.
+Status: **partially implemented; deterministic tracking core and explicit robot mapping tested** (October 3, 2026). Depends: T13. Read ANALYSIS and module telemetry audit.
 
-Work: optimized command matching, wrapped steering error, time-weighted tracking metrics, motion windows, robust cohort comparison, event persistence and evidence plots. Start with explicit test IDs and narrow cohorts; effort/thermal analysis follows when signals/context are verified.
+Implemented: `swerve.py` consumes the explicit `swerve-final-io-si-1` sample contract with final IO optimized/cosine-scaled/desaturated commands, physical module identity/position, connected/fresh/valid flags, sample acquisition times, SI units and source references. It computes time-weighted velocity/steering RMSE, weighted p95, normalized requested-motion error, sustained error intervals, and per-module evidence traces suitable for plotting. Excludes disabled/unknown, disconnected, stale, unaligned, invalid, gap, near-zero-demand and optionally low-voltage intervals, with counted reasons and minimum duration/coverage. Findings require an explicit threshold revision and describe observed tracking rather than a mechanical cause. Current/temperature rankings are absent. Approved baseline comparisons remain explicitly unavailable even when a version label exists without loaded cohort evidence.
 
-Acceptance: V17–V18 fixtures include valid rotation/optimization, lag, stale inputs, battery sag, near-zero speed; no false diagnosis from peer current alone; numerical outputs checked independently; baseline-incompatible data excluded visibly.
+Source-reviewed adapter `6391-alpha7-final-swerve-1` maps exact `/RealOutputs/SwerveStates/SetpointsOptimized`, `/RealOutputs/SwerveStates/Measured`, and generated module connection field paths. Inspection of current `Drive.java`, `Module.java`, generated `ModuleIOInputsAutoLogged`, and installed Alpha7 `SwerveModuleVelocityStruct`/`Rotation2dStruct` confirms FL/FR/BL/BR order, post-desaturation/optimization/cosine commands, velocity m/s and angles radians. Adapter requires matching recorded struct schemas and separately supplied physical component assignments; it preserves original/held record references.
+
+Evidence: the **24 analyzer tests** include independently known irregular-sample RMSE/p95/normalization, valid rotation with unequal module velocities, legitimate optimized reversal and wrapped angles, sustained synthetic lag, stale/disconnected/near-zero/gap/voltage exclusions, no current diagnosis, schema/source/time validation, and real held-record mapping versus explicitly ideal simulation policy. Full suite: **160 tests passed**. No hardware measurement or robot code modification was part of this task.
+
+Outstanding: current hardware IO logs connection booleans but no acquisition timestamp/freshness for measured velocity. An AdvantageKit logging-cycle/held value is not a physical measurement timestamp. The adapter therefore marks REAL freshness unknown and the tracking analyzer returns insufficient data; it cannot assert real drivetrain health from the existing fields. An explicitly enabled ideal-cycle policy only accepts source type simulation and remains labeled simulation. Real timestamp/latency qualification, approved comparable-run baseline loading/robust comparisons, cohort exclusions and report plots remain required before T14 is complete. Effort/thermal analysis remains deferred pending signals/context and approved cohorts. T15 owns human baseline approval and component/config history.
 
 ## T15 — Baseline approval, maintenance, and review loop
 
-Status: **planned**. Depends: T07, T13, T14. Read ANALYSIS and UI_AND_OPERATIONS.
+Status: **implemented core and local review UI; acceptance remains partial**. Component assignment revisions, maintenance records, immutable human-approved cohorts, robust comparison, finding disposition and regression reference bundles are present. October 7 independent review adds repair/config boundaries between cohort/observed runs, assignment continuity, overlapping-run exclusion, analyzer-policy matching and pinned comparison history. Focused analysis/review/report suite: 55 passed. Automatic swerve/cohort execution, plots, accessible revision history and physical freshness remain open. See [review evidence](ANALYSIS_REVIEW.md). Depends: T07, T13, T14. Read ANALYSIS and UI_AND_OPERATIONS.
 
 Work: component/battery identity, effective location assignments, maintenance/config events, immutable approved cohorts, finding disposition, before/after validation links, and a reusable incident regression bundle. Keep baseline updates explicit.
 
@@ -210,7 +217,7 @@ Acceptance: collector recovers without manual file selection, time search/notes/
 
 ## T19 — Backup and restore
 
-Status: **planned**. Depends: T01. Read ARCHITECTURE and UI_AND_OPERATIONS.
+Status: **implemented locally; physical backup qualification outstanding**. Opt-in scheduled coherent SQLite/archive capture, verified immutable replication, capture-age UI and clean-directory restore are present. Independent review adds exact generation inventory checks and link rejection for staging/temporary outputs. Synthetic focused suite: 20 passed, one Windows symlink-privilege skip. No independent storage failure domain or power-loss durability is claimed. See [setup/evidence](BACKUP.md). Depends: T01. Read ARCHITECTURE and UI_AND_OPERATIONS.
 
 Work: configurable second destination, verified artifact replication, SQLite-safe snapshots, revision/config backup, offline retry queue, backup lag UI, and clean-directory restore command. Keep external destinations opt-in.
 
