@@ -7,6 +7,7 @@ import re
 import subprocess
 import threading
 import time
+from dataclasses import replace
 
 from .source_status import StatusInbox
 
@@ -17,17 +18,32 @@ MAX_LINE = 131072
 
 class StatusBridge:
     def __init__(self, host, port, robot_id, *, runtime_mode='REAL', install=None,
-                 clock=time.monotonic, command=None, env=None):
+                 clock=time.monotonic, command=None, env=None,
+                 restart_initial=1., restart_max=30., probe_timeout=2.):
         if (not isinstance(host,str) or not host or len(host)>253 or host.startswith('-')
                 or any(c.isspace() or ord(c)<32 for c in host) or type(port) is not int or not 1<=port<=65535):
             raise ValueError('Explicit NT host and port are required')
+        for value in (restart_initial,restart_max,probe_timeout):
+            if type(value) not in (int,float) or not math.isfinite(value) or not 0<value<=300:
+                raise ValueError('Status supervision bounds must be positive finite seconds')
+        if restart_max<restart_initial:
+            raise ValueError('Maximum restart delay must cover the initial delay')
         self.host,self.port,self.install,self.clock = host,port,install,clock
+        self.restart_initial,self.restart_max,self.probe_timeout=restart_initial,restart_max,probe_timeout
         self.command,self.env = command,env
         self._publication_at = 0.
         self.inbox = StatusInbox(robot_id,runtime_mode=runtime_mode,clock=lambda:self._publication_at,
                                  link_profile=PROFILE)
         self._guard = threading.RLock()
         self._stop = threading.Event()
+        self._failed = threading.Event()
+        self._started=False
+        self._permission_epoch=0
+        self.restart_count=0
+        self.consecutive_failures=0
+        self._restart_pending=False
+        self._retry_at=None
+        self._reader_running=False
         self.process = None
         self._threads = []
         self._ready = self._connected = False
@@ -40,32 +56,120 @@ class StatusBridge:
 
     def _disconnect(self, code):
         self.inbox.disconnect()
+        self._permission_epoch+=1
         self.error_code = code
 
     def start(self):
         with self._guard:
-            if self.process is not None:
+            if self._started or self._stop.is_set():
                 raise RuntimeError('Status bridge instances start once; create a new instance to restart')
+            self._started=True
             self._disconnect('status_bridge_starting')
+            self._threads=[threading.Thread(target=self._supervise,name='nt-status-supervisor',daemon=True)]
+            self._threads[0].start()
+        return self
+
+    def _reset_protocol(self):
+        self.process=None
+        self._disconnect('status_bridge_starting')
+        self._ready=self._connected=False
+        self._epoch=self._last_local=self._last_server=0
+        self._offset_ns=None
+        self._probes.clear()
+        self._probe_id=0
+        self._publication_at=0.
+        self._last_probe_received=self.clock()
+        self._failed.clear()
+
+    def _fail_attempt(self,code):
+        if not self._failed.is_set() and not self._stop.is_set():
+            self._disconnect(code)
+            self._failed.set()
+
+    def _retry_delay(self):
+        return min(self.restart_max,self.restart_initial*2**min(max(self.consecutive_failures-1,0),30))
+
+    @staticmethod
+    def _reap(process):
+        if process is None:
+            return
+        if process.poll() is None:
+            process.terminate()
+        try:
+            process.wait(timeout=.5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=.5)
+
+    def _supervise(self):
+        attempts=0
+        while not self._stop.is_set():
+            process=reader=None
+            with self._guard:
+                self._reset_protocol()
+                self._restart_pending=False
+                self._retry_at=None
+                if attempts:
+                    self.restart_count+=1
+                attempts+=1
             try:
-                command, env = self.command,self.env
+                command,env=self.command,self.env
                 if command is None:
-                    from tools.status_bridge.run import prepare, DEFAULT_INSTALL
-                    command,env = prepare(Path(self.install) if self.install else DEFAULT_INSTALL)
-                self.process = subprocess.Popen(list(command)+['StatusBridge',self.host,str(self.port)],
+                    from tools.status_bridge.run import prepare,DEFAULT_INSTALL
+                    command,env=prepare(Path(self.install) if self.install else DEFAULT_INSTALL)
+                    with self._guard:
+                        self.command,self.env=command,env
+                if self._stop.is_set():
+                    break
+                process=subprocess.Popen(list(command)+['StatusBridge',self.host,str(self.port)],
                     stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,env=env,
                     creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-                self._last_probe_received = self.clock()
-                self._threads = [threading.Thread(target=self._read,name='nt-status-reader',daemon=True),
-                                 threading.Thread(target=self._monitor,name='nt-status-monitor',daemon=True)]
-                for thread in self._threads:
-                    thread.start()
+                with self._guard:
+                    self.process=process
+                    self._reader_running=True
+                    self._last_probe_received=self.clock()
+                reader=threading.Thread(target=self._read,args=(process,),name='nt-status-reader',daemon=True)
+                reader.start()
+                self._monitor(process)
             except Exception:
-                self._disconnect('status_bridge_start_failed')
-                if self.process is not None and self.process.poll() is None:
-                    self.process.terminate()
-                raise
-        return self
+                with self._guard:
+                    self._fail_attempt('status_bridge_start_failed')
+            finally:
+                # Reap the previous child and join its reader before any retry.
+                # If cleanup fails, remain unavailable and retry cleanup only.
+                while process is not None:
+                    try:
+                        self._reap(process)
+                        if reader:
+                            reader.join(timeout=.5)
+                            if reader.is_alive():
+                                raise OSError('Reader did not stop')
+                        for stream in (process.stdin,process.stdout):
+                            if stream:
+                                stream.close()
+                        break
+                    except (OSError,ValueError,subprocess.SubprocessError):
+                        with self._guard:
+                            self._disconnect('status_bridge_shutdown_failed')
+                        # Stop forbids new children, but cannot abandon ownership
+                        # of this child/reader. Keep bounded cleanup retries even
+                        # after close's ordinary join timeout has elapsed.
+                        time.sleep(.1)
+                with self._guard:
+                    self._reader_running=False
+            if self._stop.is_set():
+                break
+            with self._guard:
+                self.consecutive_failures+=1
+                delay=self._retry_delay()
+                self._restart_pending=True
+                self._retry_at=self.clock()+delay
+            if self._stop.wait(delay):
+                break
+        with self._guard:
+            self._restart_pending=False
+            self._retry_at=None
+            self._disconnect('status_bridge_stopped')
 
     def _send_probe(self):
         with self._guard:
@@ -77,43 +181,44 @@ class StatusBridge:
             self.process.stdin.write(request)
             self.process.stdin.flush()
 
-    def _monitor(self):
+    def _monitor(self,process):
         try:
-            while not self._stop.wait(.1):
+            next_probe=self.clock()
+            while not self._stop.wait(.05):
                 with self._guard:
-                    if self.process.poll() is not None:
-                        self._disconnect('status_bridge_process_exited')
+                    if self._failed.is_set():
                         return
-                    if self.clock()-self._last_probe_received>2:
-                        self._disconnect('status_bridge_clock_probe_timeout')
-                        self.process.terminate()
+                    if process.poll() is not None:
+                        self._fail_attempt('status_bridge_process_exited')
                         return
-                self._send_probe()
-                if self._stop.wait(.4):
-                    return
+                    if self.clock()-self._last_probe_received>self.probe_timeout:
+                        self._fail_attempt('status_bridge_clock_probe_timeout')
+                        return
+                    if self.clock()>=next_probe:
+                        self._send_probe()
+                        next_probe=self.clock()+.5
         except (OSError,ValueError):
             with self._guard:
-                self._disconnect('status_bridge_io_failed')
+                self._fail_attempt('status_bridge_io_failed')
 
-    def _read(self):
+    def _read(self,process):
         try:
             while not self._stop.is_set():
-                line = self.process.stdout.readline(MAX_LINE+1)
+                line = process.stdout.readline(MAX_LINE+1)
                 if not line:
                     break
                 if len(line)>MAX_LINE or not line.endswith(b'\n'):
                     raise ValueError('Oversized or incomplete bridge line')
-                self.accept_event(json.loads(line.decode('utf-8')))
+                with self._guard:
+                    if self._stop.is_set() or self._failed.is_set() or process is not self.process:
+                        return
+                    self.accept_event(json.loads(line.decode('utf-8')))
         except (OSError,ValueError,TypeError,KeyError,UnicodeError,RecursionError):
             with self._guard:
-                self._disconnect('status_bridge_protocol_invalid')
-                if self.process.poll() is None:
-                    self.process.terminate()
+                self._fail_attempt('status_bridge_protocol_invalid')
         finally:
             with self._guard:
-                self._disconnect('status_bridge_stopped' if self._stop.is_set() else
-                                 self.error_code if self.error_code=='status_bridge_protocol_invalid' else
-                                 'status_bridge_process_exited')
+                self._fail_attempt('status_bridge_process_exited')
 
     @staticmethod
     def _ns(value):
@@ -188,12 +293,30 @@ class StatusBridge:
             self._publication_at = observed
             self.inbox.receive(encoded)
             self.error_code = self.inbox.error_code
+            if self.error_code=='invalid_robot_status':
+                # A brief invalid publication must invalidate outstanding tokens
+                # even when valid robot progress arrives before the next poll.
+                # Discard old proof so recovery requires a fresh advancing pair.
+                self._disconnect('invalid_robot_status')
+            if self.error_code is None:
+                self.consecutive_failures=0
 
     def status(self):
         with self._guard:
             if self.process is not None and self.process.poll() is not None:
-                self._disconnect('status_bridge_process_exited')
-            return self.inbox.status()
+                self._fail_attempt('status_bridge_process_exited')
+            raw=self.inbox.status()
+            # Cantor pairing gives an opaque collision-free integer permission
+            # generation for robot mode generation plus local revocation epoch.
+            total=raw.generation+self._permission_epoch
+            return replace(raw,generation=total*(total+1)//2+self._permission_epoch)
+
+    def diagnostics(self):
+        with self._guard:
+            return {'restart_count':self.restart_count,'consecutive_failures':self.consecutive_failures,
+                'restart_pending':self._restart_pending,
+                'retry_in_seconds':min(self.restart_max,max(0.,self._retry_at-self.clock())) if self._retry_at is not None else None,
+                'error_code':self.error_code,'reader_running':self._reader_running}
 
     def close(self):
         self._stop.set()
@@ -201,18 +324,12 @@ class StatusBridge:
             self._disconnect('status_bridge_stopped')
             process = self.process
             if process is not None and process.poll() is None:
-                process.terminate()
-        if process is not None:
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=2)
+                try:
+                    process.terminate()
+                except OSError:
+                    self.error_code='status_bridge_shutdown_failed'
         for thread in self._threads:
             thread.join(timeout=2)
-        if process is not None:
-            for stream in (process.stdin,process.stdout):
-                stream.close()
 
     def __enter__(self):
         return self.start()

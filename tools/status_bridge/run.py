@@ -39,7 +39,7 @@ def prepare(install=DEFAULT_INSTALL):
     if actual != lock['sha256']:
         raise RuntimeError('Status bridge dependency hash mismatch; explicit profile review required')
     java, javac = install / 'jdk/bin/java.exe', install / 'jdk/bin/javac.exe'
-    version = subprocess.run([str(java),'-version'],capture_output=True,text=True,check=True)
+    version = subprocess.run([str(java),'-version'],capture_output=True,text=True,check=True,timeout=10)
     if 'version "25' not in version.stderr:
         raise RuntimeError('Status bridge requires the installed Java25 toolchain')
     classes, native = HERE / 'build/classes', HERE / 'build/native'
@@ -49,10 +49,16 @@ def prepare(install=DEFAULT_INSTALL):
         with zipfile.ZipFile(archive) as package:
             for name in package.namelist():
                 if name.endswith('.dll'):
-                    (native / Path(name).name).write_bytes(package.read(name))
+                    target = native / Path(name).name
+                    content = package.read(name)
+                    # Windows locks loaded DLLs against writes. A second local
+                    # reader can reuse the exact pinned bytes without rewriting
+                    # the libraries already used by another NT process.
+                    if not target.is_file() or target.read_bytes() != content:
+                        target.write_bytes(content)
     classpath = os.pathsep.join(str(p) for p in jars)
     subprocess.run([str(javac),'-cp',classpath,'-d',str(classes),
-                    *map(str,sorted((HERE / 'src').glob('*.java')))],check=True)
+                    *map(str,sorted((HERE / 'src').glob('*.java')))],check=True,timeout=30)
     env = os.environ.copy()
     env['PATH'] = str(native) + os.pathsep + env.get('PATH','')
     command = [str(java),'--enable-native-access=ALL-UNNAMED',f'-Djava.library.path={native}',
@@ -82,6 +88,6 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (OSError,RuntimeError,subprocess.CalledProcessError) as error:
+    except (OSError,RuntimeError,subprocess.SubprocessError) as error:
         print('Status bridge tool failed: '+str(error),file=sys.stderr)
         raise SystemExit(1)

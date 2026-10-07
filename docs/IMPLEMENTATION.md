@@ -77,7 +77,7 @@ Limits: the legacy demo list API is atomic compatibility behavior; production ad
 
 ## T03 — Queue UI and target API
 
-Status: **implemented; local API and browser verification passed**. Paged queue, per-file actions, source distinction, backlog/ETA/verification status and diagnostics are integrated. Real adapter UI awaits T11.
+Status: **implemented; local API and browser verification passed**. Paged queue, per-file actions, source distinction, backlog/ETA/verification status and diagnostics are integrated. Live connection/recovery status is integrated; physical qualification remains T12.
 
 Work: implement `/api/v1/status`, paged transfers, pause/resume/retry/priority actions; distinguish connection/status errors and local verification. Display count/bytes/open bytes, ETA basis, transfer speed, last successful archive, and source type. Keep demo controls exclusively in demo mode.
 
@@ -145,7 +145,7 @@ Acceptance: every segment independently decodes; segmented/reassembled replay ag
 
 ## T11 — SystemCore transport adapter
 
-Status: **implemented locally; actual SSH/SFTP and Alpha 7 NT loopback integration passes** (October 6, 2026). Explicit live CLI composition, pinned host/key authentication, bounded cancellation, durable resume and automatic import are implemented. Standard suite: 236 tests, 234 passed and two optional native skips; opt-in live integration: four passed. Confirmed bench access and physical measurements remain T12. See [setup/evidence](LIVE_TRANSFER.md). Depends: T02, T09, T10. Read source/permission contracts.
+Status: **implemented locally; actual SSH/SFTP and Alpha 7 NT loopback integration passes** (October 7, 2026). Explicit live CLI composition, pinned host/key authentication, bounded cancellation, durable resume, automatic import and supervised status-reader recovery are implemented. Independent review covers cleanup and permission generation; 15 focused native status checks pass. Killed-reader/in-flight transfer qualification preserves checkpoints and resumes only after fresh advancing status plus idle delay. Current published modules: 255 tests, 254 passed and one Windows symbolic-link skip with native NT enabled. Confirmed bench access and physical measurements remain T12. See [setup/evidence](LIVE_TRANSFER.md). Depends: T02, T09, T10. Read source/permission contracts.
 
 Work: verify SFTP/account/host key/log root and status transport, implement bounded range reads and cancellation, pin credentials externally, advertise capabilities, handle renames/missing files/reconnect. If sender enforcement is unavailable, expose bounded client-only guarantee accurately. No root credential guess, unrestricted path browsing, or delete API.
 
@@ -153,7 +153,7 @@ Acceptance: protocol integration tests against fake/temporary SFTP service; no s
 
 ## T12 — Physical transfer qualification
 
-Status: **planned; requires bench access**. Depends: T11. Read VALIDATION and TRANSFER.
+Status: **bench worksheet prepared; requires confirmed access and separately authorized robot setup**. See [worksheet](LIVE_TRANSFER_BENCH.md). Depends: T11. Read VALIDATION and TRANSFER.
 
 Work: run the specified load/interruption matrix, collect source/network/DS/loop/USB metrics, choose defaults from measurements, and write a dated commissioning report in the private evidence archive with a public redacted summary if appropriate.
 

@@ -11,7 +11,7 @@ $env:ROBOT_HUB_STATUS_INTEGRATION = '1'
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-246 tests ran: **245 passed, one skipped** because this Windows account cannot create symbolic links. Both native Alpha 7 NT tests ran and passed; actual SSH/SFTP tests use temporary loopback servers and generated keys. Linux/Python 3.13 qualification is provided by the CI matrix and must be checked after publication rather than inferred from this result.
+246 tests ran: **245 passed, one skipped** because this Windows account cannot create symbolic links. Both native Alpha 7 NT tests ran and passed; actual SSH/SFTP tests use temporary loopback servers and generated keys. Published commit 53cc1b4 passed all four CI jobs on Windows/Linux with Python 3.10/3.13 (run 37619797350). Optional native qualifications remain local Windows results.
 
 The sibling robot's Alpha 7 wrapper build passes **all 32 tests**, zero failures/errors. This includes stepped robot simulation, coroutine regressions, receiver policy/interruption tests, actual recording and independent official-reader replay. The test-generated tracked NetworkTables backup was restored to its pre-test bytes. No deployment, physical motion or real-time simulator GUI run was performed.
 
@@ -20,3 +20,11 @@ Browser qualification used an isolated loopback demo archive populated only with
 Remaining gaps: real SystemCore endpoints/credentials and USB/DS/load/cancellation measurements; REAL acquisition freshness; automatic swerve/baseline report execution and plots; review-history navigation; phone pairing and robot marker delivery; camera/native recorder/PTS alignment; season-scale archives; independent backup-device and power-loss qualification; autostart/upgrade/rollback. Source deletion remains disabled. See [implementation status](IMPLEMENTATION.md), [live setup](LIVE_TRANSFER.md), [analysis review](ANALYSIS_REVIEW.md), and [backup](BACKUP.md).
 
 The separate T16 recorder-core increment is undergoing review and is not part of this test count or publication checkpoint.
+
+## Live recovery increment — October 7
+
+The live reader now restarts automatically with bounded backoff. Independent review fixed abandoned shutdown cleanup and brief invalid-heartbeat permission reuse. All 15 focused status-reader tests pass with native Alpha 7 loopback enabled. The killed-reader/delayed-SFTP test verifies cancellation preserves its 512-byte checkpoint, a retained replacement heartbeat cannot resume transfer, the full idle delay is required after valid progress, and the final archive/import matches the public fixture.
+
+The current working-tree full suite ran **290 tests: 287 passed, three skipped**, with native NT enabled. This includes 35 tests in separate unpublished recorder/alignment work; it is not the published live increment's test count. Its skips are two Windows symbolic-link privilege cases and the separately opt-in native FFmpeg test. The published modules account for **255 tests, 254 passed and one Windows symbolic-link skip** in that run. Source reader, SSH/SFTP and bridge-failure native checks all ran.
+
+The connection view was checked in an isolated synthetic browser fixture: failed-reader retry/count, stale heartbeat, fresh recovery and idle countdown were visible, with the existing queue and ETA intact. A screenshot was captured during this check. No robot endpoint or camera was used. The [bench worksheet](LIVE_TRANSFER_BENCH.md) records the outstanding hardware measurements.

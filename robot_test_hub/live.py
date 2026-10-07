@@ -18,8 +18,12 @@ class LiveSource(SFTPSource):
         self.cancel()
 
     def connection_status(self):
-        return {'adapter':'systemcore_sftp', 'status_channel':self.status_provider.error_code or 'advancing',
-                'ssh_connected':self.session is not None,'hardware_qualified':False}
+        details = {'adapter':'systemcore_sftp', 'status_channel':self.status_provider.error_code or 'advancing',
+                   'ssh_connected':self.session is not None,'hardware_qualified':False}
+        diagnostics = getattr(self.status_provider, 'diagnostics', None)
+        if diagnostics is not None:
+            details['status_reader'] = diagnostics()
+        return details
 
 
 def configure(config,source_path,nt_host,nt_port,install=None,*,idle_delay_explicit=False):
