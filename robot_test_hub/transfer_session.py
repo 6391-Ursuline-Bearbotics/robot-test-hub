@@ -55,6 +55,14 @@ def fetch_status(port, timeout=2.):
         chunks = []
         size = 0
         while True:
+            # read1 may close the response and its socket as soon as the last
+            # declared byte arrives (notably on Python 3.13).
+            if response.length == 0:
+                break
+            if response.isclosed():
+                if response.length is not None:
+                    raise SnapshotUnavailable('local_http_unavailable')
+                break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise SnapshotUnavailable('local_http_unavailable')

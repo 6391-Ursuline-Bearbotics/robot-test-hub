@@ -38,6 +38,8 @@ class TransferSessionTests(unittest.TestCase):
             wire_socket = connection.sock
             response = connection.getresponse.return_value
             response.status = 200
+            response.length = None
+            response.isclosed.return_value = False
             def take_socket():
                 connection.sock = None
                 return response
@@ -48,6 +50,38 @@ class TransferSessionTests(unittest.TestCase):
             connection.close.assert_called_once()
             wire_socket.settimeout.assert_called_once()
 
+    def test_last_declared_body_read_closes_socket_without_masking_json_result(self):
+        for body, remaining_bytes, expected_error in ((json.dumps(snapshot()).encode(), 0, None),
+                                     (b'{"invalid":NaN}', 0, 'invalid_json'),
+                                     (json.dumps(snapshot()).encode(), 1, 'local_http_unavailable')):
+            with self.subTest(expected_error=expected_error), \
+                 patch('robot_test_hub.transfer_session.http.client.HTTPConnection') as factory:
+                connection = factory.return_value
+                wire_socket = connection.sock
+                response = connection.getresponse.return_value
+                response.status = 200
+                response.length = len(body)
+                closed = False
+                response.isclosed.side_effect = lambda:closed
+                def set_timeout(value):
+                    if closed:raise OSError('Bad file descriptor')
+                wire_socket.settimeout.side_effect = set_timeout
+                def read_last(length):
+                    nonlocal closed
+                    closed = True
+                    response.length = remaining_bytes
+                    return body
+                response.read1.side_effect = read_last
+                if expected_error is None:
+                    self.assertEqual(fetch_status(6391), snapshot())
+                else:
+                    with self.assertRaises(SnapshotUnavailable) as raised:fetch_status(6391)
+                    self.assertEqual(str(raised.exception), expected_error)
+                response.read1.assert_called_once()
+                wire_socket.settimeout.assert_called_once()
+                response.close.assert_called_once()
+                connection.close.assert_called_once()
+
     def test_connection_closed_even_when_response_close_fails(self):
         with patch('robot_test_hub.transfer_session.http.client.HTTPConnection') as factory:
             connection = factory.return_value
@@ -55,6 +89,31 @@ class TransferSessionTests(unittest.TestCase):
             response.status = 302
             response.close.side_effect = OSError('private cleanup detail')
             with self.assertRaises(OSError):fetch_status(6391)
+            connection.close.assert_called_once()
+
+    def test_valid_json_prefix_then_empty_read_rejects_declared_truncation(self):
+        with patch('robot_test_hub.transfer_session.http.client.HTTPConnection') as factory:
+            connection = factory.return_value
+            response = connection.getresponse.return_value
+            body = json.dumps(snapshot()).encode()
+            response.status = 200
+            response.length = len(body) + 1
+            closed = False
+            reads = 0
+            response.isclosed.side_effect = lambda:closed
+            def read_prefix_then_eof(length):
+                nonlocal closed, reads
+                reads += 1
+                if reads == 1:
+                    response.length = 1
+                    return body
+                closed = True
+                return b''
+            response.read1.side_effect = read_prefix_then_eof
+            with self.assertRaises(SnapshotUnavailable) as raised:fetch_status(6391)
+            self.assertEqual(str(raised.exception), 'local_http_unavailable')
+            self.assertEqual(response.read1.call_count, 2)
+            response.close.assert_called_once()
             connection.close.assert_called_once()
 
     def run_capture(self, path, values, **kwargs):
