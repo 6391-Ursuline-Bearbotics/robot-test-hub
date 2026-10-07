@@ -1,5 +1,6 @@
 """Synthetic SFTP close ownership through the real service and loopback HTTP."""
 import json
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -110,7 +111,7 @@ class SFTPCleanupServiceTests(unittest.TestCase):
         service.start()
 
         def checkpoint():
-            with sqlite3.connect(root/'catalog.sqlite3',timeout=2) as db:
+            with closing(sqlite3.connect(root/'catalog.sqlite3',timeout=2)) as db:
                 return db.execute('SELECT offset FROM files WHERE id=?',(entry['segment_id'],)).fetchone()[0]
         def http_status():
             began=time.monotonic()
