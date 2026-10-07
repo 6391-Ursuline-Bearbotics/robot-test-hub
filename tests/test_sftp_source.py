@@ -1,5 +1,6 @@
 """Transport contract tests; genuine loopback SFTP tests are in test_sftp_network."""
 import hashlib
+from dataclasses import replace
 import io
 import json
 from pathlib import Path
@@ -12,7 +13,7 @@ import unittest
 
 from robot_test_hub.collector import RobotStatus
 from robot_test_hub.sftp_source import SFTPConfig, SFTPSource, SourceAttention
-from robot_test_hub.transfer import Cancellation, IdentityError, TransferCancelled, TransferError
+from robot_test_hub.transfer import BoundedIO, Cancellation, IdentityError, TransferCancelled, TransferError, TransferTimeout
 from robot_test_hub.wpilog import PROFILE
 
 
@@ -178,3 +179,158 @@ class SFTPSourceTests(unittest.TestCase):
             self.assertIsNone(self.source.session)
         self.remote.open=original
         self.assertTrue(self.source.discover_closed(None,100,self.token()).complete)
+
+    def test_blocked_read_cancel_close_retains_operation_and_bounded_io_slot(self):
+        self.source.config=replace(self.source.config,timeout=.05)
+        self.source.discover_closed(None,100,self.token())
+        client=self.clients[0]
+        read_entered=threading.Event();release_read=threading.Event()
+        close_entered=threading.Event();release_close=threading.Event()
+        def block_read():
+            read_entered.set()
+            if not release_read.wait(3):raise RuntimeError('Read coordination timed out')
+        def block_close():
+            close_entered.set()
+            if not release_close.wait(3):raise RuntimeError('Close coordination timed out')
+            client.closed=True
+        self.remote.block=block_read;client.close=block_close
+        token=self.token();slot=BoundedIO();results=[]
+        def call():
+            try:results.append(slot.call(lambda:self.source.read(self.entry['segment_id'],0,100,
+                cancellation=token),token,2,length=100))
+            except Exception as exc:results.append(exc)
+        caller=threading.Thread(target=call);caller.start()
+        try:
+            self.assertTrue(read_entered.wait(1))
+            token.cancel()
+            self.assertTrue(close_entered.wait(1))
+            caller.join(1)
+            self.assertFalse(caller.is_alive())
+            self.assertIsInstance(results[0],TransferCancelled)
+            release_read.set()
+            # Longer than the old .05+.1 watcher join: cleanup must still own
+            # the slot even though the native read and caller have returned.
+            self.assertFalse(slot.done.wait(.25))
+            self.assertTrue(slot.busy);self.assertEqual(slot.outstanding_bytes,100)
+            self.assertTrue(self.source.operation_lock.locked())
+            reads=list(self.remote.reads)
+            with self.assertRaises(TransferError):
+                self.source.read(self.entry['segment_id'],0,100,cancellation=self.token())
+            with self.assertRaises(TransferTimeout):slot.call(lambda:b'new',self.token(),1)
+            self.assertEqual(self.remote.reads,reads)
+            self.assertEqual(len(self.clients),1)
+            self.assertFalse(self.source.status().enabled)
+        finally:
+            release_read.set();release_close.set();caller.join(2)
+            if slot.thread is not None:slot.thread.join(2)
+            self.remote.block=None
+        self.assertFalse(slot.busy)
+        self.assertFalse(self.source.operation_lock.locked())
+        self.assertTrue(client.closed)
+        self.assertEqual(self.source.read(self.entry['segment_id'],0,100,cancellation=self.token()),self.payload[:100])
+        self.assertEqual(len(self.clients),2)
+        self.assertFalse(self.clients[1].closed)
+
+    def test_connect_watcher_cleanup_finishes_before_operation_returns(self):
+        self.source.config=replace(self.source.config,timeout=.05)
+        connect_entered=threading.Event();release_connect=threading.Event()
+        close_entered=threading.Event();release_close=threading.Event();finished=threading.Event()
+        client=MemoryClient(self.remote)
+        def connect(**kwargs):
+            connect_entered.set()
+            if not release_connect.wait(3):raise RuntimeError('Connect coordination timed out')
+        def close():
+            close_entered.set()
+            if not release_close.wait(3):raise RuntimeError('Close coordination timed out')
+            client.closed=True
+        client.connect=connect;client.close=close
+        original_factory=self.source.client_factory
+        self.source.client_factory=lambda:client
+        token=self.token();results=[]
+        def discover():
+            try:results.append(self.source.discover_closed(None,100,token))
+            except Exception as exc:results.append(exc)
+            finally:finished.set()
+        worker=threading.Thread(target=discover);worker.start()
+        try:
+            self.assertTrue(connect_entered.wait(1))
+            token.cancel()
+            self.assertTrue(close_entered.wait(1))
+            release_connect.set()
+            self.assertFalse(finished.wait(.25))
+            self.assertTrue(self.source.operation_lock.locked())
+            with self.assertRaises(TransferError):self.source.discover_closed(None,100,self.token())
+            self.assertEqual(self.remote.reads,[])
+        finally:
+            release_connect.set();release_close.set();worker.join(2)
+            self.source.client_factory=original_factory
+        self.assertFalse(worker.is_alive())
+        self.assertIsInstance(results[0],TransferCancelled)
+        self.assertTrue(client.closed)
+        self.assertFalse(self.source.operation_lock.locked())
+        self.assertTrue(self.source.discover_closed(None,100,self.token()).complete)
+        self.assertFalse(self.clients[0].closed)
+
+    def test_delayed_old_client_disconnect_cannot_close_successor(self):
+        self.source.discover_closed(None,100,self.token())
+        old_client=self.clients[0]
+        self.source._disconnect_transport(old_client)
+        self.source.discover_closed(None,100,self.token())
+        successor=self.clients[1];session=self.source.session
+        self.source._disconnect_transport(old_client)
+        self.assertIs(self.source.active_client,successor)
+        self.assertIs(self.source.session,session)
+        self.assertFalse(successor.closed)
+        self.assertEqual(self.source.read(self.entry['segment_id'],0,100,cancellation=self.token()),self.payload[:100])
+
+    def test_failed_native_close_retries_cleanup_and_keeps_slot_until_success(self):
+        self.source.config=replace(self.source.config,timeout=.05)
+        for failure in (OSError('private transport failure'),RuntimeError('private cleanup failure')):
+            with self.subTest(failure=type(failure).__name__):
+                self.source.discover_closed(None,100,self.token())
+                client=self.clients[-1]
+                read_entered=threading.Event();release_read=threading.Event()
+                retry_entered=threading.Event();release_close=threading.Event()
+                attempts=[];results=[]
+                def block_read():
+                    read_entered.set()
+                    if not release_read.wait(3):raise RuntimeError('Read coordination timed out')
+                def failing_close():
+                    attempts.append(1)
+                    if len(attempts)==1:raise failure
+                    retry_entered.set()
+                    if not release_close.wait(3):raise RuntimeError('Close coordination timed out')
+                    client.closed=True
+                self.remote.block=block_read;client.close=failing_close
+                token=self.token();slot=BoundedIO()
+                def call():
+                    try:results.append(slot.call(lambda:self.source.read(self.entry['segment_id'],0,100,
+                        cancellation=token),token,2,length=100))
+                    except Exception as exc:results.append(exc)
+                caller=threading.Thread(target=call);caller.start()
+                try:
+                    self.assertTrue(read_entered.wait(1));token.cancel()
+                    self.assertTrue(retry_entered.wait(1))
+                    release_read.set();caller.join(1)
+                    self.assertFalse(caller.is_alive())
+                    self.assertIsInstance(results[0],TransferCancelled)
+                    self.assertFalse(slot.done.wait(.25))
+                    self.assertTrue(slot.busy)
+                    self.assertTrue(self.source.operation_lock.locked())
+                    self.assertEqual(self.source.cleanup_pending,1)
+                    self.assertFalse(self.source.cleanup_finished.is_set())
+                    with self.assertRaises(TransferError):
+                        self.source.read(self.entry['segment_id'],0,100,cancellation=self.token())
+                    self.source.cancel()  # Detached cleanup remains owned; no false completion.
+                    self.assertTrue(slot.busy)
+                finally:
+                    release_read.set();release_close.set();caller.join(2)
+                    if slot.thread is not None:slot.thread.join(2)
+                    self.remote.block=None
+                self.assertFalse(slot.busy)
+                self.assertEqual(self.source.cleanup_pending,0)
+                self.assertTrue(self.source.cleanup_finished.is_set())
+                self.assertTrue(client.closed)
+                self.assertEqual(len(attempts),2)
+                self.assertEqual(self.source.read(self.entry['segment_id'],0,100,cancellation=self.token()),self.payload[:100])
+                self.assertFalse(self.clients[-1].closed)

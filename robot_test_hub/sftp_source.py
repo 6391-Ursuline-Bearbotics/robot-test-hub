@@ -104,6 +104,9 @@ class SFTPSource:
         self.active_lock=threading.Lock()
         self.active_client=None
         self.session=None
+        self.cleanup_pending=0
+        self.cleanup_finished=threading.Event()
+        self.cleanup_finished.set()
         self.operation_lock=threading.Lock()
         self.snapshot=None
         self.entries={}
@@ -117,16 +120,44 @@ class SFTPSource:
     def cancel(self):
         self._disconnect_transport()
 
-    def _disconnect_transport(self):
+    def _disconnect_transport(self, expected_client=None):
         with self.active_lock:
             client=self.active_client
+            if expected_client is not None and client is not expected_client:
+                return
             self.active_client=None
             self.session=None
+            if client is not None:
+                self.cleanup_pending+=1
+                self.cleanup_finished.clear()
         if client is not None:
-            client.close()
+            # The detached client remains owned by this cleanup call. Even an
+            # unexpected close exception is unresolved cleanup, never success.
+            # Only close is retried; source operations/errors are not replayed.
+            while True:
+                try:
+                    client.close()
+                    break
+                except Exception:
+                    time.sleep(.05)
+            with self.active_lock:
+                self.cleanup_pending-=1
+                if not self.cleanup_pending:
+                    self.cleanup_finished.set()
 
     def close(self):
         self.cancel()
+
+    @staticmethod
+    def _finish_watcher(watcher):
+        # A blocked native close still belongs to this operation. Keep its
+        # collector slot occupied rather than leaving cleanup behind a timeout.
+        while watcher.is_alive():
+            watcher.join(.05)
+
+    def _await_transport_cleanup(self):
+        while not self.cleanup_finished.wait(.05):
+            pass
 
     def _check(self,token):
         token.check()
@@ -147,6 +178,7 @@ class SFTPSource:
         finished=threading.Event()
         watcher=None
         try:
+            self._await_transport_cleanup()
             with self.active_lock:
                 session=self.session
             if session is None:
@@ -157,7 +189,7 @@ class SFTPSource:
                     try:
                         self._check(token)
                     except OSError:
-                        self._disconnect_transport()
+                        self._disconnect_transport(client)
                         return
             watcher=threading.Thread(target=cancel_watch,name='hub-sftp-cancel',daemon=True)
             watcher.start()
@@ -186,7 +218,8 @@ class SFTPSource:
         finally:
             finished.set()
             if watcher is not None:
-                watcher.join(self.config.timeout+.1)
+                self._finish_watcher(watcher)
+            self._await_transport_cleanup()
             self.operation_lock.release()
 
     def _connect(self,token):
@@ -221,7 +254,7 @@ class SFTPSource:
                 try:
                     self._check(token)
                 except OSError:
-                    client.close()
+                    self._disconnect_transport(client)
                     return
         watcher=threading.Thread(target=cancel_watch,name='hub-sftp-cancel',daemon=True)
         watcher.start()
@@ -253,7 +286,8 @@ class SFTPSource:
             raise
         finally:
             finished.set()
-            watcher.join(self.config.timeout+.1)
+            self._finish_watcher(watcher)
+            self._await_transport_cleanup()
 
     def _open(self,sftp,root,name,token):
         self._check(token)
