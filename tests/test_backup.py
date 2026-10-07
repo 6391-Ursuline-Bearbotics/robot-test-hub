@@ -15,7 +15,7 @@ from robot_test_hub.storage import open_catalog
 class BackupTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.base = Path(self.tmp.name)
+        self.base = Path(self.tmp.name).resolve()
         self.root, self.dest = self.base / 'source', self.base / 'second'
         self.root.mkdir()
         self.addCleanup(self.tmp.cleanup)

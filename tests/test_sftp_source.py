@@ -158,7 +158,7 @@ class SFTPSourceTests(unittest.TestCase):
                        log_root='/logs',robot_id='robot-6391')
             path=root/'source.json';path.write_text(json.dumps(value))
             config=SFTPConfig.load(path)
-            self.assertEqual(config.private_key,str(root/'key'))
+            self.assertEqual(config.private_key,str((root/'key').resolve()))
             value['password']='not-accepted';path.write_text(json.dumps(value))
             with self.assertRaises(ValueError):SFTPConfig.load(path)
 
