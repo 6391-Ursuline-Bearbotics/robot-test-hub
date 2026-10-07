@@ -15,7 +15,7 @@ class VideoAlignmentTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.base = 9_007_199_254_740_993
 
     def segment(self, identity='segment1', frames=((0, 10), (10, 10), (40, 10), (50, 10)), **changes):
