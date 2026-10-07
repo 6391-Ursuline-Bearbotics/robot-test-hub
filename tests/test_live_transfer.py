@@ -9,9 +9,10 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from robot_test_hub.config import Config
-from robot_test_hub.live import LiveSource, configure
+from robot_test_hub.live import LiveSource, configure, validate_configuration
 from robot_test_hub.server import create_http_server
 from robot_test_hub.service import HubService
 from robot_test_hub.sftp_source import SFTPConfig
@@ -26,7 +27,9 @@ class LiveConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):configure(Config(),'missing.json',None,None)
 
     @unittest.skipIf(paramiko is None,'Pinned optional sftp extra required')
-    def test_live_defaults_and_separate_credential_references(self):
+    @patch('tools.status_bridge.run.prepare',return_value=(['prepared-java'],{'prepared':'environment'}))
+    def test_live_defaults_and_separate_credential_references(self,prepare):
+        from tools.status_bridge.run import DEFAULT_INSTALL
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);(root/'known').write_text('synthetic');(root/'key').write_text('synthetic')
             path=root/'source.json';path.write_text(json.dumps(dict(schema_version=1,host='configured-host',username='reader',
@@ -36,9 +39,62 @@ class LiveConfigurationTests(unittest.TestCase):
             self.assertNotIn('private_key',config.as_dict())
             self.assertEqual(source.status_provider.inbox.runtime_mode,'REAL')
             self.assertIsNone(source.status().enabled)
+            self.assertEqual(source.status_provider.command,['prepared-java'])
+            self.assertEqual(source.status_provider.env,{'prepared':'environment'})
+            self.assertIsNone(source.status_provider.process)
+            prepare.assert_called_once_with(DEFAULT_INSTALL)
             config,_=configure(Config(idle_delay=15),path,'explicit-status-host',5810,idle_delay_explicit=True)
             self.assertEqual(config.idle_delay,15)
             with self.assertRaises(ValueError):configure(Config(chunk_size=524288),path,'explicit-status-host',5810)
+            self.assertEqual(prepare.call_count,2)
+
+    @unittest.skipIf(paramiko is None,'Pinned optional sftp extra required')
+    def test_native_preparation_failure_is_synchronous_and_uses_explicit_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/'known').write_text('synthetic');(root/'key').write_text('synthetic')
+            path=root/'source.json';path.write_text(json.dumps(dict(schema_version=1,host='configured-host',
+                username='reader',known_hosts='known',private_key='key',log_root='/logs',robot_id='robot-6391')))
+            install=root/'explicit-alpha7'
+            archive=root/'unopened-archive'
+            failures=[RuntimeError('private hash mismatch'),FileNotFoundError('private java path'),
+                ImportError('private import path'),subprocess.TimeoutExpired('private compiler command',1),
+                ValueError('private installation detail')]
+            for failure in failures:
+                with self.subTest(failure=type(failure).__name__), \
+                     patch('tools.status_bridge.run.prepare',side_effect=failure) as prepare, \
+                     patch.object(StatusBridge,'start') as start, \
+                     patch.object(paramiko.SSHClient,'connect') as connect:
+                    with self.assertRaises(RuntimeError) as raised:
+                        configure(Config(data_dir=str(archive)),path,'explicit-status-host',5810,install)
+                    self.assertEqual(str(raised.exception),
+                        'Native status reader preparation failed; check the pinned Alpha7 installation')
+                    self.assertTrue(raised.exception.__suppress_context__)
+                    prepare.assert_called_once_with(install)
+                    start.assert_not_called();connect.assert_not_called()
+                    self.assertFalse(archive.exists())
+
+    @unittest.skipIf(paramiko is None,'Pinned optional sftp extra required')
+    def test_pure_validation_does_not_prepare_native_reader(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/'known').write_text('synthetic');(root/'key').write_text('synthetic')
+            path=root/'source.json';path.write_text(json.dumps(dict(schema_version=1,host='configured-host',
+                username='reader',known_hosts='known',private_key='key',log_root='/logs',robot_id='robot-6391')))
+            with patch('tools.status_bridge.run.prepare') as prepare,patch.object(StatusBridge,'start') as start:
+                config,source=validate_configuration(Config(),path,'explicit-status-host',5810)
+                self.assertEqual(config.idle_delay,10)
+                self.assertIsNone(source.status_provider.command)
+                self.assertIsNone(source.status().enabled)
+                prepare.assert_not_called();start.assert_not_called()
+                settings=source.config
+                path.unlink()
+                _,reused=validate_configuration(Config(),path,'explicit-status-host',5810,settings=settings)
+                self.assertIs(reused.config,settings)
+                prepare.assert_not_called();start.assert_not_called()
+                with self.assertRaises(ValueError):
+                    validate_configuration(Config(),path,'explicit-status-host',0,settings=settings)
+                prepare.assert_not_called()
 
     def test_transient_transport_cancel_does_not_stop_status_reader(self):
         class Reader:

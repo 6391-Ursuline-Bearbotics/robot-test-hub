@@ -65,6 +65,8 @@ NT host and port are explicit and may differ from SSH. Substitute the confirmed 
 
 Open `http://127.0.0.1:6391`. Explicit `--idle-delay` or hub-config `idle_delay` overrides the ten-second live default. Use a separate practice archive from the demo. Credentials stay outside diagnostic/config snapshots. Ctrl+C stops the reader/workers preserving committed checkpoints. Reachable SSH alone never grants permission.
 
+The live launcher verifies the locked native dependencies and compiles the Alpha 7 status reader before opening the archive or starting any endpoint connection. Missing dependencies, hash mismatches, wrong Java version and compiler failures stop startup with fixed guidance. After preparation, the reader still waits until archive ownership and loopback HTTP binding succeed before starting. Its prepared command/environment are reused for supervised restarts.
+
 ## Check setup before connecting
 
 Run the offline readiness check first, with the same source/NT/toolchain settings you will use for the server:
@@ -73,7 +75,7 @@ Run the offline readiness check first, with the same source/NT/toolchain setting
 .\.venv\Scripts\python.exe -m robot_test_hub.live_check --source-config data/systemcore-source.json --nt-host CONFIGURED-NT-HOST --nt-port CONFIRMED-NT-PORT --wpilib-install C:\Users\Public\wpilib\2027_alpha7
 ```
 
-The check validates source settings, the pinned Paramiko version, the exact SSH host/port entry in your known-hosts file, and local private-key readability. It applies the live idle/freshness/chunk rules, verifies locked Alpha 7 dependencies and compiles the status reader locally. It opens no NT/SSH connection, performs no DNS lookup, and opens no hub archive. It may create/update the ignored local status-tool build directory. Key contents, endpoint values, paths and provider exceptions are omitted from its report.
+The check validates source settings, the pinned Paramiko version, the exact SSH host/port entry in your known-hosts file, and local private-key readability. It applies the live idle/freshness/chunk rules, verifies locked Alpha 7 dependencies and compiles the status reader locally. It opens no NT/SSH connection, performs no DNS lookup, and opens no hub archive. It may create/update the ignored local status-tool build directory. Key contents, endpoint values, paths and provider exceptions are omitted from its report; compiler output is captured rather than mixed into JSON. Each check uses one immutable source-settings snapshot. Rerun it after editing settings; a previous READY report does not qualify a later configuration.
 
 For nonstandard SSH ports, known-hosts needs an entry named `[host]:port`; an ordinary `host` entry is insufficient. The check only establishes that a matching pin is configured. You must independently verify the fingerprint through a trusted setup channel, and later SSH connection must match that pin. A readable key does not prove that the server authorizes it.
 

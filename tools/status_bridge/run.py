@@ -58,7 +58,8 @@ def prepare(install=DEFAULT_INSTALL):
                         target.write_bytes(content)
     classpath = os.pathsep.join(str(p) for p in jars)
     subprocess.run([str(javac),'-cp',classpath,'-d',str(classes),
-                    *map(str,sorted((HERE / 'src').glob('*.java')))],check=True,timeout=30)
+                    *map(str,sorted((HERE / 'src').glob('*.java')))],check=True,timeout=30,
+                   capture_output=True,text=True)
     env = os.environ.copy()
     env['PATH'] = str(native) + os.pathsep + env.get('PATH','')
     command = [str(java),'--enable-native-access=ALL-UNNAMED',f'-Djava.library.path={native}',

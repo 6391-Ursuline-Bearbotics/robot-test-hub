@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from .config import Config
-from .live import configure
+from .live import validate_configuration
 from .sftp_source import SFTPConfig
 
 
@@ -63,8 +63,8 @@ def check_live(config, source_path, nt_host, nt_port, install=None, *, idle_dela
             record('private_key', True, 'The explicitly referenced private key is locally readable.')
 
         try:
-            effective, _ = configure(config, source_path, nt_host, nt_port, install,
-                                     idle_delay_explicit=idle_delay_explicit)
+            effective, _ = validate_configuration(config, source_path, nt_host, nt_port, install,
+                                                 idle_delay_explicit=idle_delay_explicit, settings=settings)
         except (ValueError, TypeError, OSError, OverflowError, RecursionError):
             record('transfer_settings', False,
                    'Set explicit NT host/port and keep hub chunk_size within the source max_read bound.')

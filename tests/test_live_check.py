@@ -3,6 +3,7 @@ from contextlib import ExitStack, redirect_stdout
 import io
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -100,6 +101,38 @@ class LiveCheckTests(unittest.TestCase):
         failures = {c['name'] for c in report['checks'] if not c['passed']}
         self.assertEqual(failures, {'source_config', 'native_status_reader'})
         self.assertNotIn('private-secret-content', json.dumps(report))
+
+    def test_valid_source_native_failures_keep_json_redacted_and_prepare_once(self):
+        errors = (RuntimeError('private-native-error'),
+                  subprocess.TimeoutExpired('private-command', 1, output='private-native-error'),
+                  subprocess.CalledProcessError(1, 'private-command', stderr='private-native-error'))
+        for error in errors:
+            with self.subTest(error=type(error).__name__):
+                self.build.reset_mock()
+                self.build.side_effect = error
+                stream = io.StringIO()
+                with redirect_stdout(stream):
+                    code = main(['--source-config', str(self.path), '--nt-host', 'private-nt.invalid',
+                                 '--nt-port', '5810', '--json'])
+                self.assertEqual(code, 2)
+                report = json.loads(stream.getvalue())
+                self.assertTrue(next(c for c in report['checks'] if c['name'] == 'transfer_settings')['passed'])
+                self.assertFalse(next(c for c in report['checks'] if c['name'] == 'native_status_reader')['passed'])
+                self.assertNotIn('private-', stream.getvalue())
+                self.build.assert_called_once()
+
+    def test_source_replacement_cannot_change_checked_snapshot_mid_check(self):
+        original = paramiko.PKey.from_path
+        def replace_source(path):
+            key = original(path)
+            self.source.update(host='replacement.invalid', max_read=1, private_key='missing-key')
+            self.save()
+            return key
+        with patch.object(paramiko.PKey, 'from_path', side_effect=replace_source):
+            report = self.check()
+        self.assertTrue(report['ready'])
+        self.assertEqual(report['settings']['chunk_bytes'], 262144)
+        self.assertEqual(report['settings']['sftp_read_bytes'], 32768)
 
     def test_invalid_nt_and_chunk_bounds_cannot_be_ready(self):
         for options in (dict(nt_port=0), dict(config=Config(chunk_size=524288))):

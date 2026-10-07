@@ -1,5 +1,7 @@
 """Explicit opt-in composition of authoritative NT status and read-only SFTP."""
 from dataclasses import replace
+from pathlib import Path
+import subprocess
 from .sftp_source import SFTPConfig, SFTPSource
 from .status_bridge import StatusBridge
 
@@ -26,11 +28,15 @@ class LiveSource(SFTPSource):
         return details
 
 
-def configure(config,source_path,nt_host,nt_port,install=None,*,idle_delay_explicit=False):
+def validate_configuration(config,source_path,nt_host,nt_port,install=None,*,idle_delay_explicit=False,
+                           settings=None):
+    """Validate local settings without preparing native code or starting a link."""
     if not nt_host or nt_port is None:
         raise ValueError('Live transfer requires explicit --nt-host and --nt-port')
-    settings=SFTPConfig.load(source_path)
-    # Validate required native reader before opening the hub or any remote link.
+    if settings is None:
+        settings=SFTPConfig.load(source_path)
+    elif not isinstance(settings,SFTPConfig):
+        raise TypeError('Live settings must be an SFTPConfig')
     import paramiko
     if paramiko.__version__!='4.0.0':
         raise ValueError('Install the pinned sftp extra: pip install -e ".[sftp]"')
@@ -42,3 +48,17 @@ def configure(config,source_path,nt_host,nt_port,install=None,*,idle_delay_expli
         config=replace(config,idle_delay=10)
     bridge=StatusBridge(nt_host,nt_port,settings.robot_id,install=install)
     return config,LiveSource(settings,bridge)
+
+
+def configure(config,source_path,nt_host,nt_port,install=None,*,idle_delay_explicit=False):
+    """Prepare the required native reader before the hub opens an archive or link."""
+    config,source=validate_configuration(config,source_path,nt_host,nt_port,install,
+        idle_delay_explicit=idle_delay_explicit)
+    try:
+        from tools.status_bridge.run import prepare,DEFAULT_INSTALL
+        command,env=prepare(Path(install) if install is not None else DEFAULT_INSTALL)
+    except (OSError,RuntimeError,ImportError,subprocess.SubprocessError,ValueError):
+        raise RuntimeError('Native status reader preparation failed; check the pinned Alpha7 installation') from None
+    source.status_provider.command=command
+    source.status_provider.env=env
+    return config,source

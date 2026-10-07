@@ -153,7 +153,7 @@ Acceptance: protocol integration tests against fake/temporary SFTP service; no s
 
 ## T12 — Physical transfer qualification
 
-Local preparation now includes `python -m robot_test_hub.live_check`: a no-network, no-archive readiness check for explicit source settings, pinned SSH host/port, private-key parsing, transfer defaults and the compiled locked native reader. Nine focused tests cover failure guidance, redaction, nonstandard ports, CLI overrides and absence of robot/archive access. This prepares commissioning; it does not replace physical qualification. See [setup](LIVE_TRANSFER.md#check-setup-before-connecting).
+Local preparation includes `python -m robot_test_hub.live_check`: a no-network, no-archive readiness check for explicit source settings, pinned SSH host/port, private-key parsing, transfer defaults and the compiled locked native reader. Eleven focused tests cover failure guidance, redaction, nonstandard ports, CLI overrides, source replacement and absence of robot/archive access. The live launcher now prepares the native reader before opening the archive; three CLI startup tests verify ordering and six live-configuration tests cover prepared command reuse, pure settings validation and native failures. Compiler diagnostics remain captured. This prepares commissioning; it does not replace physical qualification. See [setup](LIVE_TRANSFER.md#check-setup-before-connecting).
 
 Status: **bench worksheet prepared; requires confirmed access and separately authorized robot setup**. See [worksheet](LIVE_TRANSFER_BENCH.md). Depends: T11. Read VALIDATION and TRANSFER.
 
