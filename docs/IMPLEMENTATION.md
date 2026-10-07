@@ -155,6 +155,8 @@ Acceptance: protocol integration tests against fake/temporary SFTP service; no s
 
 Local preparation includes `python -m robot_test_hub.live_check`: a no-network, no-archive readiness check for explicit source settings, pinned SSH host/port, private-key parsing, transfer defaults and the compiled locked native reader. Eleven focused tests cover failure guidance, redaction, nonstandard ports, CLI overrides, source replacement and absence of robot/archive access. The live launcher now prepares the native reader before opening the archive; three CLI startup tests verify ordering and six live-configuration tests cover prepared command reuse, pure settings validation and native failures. Compiler diagnostics remain captured. This prepares commissioning; it does not replace physical qualification. See [setup](LIVE_TRANSFER.md#check-setup-before-connecting).
 
+Local commissioning support also includes a read-only [transfer session recorder](TRANSFER_SESSION.md), saving whitelisted local status samples and a persisted summary. Queue, freshness, reported rate/ETA and reader recovery observations remain distinct from physical traffic/load measurements. Robot boot and cumulative downloaded-byte totals are unavailable in the current status API. The recorder never controls the robot or changes collection permission.
+
 Status: **bench worksheet prepared; requires confirmed access and separately authorized robot setup**. See [worksheet](LIVE_TRANSFER_BENCH.md). Depends: T11. Read VALIDATION and TRANSFER.
 
 Work: run the specified load/interruption matrix, collect source/network/DS/loop/USB metrics, choose defaults from measurements, and write a dated commissioning report in the private evidence archive with a public redacted summary if appropriate.

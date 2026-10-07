@@ -12,6 +12,7 @@ Design and implementation workspace for turning physical robot testing into sear
 - [Contributor/agent instructions](AGENTS.md)
 - [Live transfer setup and bench requirements](docs/LIVE_TRANSFER.md)
 - [Offline live-transfer readiness check](docs/LIVE_TRANSFER.md#check-setup-before-connecting)
+- [Save live transfer session reports](docs/TRANSFER_SESSION.md)
 - [Opt-in practice recording and coverage](docs/RECORDING.md)
 - [Manual video alignment core](docs/VIDEO_ALIGNMENT.md)
 - [Opt-in verified backup and restore](docs/BACKUP.md)

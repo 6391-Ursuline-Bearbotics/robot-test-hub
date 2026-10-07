@@ -29,6 +29,8 @@ Exercise robot enable changes through the team's existing operator procedure. Do
 
 For each row record pass/fail/unmeasured, observed timestamps, a concise incident note and links to private evidence. Capture goodput p50/p95/worst, maximum outstanding bytes, source traffic after observed revocation in bytes/milliseconds, robot loop/DS/logger impact relative to baseline, local verification time and error/retry counts. Network capture must measure actual traffic; a UI screenshot alone cannot prove cancellation latency. Document whether enable and status loss were physically observed or software-injected.
 
+Run the [local session recorder](TRANSFER_SESSION.md) alongside the hub to preserve queue, rate/ETA, freshness and reader-recovery observations. Keep its JSONL report with this worksheet. Its polling categories and reported rate range supplement the physical measurements; they do not supply network goodput percentiles, robot boot counts, cumulative downloaded bytes or cancellation tails.
+
 Initial settings are 10 s idle delay, 500 ms status freshness, one 256 KiB collector chunk and one 32 KiB SFTP read. The provisional cancellation target is under 250 ms on the selected setup; report a failure instead of changing the definition afterward. Adjust settings from measured results and rerun affected cases.
 
 Check archive capacity as `idle_fraction × idle_goodput > average_log_generation_rate`, with rates in matching units. If not, use a faster link or reserve an end-of-practice idle window. Record the operational limit; the queue display cannot solve insufficient capacity.
