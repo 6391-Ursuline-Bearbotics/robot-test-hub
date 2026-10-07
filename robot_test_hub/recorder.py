@@ -167,13 +167,23 @@ class FFmpegAdapter:
             raise RecordingError("Native recording command failed") from None
         finally:
             if process is not None:
-                if process.poll() is None:
-                    process.kill()
-                    process.wait(timeout=self.config.operation_timeout)
-                if reader:
-                    reader.join(timeout=self.config.operation_timeout)
-                if process.stdout and (reader is None or not reader.is_alive()):
-                    process.stdout.close()
+                # This call's worker remains the cleanup owner. Never return to
+                # the service while an auxiliary child/reader or pipe is pending,
+                # including when terminate/wait/close itself temporarily fails.
+                while True:
+                    try:
+                        if process.poll() is None:
+                            process.kill()
+                        process.wait(timeout=self.config.operation_timeout)
+                        if reader and reader.ident is not None:
+                            reader.join(timeout=min(self.config.operation_timeout,.5))
+                            if reader.is_alive():
+                                raise OSError('Native output reader cleanup pending')
+                        if process.stdout:
+                            process.stdout.close()
+                        break
+                    except (OSError,ValueError,subprocess.SubprocessError):
+                        time.sleep(.1)
 
     def validate(self):
         for executable, tool in ((self.config.executable, "ffmpeg"), (self.config.probe_executable, "ffprobe")):

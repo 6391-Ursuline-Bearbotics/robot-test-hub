@@ -40,7 +40,7 @@ Useful release A: T01–T07 and T09–T12 (collection, time search, hub notebook
 | UI | Transfer queue, diagnostics, run search, offline notebook, recording-quality reports, review/maintenance forms | Phone pairing, robot markers, review history and video integration |
 | Robot | T09 identity/status and T10 experimental rotation, explicit SIM/REAL recording selection | USB/load qualification, marker IO and bench run; T08–T12 |
 | Analysis | Automatic recording-quality reports, deterministic swerve metrics, explicit cohort approval and maintenance-aware comparison | Automatic swerve/cohort scheduling, plots, REAL freshness; T14–T15 |
-| Video | Recorder/manual alignment cores independently reviewed; actual generated-video qualification passes | Recorder service/UI integration under review; note/run investigation, live cue detection and physical timing qualification; T16–T17 |
+| Video | Reviewed recorder/manual alignment cores, independent recording worker, redacted health/history APIs and browser view; generated-media qualification passes | Long-session progress bounds, note/run investigation, live cue detection, media/export, video backup and physical timing qualification; T16–T17 |
 | Packaging | Foreground CLI, pinned timezone dependency, Windows/Linux CI | Autostart, upgrade/rollback and restore qualification; T18–T19 |
 
 Status polling, transfers, local verification and indexing use independent workers. Tests and browser checks establish local behavior; real transport, sensor freshness, recording load, camera alignment and independent backup require their own evidence. No hardware deployment or operation has been performed.
@@ -195,7 +195,7 @@ Acceptance: module swap tracked by physical ID; maintenance splits cohorts corre
 
 ## T16 — Practice recording adapter
 
-Status: **standalone core implemented and reviewed; generated-media qualification passes**. Twenty deterministic tests plus a native FFmpeg/FFprobe 9.0.2 generated-footage test verify PTS/gaps, original hashes and clip retries. Worker/configuration/API/browser integration is being reviewed separately. Live camera setup and physical performance remain unqualified. See [recording evidence](RECORDING.md). Depends: T06, T07. Read CONTEXT_AND_VIDEO.
+Status: **core and worker/configuration/API/browser integration implemented and independently reviewed; local generated-media qualification passes**. Twenty-one core and fourteen service tests plus actual native recording/service tests verify PTS/gaps, original hashes, clip retries, redacted projections, independent capture, shutdown and archive recovery. Browser checks cover pagination, hub loss and restart with recording disabled. Long-session progress caps, live camera setup, note/run mapping and physical performance remain incomplete. See [recording evidence](RECORDING.md). Depends: T06, T07. Read CONTEXT_AND_VIDEO.
 
 Work: recorder interface and first OBS/FFmpeg implementation with pinned-version checks, continuous bounded segments, health statistics, clip preservation around notes/runs, raw/derived artifact links. Mock adapter for CI.
 

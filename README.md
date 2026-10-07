@@ -2,7 +2,7 @@
 
 Design and implementation workspace for turning physical robot testing into searchable evidence: automatic log collection, run history, driver observations, synchronized practice video, and repeatable health reports.
 
-**Current status: local collection demo, opt-in live transfer adapter, qualified Alpha 7 WPILOG importer, searchable run history, and offline driver notebook.** Transfer, indexing, and status run independently. Live NT/SFTP passes local protocol tests; physical performance and camera integration remain unqualified. The transfer demo uses opaque synthetic bytes; genuine synthetic WPILOG fixtures exercise the importer.
+**Current status: local collection demo, opt-in live transfer adapter, qualified Alpha 7 WPILOG importer, searchable run history, offline driver notebook, and opt-in practice recording.** Transfer, indexing, and status run independently. Live NT/SFTP passes local protocol tests; physical performance and live camera timing remain unqualified. The transfer demo uses opaque synthetic bytes; genuine synthetic WPILOG fixtures exercise the importer.
 
 ## Start here
 
@@ -12,6 +12,8 @@ Design and implementation workspace for turning physical robot testing into sear
 - [Contributor/agent instructions](AGENTS.md)
 - [Live transfer setup and bench requirements](docs/LIVE_TRANSFER.md)
 - [Offline live-transfer readiness check](docs/LIVE_TRANSFER.md#check-setup-before-connecting)
+- [Opt-in practice recording and coverage](docs/RECORDING.md)
+- [Manual video alignment core](docs/VIDEO_ALIGNMENT.md)
 - [Opt-in verified backup and restore](docs/BACKUP.md)
 - [Analysis/review evidence and remaining gaps](docs/ANALYSIS_REVIEW.md)
 - [Reviewed October 7 checkpoint](docs/VALIDATION_CURRENT.md)
@@ -79,13 +81,14 @@ Ctrl+C stops the foreground host; SIGTERM and Windows Ctrl+Break are handled too
 - Four genuine synthetic Alpha 7 WPILOG fixtures and a portable streaming importer qualified against all 362 physical records using the pinned official reader. See [import commands](docs/IMPORTER.md).
 - Automatic indexing of verified supported recordings, immutable run/time revisions, and local date/time search with explicit DST choices and clock gaps. See [run catalog](docs/RUNS.md).
 - A driver notebook with revision history, immediate/seconds-ago/historical notes, durable browser outbox, offline reload, and automatic retry. Browser verification confirmed original incident time survives hub outage and reload. See [notebook](docs/NOTEBOOK.md).
+- Independent opt-in recording with private configuration, cached health/coverage, verified footage recovery and a Practice video page. Actual generated-media tests pass; camera timing and automatic note/run clips remain unqualified.
 - Automated regression suites covering transfer faults, migration/ownership, importer precision, time mapping, notebook retries, and service integration. CI covers Windows/Linux and Python 3.10/3.13.
 
 The demo intentionally has no credentials or robot address. `.logdata` artifacts are opaque synthetic payloads, not recordings for AdvantageScope. Test success demonstrates the collector model, not actual SystemCore transfer latency or physical robot operation.
 
 ## Prototype limitations
 
-Read the [implementation gap table](docs/IMPLEMENTATION.md#prototype-gap-table) before using this as a production system. The [opt-in live adapter](docs/LIVE_TRANSFER.md) passes local SSH/SFTP and Alpha 7 NT tests; it requires explicitly configured robot access. Physical USB, cancellation and robot load remain unqualified. Notebook access is loopback only; phone pairing and robot marker delivery remain unfinished. Season-scale indexing, video, independent backup qualification, autostart packaging and physical commissioning remain open tasks.
+Read the [implementation gap table](docs/IMPLEMENTATION.md#prototype-gap-table) before using this as a production system. The [opt-in live adapter](docs/LIVE_TRANSFER.md) passes local SSH/SFTP and Alpha 7 NT tests; it requires explicitly configured robot access. Physical USB, cancellation and robot load remain unqualified. Notebook access is loopback only; phone pairing and robot marker delivery remain unfinished. Season-scale indexing, video alignment/camera commissioning, independent backup qualification, autostart packaging and physical commissioning remain open tasks.
 
 ## Data handling
 

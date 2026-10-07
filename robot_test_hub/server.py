@@ -22,6 +22,8 @@ from .runs import install_schema as install_run_schema
 from .review import ReviewStore
 from .service import HubService
 from .storage import OwnershipError, SchemaError
+from .recorder import RecordingError
+from .recorder_service import load_video_config
 
 
 def create_http_server(service: HubService, source: DemoSource, port: int) -> ThreadingHTTPServer:
@@ -82,6 +84,26 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                 return self.send(200,(Path(__file__).parent/'static/runs.html').read_bytes(),'text/html; charset=utf-8')
             if self.path == '/review':
                 return self.send(200,(Path(__file__).parent/'static/review.html').read_bytes(),'text/html; charset=utf-8')
+            if self.path == '/video':
+                return self.send(200,(Path(__file__).parent/'static/video.html').read_bytes(),'text/html; charset=utf-8')
+            if urlsplit(self.path).path in ('/api/v1/video','/api/v1/video/segments'):
+                try:
+                    url=urlsplit(self.path)
+                    query=parse_qs(url.query,keep_blank_values=True,max_num_fields=2)
+                    if any(len(values)!=1 for values in query.values()):
+                        raise ValueError('Repeated video query field')
+                    if url.path=='/api/v1/video':
+                        if query:
+                            raise ValueError('Unexpected video health query')
+                        result=service.video.snapshot()
+                    else:
+                        if query.keys()-{'limit','cursor'}:
+                            raise ValueError('Unknown video query')
+                        result=service.video.segment_page(limit=int(query.get('limit',['20'])[0]),
+                            cursor=query.get('cursor',[None])[0])
+                    return self.send(200,json.dumps(result,allow_nan=False).encode())
+                except (ValueError,TypeError,OverflowError):
+                    return self.send(400,b'{"schema_version":1,"error_code":"invalid_video_query"}')
             if self.path == '/api/v1/review':
                 try:
                     with closing(sqlite3.connect(service.root/'catalog.sqlite3',timeout=2)) as db:
@@ -301,11 +323,15 @@ def main() -> int:
     parser.add_argument('--nt-host',help='Explicit authoritative status endpoint; required with --source-config')
     parser.add_argument('--nt-port',type=int,help='Explicit authoritative NT port; required with --source-config')
     parser.add_argument('--wpilib-install',type=Path,help='Pinned Alpha 7 installation for native status reader')
+    parser.add_argument('--video-config',type=Path,help='Private explicit video JSON; opts into independent recording')
     args = parser.parse_args()
     try:
         config = Config.load(args.config, port=args.port, data_dir=args.data_dir, idle_delay=args.idle_delay)
+        video_config=load_video_config(args.video_config) if args.video_config is not None else None
     except ConfigError as exc:
         parser.error(str(exc))
+    except RecordingError:
+        parser.error('Invalid private video configuration; check --video-config schema, paths, explicit input and bounds')
     service = None
     source = None
     httpd = None
@@ -323,7 +349,7 @@ def main() -> int:
             if args.nt_host is not None or args.nt_port is not None or args.wpilib_install is not None:
                 raise ValueError('NT options require --source-config; no endpoint is inferred')
             source = DemoSource()
-        service = HubService(config, source)
+        service = HubService(config, source,video_config=video_config)
         httpd = create_http_server(service, source, config.port)
         httpd.timeout = 0.2
         for name in ("SIGINT", "SIGTERM", "SIGBREAK"):

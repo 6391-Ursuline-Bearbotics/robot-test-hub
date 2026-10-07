@@ -355,6 +355,77 @@ class RecorderTests(unittest.TestCase):
                 with self.assertRaises(RecordingError):
                     replace(self.config,**{name:value})
 
+    def test_auxiliary_cleanup_retains_hub_owner_until_child_wait_and_pipe_close_finish(self):
+        from robot_test_hub.config import Config
+        from robot_test_hub.demo import DemoSource
+        from robot_test_hub.service import HubService
+        import threading
+        import time
+        entered=threading.Event()
+        release=threading.Event()
+        original_popen=subprocess.Popen
+        children=[]
+        phases=[]
+        def capture(*args,**kwargs):
+            child=original_popen(*args,**kwargs)
+            children.append(child)
+            kill,wait,close=child.kill,child.wait,child.stdout.close
+            failures={'wait':True,'close':True}
+            def delayed_kill():
+                entered.set()
+                if not release.is_set():
+                    raise OSError('Private fixture endpoint must not escape')
+                phases.append('kill')
+                return kill()
+            def retry_wait(*args,**kwargs):
+                if release.is_set() and failures['wait']:
+                    failures['wait']=False
+                    phases.append('wait_retry')
+                    raise subprocess.TimeoutExpired('private fixture',.01)
+                return wait(*args,**kwargs)
+            def retry_close():
+                if failures['close']:
+                    failures['close']=False
+                    phases.append('close_retry')
+                    raise OSError('Private fixture pipe-close failure')
+                return close()
+            child.kill,child.wait,child.stdout.close=delayed_kill,retry_wait,retry_close
+            return child
+        config=replace(self.config,operation_timeout=.1)
+        class AuxiliaryAdapter(FFmpegAdapter):
+            def validate(adapter):
+                adapter._run([sys.executable,'-c','import time; time.sleep(30)'])
+        def factory(root,config):
+            return Recorder(root,config,adapter=AuxiliaryAdapter(config))
+        with patch('robot_test_hub.recorder.subprocess.Popen',side_effect=capture):
+            service=HubService(Config(data_dir=str(self.base/'hub-owner'),shutdown_timeout=.05),
+                               DemoSource(),video_config=config,recorder_factory=factory)
+            try:
+                service.start()
+                self.assertTrue(entered.wait(2),'Auxiliary cleanup did not begin')
+                service.set_paused(True)
+                self.assertTrue(service.snapshot()['paused_by_operator'])
+                self.assertFalse(service.close())
+                self.assertFalse(service.owner.file.closed)
+                self.assertTrue(any(thread.is_alive() and thread.name=='hub-video' for thread in service.threads))
+                self.assertEqual(len(children),1)
+            finally:
+                release.set()
+                deadline=time.monotonic()+3
+                while any(thread.is_alive() for thread in service.threads) and time.monotonic()<deadline:
+                    time.sleep(.01)
+                self.assertTrue(service.close())
+                for child in children:
+                    if child.poll() is None:
+                        child.kill()
+                    child.wait(timeout=2)
+            self.assertEqual(len(children),1)
+            self.assertIsNotNone(children[0].poll())
+            self.assertTrue(children[0].stdout.closed)
+            self.assertIn('wait_retry',phases)
+            self.assertIn('close_retry',phases)
+            self.assertNotIn('Private',json.dumps(service.video.snapshot()))
+
 
 if __name__=='__main__':
     unittest.main()

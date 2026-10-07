@@ -1,10 +1,42 @@
-# Practice recording core (T16 increment)
+# Practice recording (T16)
 
-`robot_test_hub.recorder` implements an opt-in, standalone recording core and an FFmpeg process adapter. Importing it never starts a camera. There is no recorder service/configuration/API/browser wiring in this increment. The hub does not yet automatically record practice or request footage when a note is saved.
+The hub has an opt-in recording worker, private configuration, cached health/segment APIs and a Practice video page. `robot_test_hub.recorder` supplies the recording core and FFmpeg adapter. Importing modules or starting the hub without `--video-config` never starts a camera. Saving a note does not yet request footage automatically; mapping note/run times and selecting clips remains T17 integration work.
+
+## Configure the independent worker
+
+Save private video settings under ignored `data/`. The JSON must include `schema_version: 1` plus the `FFmpegConfig` fields. Executable paths must be absolute and are not discovered automatically. This example uses generated footage only; replace tool paths with your explicitly selected local installation:
+
+```json
+{
+  "schema_version": 1,
+  "executable": "C:\\Tools\\ffmpeg\\bin\\ffmpeg.exe",
+  "probe_executable": "C:\\Tools\\ffmpeg\\bin\\ffprobe.exe",
+  "version_pin": "9.0.2-essentials_build-www.gyan.dev",
+  "camera_id": "generated-overview",
+  "input_format": "lavfi",
+  "camera_input": "testsrc2=size=64x64:rate=10",
+  "source_type": "SYNTHETIC",
+  "segment_seconds": 60
+}
+```
+
+```powershell
+.\.venv\Scripts\python.exe -m robot_test_hub.server --data-dir data/video-practice --video-config data/video-config.json
+```
+
+Open `http://127.0.0.1:6391/video`. The same option can accompany the explicit live-transfer launch. Capture runs independently of enabled/disconnected/stale status and the operator's transfer pause. Notes and cached HTTP views do not wait for media probing. Do not put RTSP credentials in ordinary hub configuration, Git, or shared diagnostic reports: the separate private file is bounded to 32 KiB and its camera input is omitted from API/configuration/backup snapshots.
+
+The worker stores footage below `<hub-data>/video`, assigning a new capture and session namespace for each start. Restart verifies hashes and manifests of closed recordings, retains unfinished/unverified originals, and reports partial recovery or unknown previous lifecycle instead of presenting them as usable coverage. A graceful finalization receipt distinguishes confirmed clean shutdown from an unknown prior process exit. Recovery is bounded to 20,000 discovered entries and 10,000 projected segments; hitting limits is visible, not complete recovery. Parent-process crash recovery of orphan native encoders remains unqualified.
+
+`GET /api/v1/video` exposes redacted cached health, including `health_age_seconds` and frame age that continues advancing while probing or shutdown is blocked. `GET /api/v1/video/segments?limit=20` pages verified summaries with opaque cursors (limit 1–100). These views omit file paths, camera URLs, native stderr and full frame arrays. The browser shows source provenance, capture progress, startup history and recording integrity; hub loss clears its current capture/frame claims. Raw media preview and alignment editing are not integrated yet.
+
+Video is explicitly **not backed up** by the current hub backup worker. Copying a hub catalog alone does not preserve footage. Shutdown retains hub ownership until recording and auxiliary native-process cleanup finish; source originals and incomplete captures are never automatically deleted.
+
+## Recording and preservation core
 
 The core accepts an explicit `FFmpegConfig` containing absolute FFmpeg and FFprobe executable paths, an exact version token, camera identity/input, input format, and `REAL` or `SYNTHETIC` provenance. Supported command shapes are DirectShow (`dshow`), Linux Video4Linux (`v4l2`), explicit RTSP (`rtsp`), or generated FFmpeg input (`lavfi`, necessarily synthetic). No executable search, package installation, camera discovery, automatic network connection, or default external camera is performed. A configured RTSP feed must be on the practice camera network, independently of the robot radio.
 
-Both executables must report the exact configured version token. The session records the token and both executable SHA-256 values. Native availability/version validation is a prerequisite to capture, not evidence that the selected build, input device, encoder or storage has passed commissioning. The implementation requires the selected build to supply the Matroska/segment muxers and `libx264`; codec availability has not been qualified here. Missing tools/version mismatch fail startup visibly.
+Both executables must report the exact configured version token. The session records the token and both executable SHA-256 values. Native availability/version validation is a prerequisite to capture, not evidence that the selected input device or storage has passed commissioning. The named generated-media qualification verifies Matroska/segment muxers and `libx264` on that build; other builds require their own checks. Missing tools/version mismatch fail capture visibly.
 
 Use the core from an independent worker:
 
@@ -62,7 +94,7 @@ Shutdown first asks FFmpeg to close via `q`, then kills on its bounded wait time
 
 Qualification on October 7 uses a project-local, ignored FFmpeg/FFprobe 9.0.2 essentials build. Both tools report `9.0.2-essentials_build-www.gyan.dev`; their respective SHA-256 values are `3256173f3f8bffd7df12227c68adf68025edb1832273a9530688a7bb1ed8edec` and `f0d36ecbbdd3bcfac3efa078c96c7271c2e68b3810595552ac3b7f17e9a65c52`. The downloaded ZIP matched publisher checksum `60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba` before extraction. No global package was installed or real camera/network input contacted.
 
-Twenty deterministic recorder tests pass. Their fake bytes test the protocol and do not establish native encoding. The separate opt-in `test_recorder_native.py` passes against actual encoded lavfi footage: known 10 Hz input drops source frames 2 and 6 per second, retains actual variable frame PTS, reports the corresponding gaps, finalizes the shutdown tail, reaps the process, preserves original hashes, and generates idempotent derivatives whose independently probed PTS preserve those gaps. This qualifies the named build and generated-input profile, not live camera exposure or UTC alignment. General adapter health still reports live camera qualification false.
+Twenty-one deterministic recorder tests pass. Their fake bytes test the protocol and do not establish native encoding. The separate opt-in `test_recorder_native.py` passes against actual encoded lavfi footage: known 10 Hz input drops source frames 2 and 6 per second, retains actual variable frame PTS, reports the corresponding gaps, finalizes the shutdown tail, reaps the process, preserves original hashes, and generates idempotent derivatives whose independently probed PTS preserve those gaps. This qualifies the named build and generated-input profile, not live camera exposure or UTC alignment. General adapter health still reports live camera qualification false.
 
 Native qualification requires explicit local executable paths:
 
@@ -77,4 +109,6 @@ The core bounds version/probe output, parsed frame count, and progress/error log
 
 Command design references: [FFmpeg segment muxer](https://ffmpeg.org/ffmpeg-formats.html#segment_002c-stream_005fsegment_002c-ssegment), [FFmpeg command options](https://ffmpeg.org/ffmpeg.html), and [FFprobe frame/stream inspection](https://ffmpeg.org/ffprobe.html). These current upstream references describe the candidate command shape; an actual pinned local build must still be qualified.
 
-Remaining T16/T17 work: qualify device disconnection/restart and disk interruption, measure camera exposure/PTS/UTC relationships and alignment residuals (V16), integrate the recorder worker/configuration/API/browser with note/run mapping, validate restart discovery/recovery of unfinished captures. This increment keeps raw manifests on disk but does not load prior sessions into the in-memory `Recorder` automatically. Automatic footage backup is also outside the current T19 catalog-reference contract. Real camera operation, season-scale storage, dropped-frame measurement and DS resource contention remain unqualified.
+Fourteen worker/service tests and a separate actual generated-media service test verify cached redacted HTTP, responsive notes, recovery, lifecycle receipts, independent recording while transfer is paused, and shutdown ownership. The native test recovered seven verified originals with unchanged hashes and retained one unfinished fragment as unverified. Browser checks verified capture health, 20-row pagination, hub-loss state and recovery of 338 generated segments with capture disabled. These are synthetic/local results.
+
+Remaining T16/T17 work: physical device disconnection/restart and disk interruption, measured exposure/PTS/UTC relationships and alignment residuals (V16), note/run mapping and clip workflow, media preview/export, and automatic footage backup. Long sessions can hit the append-only progress/error-file caps and stop capture visibly; bounded rolling progress is a required follow-up before unattended practice. Real camera operation, parent-crash native orphan cleanup, season-scale storage, dropped-frame measurement and DS resource contention remain unqualified.

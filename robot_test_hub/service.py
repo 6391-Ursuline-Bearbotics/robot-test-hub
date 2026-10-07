@@ -83,7 +83,12 @@ class CachedSource:
 
 
 class HubService:
-    def __init__(self, config: Config, source: Source, *, collector_factory=Collector):
+    def __init__(self, config: Config, source: Source, *, collector_factory=Collector,
+                 video_config=None, recorder_factory=None):
+        from .recorder import FFmpegConfig, Recorder
+        from .recorder_service import RecorderWorker
+        if video_config is not None and not isinstance(video_config,FFmpegConfig):
+            raise ValueError('Explicit validated private video configuration required')
         self.config, self.source = config, source
         self.root = Path(config.data_dir).resolve()
         self.owner = DataRootOwner(self.root)
@@ -113,6 +118,9 @@ class HubService:
         self.backup_cache = {"schema_version": 1, "enabled": config.backup_destination is not None, "state": "starting" if config.backup_destination else "disabled", "failure_domain_qualified": False, "last_capture_utc_ns": None, "last_completed_utc_ns": None, "error_code": None}
         self.health = {"collector": {"state": "starting"}, "status": {"state": "starting"}, 'indexer':{'state':'starting'}}
         self.health["backup"] = {"state": "starting" if config.backup_destination else "disabled"}
+        self.video=RecorderWorker(self.root,video_config,recorder_factory=recorder_factory or Recorder,
+                                  publish=self._video_publish)
+        self.health['video']={'state':'starting' if video_config else 'disabled'}
         self.started = False
         self.closed = False
         self.threads = []
@@ -122,6 +130,12 @@ class HubService:
     def _health(self, worker, state, code=None):
         with self.cache_lock:
             self.health[worker] = {"state": state, "error_code": code}
+
+    def _video_publish(self,snapshot):
+        self._health('video',snapshot['state'],snapshot['error_code'])
+
+    def _video_worker(self):
+        self.video.run(self.stop)
 
     def _preference(self):
         with self.preference_lock:
@@ -144,7 +158,8 @@ class HubService:
         self.started = True
         self.threads = [threading.Thread(target=self._status_worker, name="hub-status"),
                         threading.Thread(target=self._collector_worker, name="hub-collector"),
-                        threading.Thread(target=self._pipeline_worker,name='hub-indexer')]
+                        threading.Thread(target=self._pipeline_worker,name='hub-indexer'),
+                        threading.Thread(target=self._video_worker,name='hub-video')]
         if self.config.backup_destination is not None:
             self.threads.append(threading.Thread(target=self._backup_worker, name="hub-backup"))
         for thread in self.threads:
@@ -317,6 +332,7 @@ class HubService:
             result.update(state="paused", reason="Robot enabled" if fresh and status.enabled else ("Source transfer permission denied" if fresh and not status.transfer_allowed else "Robot status unknown or stale"))
         if result["state"] in ("paused", "attention", "stopping", "discovering", "verifying", "starting"):
             result.update(bytes_per_second=None, eta_seconds=None)
+        result['video']=self.video.snapshot()
         return result
 
     def close(self) -> bool:
