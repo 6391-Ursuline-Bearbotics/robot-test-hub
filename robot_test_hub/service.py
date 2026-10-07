@@ -351,9 +351,16 @@ class HubService:
         if any(thread.is_alive() for thread in self.threads):
             self.diagnostics.record("shutdown_timeout", "Worker still has outstanding I/O; ownership retained. Adapter must provide bounded I/O/cancellation")
             return False
-        with self.settings_lock:
+        if not self.settings_lock.acquire(timeout=max(0,deadline-time.monotonic())):
+            self.diagnostics.record("shutdown_timeout", "Local publication is still outstanding; ownership retained")
+            return False
+        try:
+            if self.closed:
+                return True
             self.settings_db.close()
             self.closed = True
+        finally:
+            self.settings_lock.release()
         self.diagnostics.record("service_stopped", "Workers stopped; committed checkpoints preserved")
         self.diagnostics.close()
         self.owner.close()

@@ -24,12 +24,14 @@ from .service import HubService
 from .storage import OwnershipError, SchemaError
 from .recorder import RecordingError
 from .recorder_service import load_video_config
+from .video_investigation import VideoInvestigation, InvestigationError, strict_json
 
 
 def create_http_server(service: HubService, source: DemoSource, port: int) -> ThreadingHTTPServer:
     page = (Path(__file__).parent / "static/index.html").read_bytes()
     notebook_page = (Path(__file__).parent / "static/notebook.html").read_bytes()
     notebook = Notebook(service.root / "catalog.sqlite3")
+    investigation = VideoInvestigation(service, notebook)
     with closing(sqlite3.connect(service.root / 'catalog.sqlite3',timeout=2)) as db:
         db.execute('BEGIN IMMEDIATE')
         with db:
@@ -86,6 +88,11 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                 return self.send(200,(Path(__file__).parent/'static/review.html').read_bytes(),'text/html; charset=utf-8')
             if self.path == '/video':
                 return self.send(200,(Path(__file__).parent/'static/video.html').read_bytes(),'text/html; charset=utf-8')
+            if self.path == '/alignment':
+                return self.send(200,(Path(__file__).parent/'static/alignment.html').read_bytes(),'text/html; charset=utf-8')
+            if (urlsplit(self.path).path in ('/api/v1/video/alignments','/api/v1/video/frames')
+                    or urlsplit(self.path).path.startswith('/api/v1/video/alignments/')):
+                return self.video_investigation_get()
             if urlsplit(self.path).path in ('/api/v1/video','/api/v1/video/segments'):
                 try:
                     url=urlsplit(self.path)
@@ -226,6 +233,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                     or (origin and (urlsplit(origin).netloc != self.headers.get("Host") or urlsplit(origin).scheme != "http"))
                     or self.headers.get("Content-Type") != "application/json"):
                 return self.reject_unread(403, b'{}')
+            if self.path in ('/api/v1/video/alignments','/api/v1/video/map'):
+                return self.video_investigation_post()
             if self.path.startswith("/api/v1/annotations"):
                 return self.notebook_post()
             if self.path.startswith('/api/v1/review/'):
@@ -255,6 +264,55 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
             except sqlite3.Error:
                 service.diagnostics.record("settings_write_failed", "Cannot save operator preference; check catalog/local storage")
                 self.send(503, b'{"error_code":"settings_write_failed","error":"Preference was not saved; check local storage"}')
+
+        def video_investigation_error(self, exc):
+            if isinstance(exc, InvestigationError):
+                status,code=exc.status,exc.code
+            elif isinstance(exc,(OSError,sqlite3.Error)):
+                status,code=503,'video_investigation_storage_unavailable'
+            else:
+                status,code=400,'invalid_video_investigation_request'
+            return self.send(status,json.dumps({'schema_version':1,'error_code':code}).encode())
+
+        def video_investigation_get(self):
+            if service.stop.is_set() or service.closed:
+                return self.send(503,b'{"schema_version":1,"error_code":"service_stopping"}')
+            try:
+                url=urlsplit(self.path)
+                query=parse_qs(url.query,keep_blank_values=True,max_num_fields=3)
+                if any(len(values)!=1 for values in query.values()):
+                    raise ValueError()
+                query={key:values[0] for key,values in query.items()}
+                if url.path=='/api/v1/video/frames':
+                    if query.keys()-{'segment_id','offset','limit'} or 'segment_id' not in query:
+                        raise ValueError()
+                    result=investigation.frames(query['segment_id'],offset=int(query.get('offset','0')),
+                                                limit=int(query.get('limit','50')))
+                elif url.path=='/api/v1/video/alignments':
+                    if query.keys()-{'limit','cursor'}:raise ValueError()
+                    result=investigation.list(limit=int(query.get('limit','20')),cursor=query.get('cursor'))
+                else:
+                    if set(query)!={'revision','sha256'}:raise ValueError()
+                    result=investigation.get(url.path[len('/api/v1/video/alignments/'):],
+                        int(query['revision']),query['sha256'])
+                return self.send(200,json.dumps(result,allow_nan=False).encode())
+            except (InvestigationError,ValueError,TypeError,KeyError,OverflowError,RecursionError,OSError,sqlite3.Error) as exc:
+                return self.video_investigation_error(exc)
+
+        def video_investigation_post(self):
+            if service.stop.is_set() or service.closed:
+                return self.reject_unread(503,b'{"schema_version":1,"error_code":"service_stopping"}')
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=32768:
+                    return self.reject_unread(400,b'{"schema_version":1,"error_code":"invalid_request_size"}')
+                encoded=self.rfile.read(length)
+                if len(encoded)!=length:raise ValueError()
+                payload=strict_json(encoded)
+                result=investigation.create(payload) if self.path.endswith('/alignments') else investigation.map(payload)
+                return self.send(200,json.dumps(result,allow_nan=False).encode())
+            except (InvestigationError,ValueError,TypeError,KeyError,OverflowError,RecursionError,OSError,sqlite3.Error) as exc:
+                return self.video_investigation_error(exc)
 
         def review_post(self):
             actions={'assignments':'assign_component','maintenance':'record_maintenance','baselines':'approve_baseline',

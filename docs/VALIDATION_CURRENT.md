@@ -1,5 +1,7 @@
 # Reviewed local checkpoint — October 7, 2026
 
+Latest increment: the [manual footage investigation](VIDEO_INVESTIGATION.md) service/browser workflow passed independent Sol review and a full native-enabled Windows run of **380 tests: 378 passed, two symbolic-link privilege skips**. Generated encoded footage established revision save/reload, exact point selection, gaps, note-revision context and uncertainty separation. Browser functional checks passed; screenshot capture returned blank backgrounds, leaving visual appearance unverified. Automatic wall-clock note mapping, preview/clips/export and physical camera qualification remain incomplete.
+
 This checkpoint publishes completed collection, evidence-analysis/review and backup work. It is not physical commissioning or completion of the full design.
 
 Three independent Sol reviews covered live source transport/status, analysis/cohort/report correctness, and backup/restore. A further Sol review covered robot recording/status/build identity. They fixed and added regressions for unexpected SSH disconnect/reconnect, backup staging inventory/link hazards, repair/configuration/assignment cohort boundaries, overlapping runs/policy mismatch, preserved nonadvancing source cycles, and queued-disabled versus current-enabled rotation.
