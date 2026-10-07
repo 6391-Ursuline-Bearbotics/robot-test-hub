@@ -11,6 +11,7 @@ Design and implementation workspace for turning physical robot testing into sear
 - [Decisions and unresolved hardware questions](docs/DECISIONS.md)
 - [Contributor/agent instructions](AGENTS.md)
 - [Live transfer setup and bench requirements](docs/LIVE_TRANSFER.md)
+- [Offline live-transfer readiness check](docs/LIVE_TRANSFER.md#check-setup-before-connecting)
 - [Opt-in verified backup and restore](docs/BACKUP.md)
 - [Analysis/review evidence and remaining gaps](docs/ANALYSIS_REVIEW.md)
 - [Reviewed October 7 checkpoint](docs/VALIDATION_CURRENT.md)

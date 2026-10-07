@@ -65,6 +65,20 @@ NT host and port are explicit and may differ from SSH. Substitute the confirmed 
 
 Open `http://127.0.0.1:6391`. Explicit `--idle-delay` or hub-config `idle_delay` overrides the ten-second live default. Use a separate practice archive from the demo. Credentials stay outside diagnostic/config snapshots. Ctrl+C stops the reader/workers preserving committed checkpoints. Reachable SSH alone never grants permission.
 
+## Check setup before connecting
+
+Run the offline readiness check first, with the same source/NT/toolchain settings you will use for the server:
+
+```powershell
+.\.venv\Scripts\python.exe -m robot_test_hub.live_check --source-config data/systemcore-source.json --nt-host CONFIGURED-NT-HOST --nt-port CONFIRMED-NT-PORT --wpilib-install C:\Users\Public\wpilib\2027_alpha7
+```
+
+The check validates source settings, the pinned Paramiko version, the exact SSH host/port entry in your known-hosts file, and local private-key readability. It applies the live idle/freshness/chunk rules, verifies locked Alpha 7 dependencies and compiles the status reader locally. It opens no NT/SSH connection, performs no DNS lookup, and opens no hub archive. It may create/update the ignored local status-tool build directory. Key contents, endpoint values, paths and provider exceptions are omitted from its report.
+
+For nonstandard SSH ports, known-hosts needs an entry named `[host]:port`; an ordinary `host` entry is insufficient. The check only establishes that a matching pin is configured. You must independently verify the fingerprint through a trusted setup channel, and later SSH connection must match that pin. A readable key does not prove that the server authorizes it.
+
+Use `--config data/hub-config.json` and/or `--idle-delay` to check overrides. Add `--json` for a redacted machine-readable report. Exit code 0 means local prerequisites passed; 2 means attention is needed. `hardware_qualified` remains false in both cases. READY does not establish endpoint reachability, server access, receiver manifests, live status or physical performance; complete the bench worksheet after the team's authorized robot setup.
+
 ## Validation and bench qualification
 
 `python -m unittest discover -s tests -v` ran 236 tests: 234 passed, two optional native tests skipped. Eleven SFTP tests cover actual temporary SSH/SFTP, pinned keys, resume after restart, enable during a blocked read, no enabled/stale reads, connection reuse, authentication failures, manifest integrity, path/symlink confinement, open/pending bytes and orphan/malformed attention.

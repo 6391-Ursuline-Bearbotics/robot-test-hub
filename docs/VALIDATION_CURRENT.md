@@ -30,3 +30,9 @@ The current working-tree full suite ran **290 tests: 287 passed, three skipped**
 The connection view was checked in an isolated synthetic browser fixture: failed-reader retry/count, stale heartbeat, fresh recovery and idle countdown were visible, with the existing queue and ETA intact. A screenshot was captured during this check. No robot endpoint or camera was used. The [bench worksheet](LIVE_TRANSFER_BENCH.md) records the outstanding hardware measurements.
 
 Published live recovery commit `84bd193` passed all four Windows/Linux, Python 3.10/3.13 CI jobs ([run 37621523898](https://github.com/6391-Ursuline-Bearbotics/robot-test-hub/actions/runs/37621523898)). The follow-up browser check also verifies that hub loss clears cached heartbeat freshness and active transfer speed.
+
+## Offline live setup check — October 7
+
+The new `robot_test_hub.live_check` command verifies local prerequisites before a live server launch. Nine focused tests passed, including exact host/port pin lookup, bad key/version/configuration cases, redacted reports and CLI overrides. Tests prohibit DNS, socket connection, status-reader launch, SFTP connection and archive opening. A separate check exercised the actual installed locked Alpha 7/Java 25 toolchain with generated local keys under those same prohibitions; all readiness stages passed.
+
+The full working-tree suite ran **322 tests: 320 passed, two Windows symbolic-link privilege skips**, with native NT and generated-media qualifications enabled. Both integrated live NT/SFTP tests and reader-recovery tests passed. This total includes separate unpublished recorder-service work preserved in the working tree; it is not a test count for the live-only publication. No real robot or camera was contacted. The check does not prove endpoint reachability, server authorization, receiver health or physical performance.
