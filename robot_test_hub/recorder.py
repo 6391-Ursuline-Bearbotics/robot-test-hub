@@ -126,10 +126,139 @@ class FFmpegAdapter:
     """Argument-array FFmpeg adapter. Native/media qualification is separate."""
     qualification = "native_unqualified"
 
-    def __init__(self, config):
+    def __init__(self, config, *, clock=time.monotonic):
         self.config = config
+        self.clock=clock
         self.process = None
         self.log = None
+        self._progress_file=None
+        self._capture_readers=[]
+        self._capture_lock=threading.RLock()
+        self._capture_error=None
+        self._progress_snapshot=None
+        self.progress_bytes_drained=self.error_bytes_drained=0
+        self._error_tail=bytearray()
+
+    def _stream_failed(self,code):
+        with self._capture_lock:
+            if self._capture_error is None:
+                self._capture_error=code
+        # The worker owns reaping/reader cleanup; a drainer only stops production.
+        try:
+            if self.process is not None and self.process.poll() is None:
+                self.process.terminate()
+        except OSError:
+            pass
+
+    def capture_diagnostics(self):
+        """Private redacted counters for qualification; never raw native output."""
+        with self._capture_lock:
+            return {'progress_bytes_drained':self.progress_bytes_drained,
+                'error_bytes_drained':self.error_bytes_drained,
+                'progress_retained_bytes':getattr(self,'_progress_retained',0),
+                'error_retained_bytes':len(self._error_tail),
+                'error_code':self._capture_error,
+                'readers_alive':sum(reader.is_alive() for reader in self._capture_readers)}
+
+    def progress_snapshot(self):
+        with self._capture_lock:
+            return {'error_code':self._capture_error,
+                'progress':dict(self._progress_snapshot) if self._progress_snapshot else None}
+
+    @staticmethod
+    def _rewrite(stream,data):
+        stream.seek(0)
+        stream.write(data)
+        stream.truncate(len(data))
+        stream.flush()
+        os.fsync(stream.fileno())
+
+    def _drain_progress(self):
+        maximum=self.config.maximum_progress_bytes
+        pending=bytearray()
+        values={}
+        try:
+            while True:
+                line=self.process.stdout.readline(min(maximum,4096)+1)
+                with self._capture_lock:
+                    self.progress_bytes_drained+=len(line)
+                if not line:
+                    if pending:
+                        raise RecordingError('Incomplete progress block')
+                    return
+                if (len(line)>min(maximum,4096) or not line.endswith(b'\n')
+                        or len(pending)+len(line)>maximum):
+                    raise RecordingError('Progress record exceeds bound')
+                pending.extend(line)
+                text=line.decode('ascii').rstrip('\r\n')
+                key,separator,value=text.partition('=')
+                if (not separator or not re.fullmatch('[A-Za-z0-9_.-]{1,64}',key)
+                        or key in values or any(ord(char)<32 or ord(char)>126 for char in value)):
+                    raise RecordingError('Invalid progress record')
+                values[key]=value
+                if key!='progress':
+                    continue
+                if value not in ('continue','end'):
+                    raise RecordingError('Invalid progress boundary')
+                frame_text=values.get('frame','').strip()
+                drop_text=values.get('drop_frames')
+                drop_text=drop_text.strip() if drop_text is not None else None
+                if (not re.fullmatch('[0-9]{1,19}',frame_text) or int(frame_text)>=(1<<63)
+                        or drop_text is not None and (not re.fullmatch('[0-9]{1,19}',drop_text)
+                                                     or int(drop_text)>=(1<<63))):
+                    raise RecordingError('Invalid progress counters')
+                frame=int(frame_text)
+                drop=int(drop_text) if drop_text is not None else None
+                observed=self.clock()
+                with self._capture_lock:
+                    old=self._progress_snapshot
+                    if old is not None:
+                        if frame<old['frame'] or (drop is not None and old['drop_frames'] is not None and drop<old['drop_frames']):
+                            raise RecordingError('Regressed progress counter')
+                        if frame==old['frame']:
+                            observed=old['observed_at']
+                    if not math.isfinite(observed) or (old and observed < old['observed_at']):
+                        raise RecordingError('Invalid progress observation clock')
+                retained=f'frame={frame}\n'.encode()
+                if drop is not None:
+                    retained+=f'drop_frames={drop}\n'.encode()
+                retained+=f'progress={value}\n'.encode()
+                if len(retained)>maximum:
+                    raise RecordingError('Progress snapshot exceeds bound')
+                self._rewrite(self._progress_file,retained)
+                with self._capture_lock:
+                    self._progress_retained=len(retained)
+                    self._progress_snapshot={'frame':frame,'drop_frames':drop,'observed_at':observed}
+                pending.clear()
+                values.clear()
+        except (ValueError,UnicodeError,TypeError):
+            self._stream_failed('recording_progress_invalid')
+        except OSError:
+            self._stream_failed('recording_diagnostics_write_failed')
+
+    def _drain_errors(self):
+        maximum=self.config.maximum_error_log_bytes
+        record_limit=min(maximum,65536)
+        try:
+            while True:
+                line=self.process.stderr.readline(record_limit+1)
+                with self._capture_lock:
+                    self.error_bytes_drained+=len(line)
+                if not line:
+                    return
+                if len(line)>record_limit:
+                    self._stream_failed('recording_error_record_too_large')
+                    return
+                # A final stderr line need not end with a newline. Preserve it.
+                with self._capture_lock:
+                    excess=max(0,len(self._error_tail)+len(line)-maximum)
+                    if excess:
+                        del self._error_tail[:excess]
+                    self._error_tail.extend(line)
+                    retained=bytes(self._error_tail)
+                self._rewrite(self.log,retained)
+        except (OSError,ValueError):
+            self._stream_failed('recording_diagnostics_write_failed')
 
     def _run(self, arguments, *, maximum_output_bytes=None):
         limit=maximum_output_bytes or self.config.maximum_probe_output_bytes
@@ -208,14 +337,33 @@ class FFmpegAdapter:
                       "-force_key_frames", f"expr:gte(t,n_forced*{config.segment_seconds})",
                       "-f", "segment", "-segment_time", str(config.segment_seconds),
                       "-segment_list", str(folder / "segments.csv"), "-segment_list_type", "csv",
-                      "-reset_timestamps", "0", "-progress", str(folder / "progress.txt"),
+                      "-reset_timestamps", "0", "-progress", "pipe:1",
                       "-stats_period", "1", str(folder / "segment-%06d.mkv")]
-        self.log = _safe(folder, "native-errors.log").open("xb")
+        if (self.process is not None and self.process.poll() is None
+                or any(reader.is_alive() for reader in self._capture_readers)):
+            raise RecordingError('Capture cleanup must complete before another start')
+        self._capture_readers=[]
+        self._capture_error=None
+        self._progress_snapshot=None
+        self.progress_bytes_drained=self.error_bytes_drained=self._progress_retained=0
+        self._error_tail=bytearray()
         try:
-            self.process = subprocess.Popen(arguments, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                                            stderr=self.log, shell=False, creationflags=_flags())
-        except OSError:
-            self.log.close()
+            self.log = _safe(folder, "native-errors.log").open("xb")
+            self._progress_file = _safe(folder,"progress.txt").open('xb')
+            self.process = subprocess.Popen(arguments, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE, shell=False, creationflags=_flags())
+            self._capture_readers=[threading.Thread(target=self._drain_progress,name='recording-progress',daemon=True),
+                                   threading.Thread(target=self._drain_errors,name='recording-errors',daemon=True)]
+            for reader in self._capture_readers:
+                reader.start()
+        except Exception:
+            # start() cannot hand a spawned child back as an unowned failure.
+            while True:
+                try:
+                    self.stop()
+                    break
+                except (OSError,ValueError,subprocess.SubprocessError):
+                    time.sleep(.1)
             raise RecordingError("Camera process could not start") from None
 
     def poll(self):
@@ -230,10 +378,20 @@ class FFmpegAdapter:
             except (OSError, subprocess.SubprocessError):
                 self.process.kill()
                 self.process.wait(timeout=self.config.operation_timeout)
-        if self.process and self.process.stdin:
-            self.process.stdin.close()
-        if self.log:
-            self.log.close()
+        if self.process:
+            self.process.wait(timeout=self.config.operation_timeout)
+        for reader in self._capture_readers:
+            if reader.ident is not None:
+                reader.join(timeout=min(self.config.operation_timeout,.5))
+                if reader.is_alive():
+                    raise RecordingError('Capture output reader cleanup pending')
+        if self.process:
+            for stream in (self.process.stdin,self.process.stdout,self.process.stderr):
+                if stream:
+                    stream.close()
+        for stream in (self._progress_file,self.log):
+            if stream:
+                stream.close()
 
     def probe(self, path):
         payload = self._run([self.config.probe_executable, "-v", "error", "-select_streams", "v:0",
@@ -270,7 +428,7 @@ class Recorder:
                  free_bytes=lambda root: shutil.disk_usage(root).free):
         self.root = Path(root).resolve()
         self.config = config
-        self.adapter = adapter or FFmpegAdapter(config)
+        self.adapter = adapter or FFmpegAdapter(config, clock=monotonic)
         self.monotonic, self.clock_ns, self.free_bytes = monotonic, clock_ns, free_bytes
         self.folder = self.owner = None
         self.segments = []
@@ -388,6 +546,22 @@ class Recorder:
                 _publish(_safe(self.folder, name + ".json"), artifact)
                 self.segments.append(artifact)
 
+    def _native_progress(self):
+        snapshot = self.adapter.progress_snapshot()
+        if snapshot['error_code']:
+            self._fail(snapshot['error_code'])
+            return False
+        progress = snapshot['progress']
+        if progress is not None:
+            frame = progress['frame']
+            if self.last_frame is None or frame > self.last_frame:
+                if frame > 0:
+                    self.state = 'recording'
+                    self.last_activity = progress['observed_at']
+                self.last_frame = frame
+            self.dropped_frames = progress['drop_frames']
+        return True
+
     def tick(self):
         if not self.process_started:
             return self.health()
@@ -403,7 +577,10 @@ class Recorder:
                 return self.health()
             self._finalize()
             progress = _safe(self.folder, "progress.txt")
-            if progress.exists():
+            if isinstance(self.adapter, FFmpegAdapter):
+                if not self._native_progress():
+                    return self.health()
+            elif progress.exists():
                 with progress.open("rb") as stream:
                     stream.seek(max(0, progress.stat().st_size - 65536))
                     text = stream.read(65536).decode("utf-8", "replace")
@@ -432,7 +609,8 @@ class Recorder:
                 self.adapter.stop()
                 self.process_started = False
                 self._finalize()
-                self.state = "stopped"
+                if not isinstance(self.adapter, FFmpegAdapter) or self._native_progress():
+                    self.state = "stopped"
             except (OSError, RecordingError, subprocess.SubprocessError) as exc:
                 self._fail("finalization_failed", exc)
         if self.owner and not self.process_started:

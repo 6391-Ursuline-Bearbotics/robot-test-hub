@@ -3,6 +3,8 @@ from pathlib import Path
 import json
 import subprocess
 import sys
+import time
+import threading
 from dataclasses import replace
 import tempfile
 import unittest
@@ -270,7 +272,10 @@ class RecorderTests(unittest.TestCase):
             with self.assertRaises(RecordingError):
                 adapter.validate()
         self.start()
-        with patch('robot_test_hub.recorder.subprocess.Popen') as popen:
+        original_popen = subprocess.Popen
+        def producer(args, **kwargs):
+            return original_popen([sys.executable, '-u', '-c', 'import sys; sys.stdin.readline()'], **kwargs)
+        with patch('robot_test_hub.recorder.subprocess.Popen', side_effect=producer) as popen:
             adapter.start(self.adapter.folder)
             args=popen.call_args.args[0]
             self.assertIsInstance(args,list)
@@ -425,6 +430,141 @@ class RecorderTests(unittest.TestCase):
             self.assertIn('wait_retry',phases)
             self.assertIn('close_retry',phases)
             self.assertNotIn('Private',json.dumps(service.video.snapshot()))
+
+
+class StreamingCaptureTests(unittest.TestCase):
+    """Actual local child pipes; fixture bytes are not encoded video."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.base = Path(self.temporary.name)
+        self.clock = [0.0]
+        self.config = FFmpegConfig(str(self.base/'ffmpeg.exe'), str(self.base/'ffprobe.exe'),
+            'explicit-pin', 'overview', 'lavfi', 'private-camera-input', 'SYNTHETIC',
+            minimum_free_bytes=1, operation_timeout=.3, maximum_progress_bytes=512,
+            maximum_error_log_bytes=128, stalled_seconds=5)
+        self.adapter = FFmpegAdapter(self.config, clock=lambda:self.clock[0])
+        self.recorder = Recorder(self.base/'video', self.config, adapter=self.adapter,
+            monotonic=lambda:self.clock[0], free_bytes=lambda folder:10000)
+        self.addCleanup(self.recorder.stop)
+
+    def start_child(self, script):
+        original = subprocess.Popen
+        def child(arguments, **kwargs):
+            self.arguments = arguments
+            self.assertEqual(kwargs['stdout'], subprocess.PIPE)
+            self.assertEqual(kwargs['stderr'], subprocess.PIPE)
+            return original([sys.executable, '-u', '-c', script], **kwargs)
+        with patch.object(self.adapter, 'validate', return_value={'qualification':'local_pipe_fixture'}), \
+                patch('robot_test_hub.recorder.subprocess.Popen', side_effect=child):
+            self.recorder.start('pipe-fixture')
+        self.original = self.recorder.folder/'segment-000000.mkv'
+        self.original.write_bytes(b'UNFINALIZED ORIGINAL PROTOCOL FIXTURE')
+
+    def wait_for(self, predicate):
+        deadline = time.monotonic()+3
+        while not predicate() and time.monotonic()<deadline:
+            time.sleep(.01)
+        self.assertTrue(predicate(), self.adapter.capture_diagnostics())
+
+    def assert_clean(self):
+        self.assertIsNotNone(self.adapter.process.poll())
+        self.assertEqual(self.adapter.capture_diagnostics()['readers_alive'], 0)
+        for stream in (self.adapter.process.stdin, self.adapter.process.stdout, self.adapter.process.stderr,
+                       self.adapter.log, self.adapter._progress_file):
+            self.assertTrue(stream.closed)
+        self.assertFalse(self.recorder.process_started)
+        self.assertIsNone(self.recorder.owner)
+        self.assertEqual(self.original.read_bytes(), b'UNFINALIZED ORIGINAL PROTOCOL FIXTURE')
+
+    def test_lifetime_flood_rolls_bounded_files_and_preserves_frame_drop_progress(self):
+        self.start_child("import sys\nfor i in range(1,101):\n print(f'frame={i}\\ndrop_frames={i//10}\\nprogress=continue',flush=True)\n sys.stderr.write('ordinary private diagnostic\\n'); sys.stderr.flush()\nsys.stdin.readline()\nprint('frame=100\\ndrop_frames=10\\nprogress=end',flush=True)")
+        self.wait_for(lambda:(self.adapter.progress_snapshot()['progress'] or {}).get('frame')==100)
+        self.wait_for(lambda:self.adapter.capture_diagnostics()['error_bytes_drained']>128)
+        diagnostics = self.adapter.capture_diagnostics()
+        self.assertGreater(diagnostics['progress_bytes_drained'], 2*512)
+        self.assertGreater(diagnostics['error_bytes_drained'], 2*128)
+        self.assertLessEqual((self.recorder.folder/'progress.txt').stat().st_size,512)
+        self.assertLessEqual((self.recorder.folder/'native-errors.log').stat().st_size,128)
+        self.assertEqual(self.recorder.tick()['frames'],100)
+        self.assertEqual(self.recorder.health()['dropped_frames'],10)
+        self.assertEqual(self.recorder.health()['state'],'recording')
+        self.assertNotIn('private', json.dumps(self.recorder.health()))
+        self.assertEqual(self.recorder.stop()['state'],'stopped')
+        self.assert_clean()
+
+    def test_reader_receipt_time_is_not_delayed_consumption_time(self):
+        self.clock[0]=1
+        self.start_child("import sys; print('frame=3\\nprogress=continue',flush=True); sys.stdin.readline()")
+        self.wait_for(lambda:self.adapter.progress_snapshot()['progress'] is not None)
+        self.clock[0]=7
+        self.assertEqual(self.recorder.tick()['error_code'],'camera_frames_stalled')
+        self.assertEqual(self.recorder.last_activity,1)
+        self.assert_clean()
+
+    def test_duplicate_progress_and_stderr_do_not_refresh_watchdog(self):
+        self.start_child("import sys\nprint('frame=3\\nprogress=continue',flush=True)\nsys.stdin.readline()\nprint('frame=3\\nprogress=continue',flush=True)\nsys.stderr.write('ordinary private diagnostic\\n'); sys.stderr.flush()\nsys.stdin.readline()")
+        self.wait_for(lambda:self.adapter.progress_snapshot()['progress'] is not None)
+        self.recorder.tick()
+        drained = self.adapter.capture_diagnostics()['progress_bytes_drained']
+        self.clock[0]=6
+        self.adapter.process.stdin.write(b'next\n'); self.adapter.process.stdin.flush()
+        self.wait_for(lambda:self.adapter.capture_diagnostics()['progress_bytes_drained']>drained)
+        self.wait_for(lambda:self.adapter.capture_diagnostics()['error_bytes_drained']>0)
+        self.assertEqual(self.adapter.progress_snapshot()['progress']['observed_at'],0)
+        self.assertEqual(self.recorder.tick()['error_code'],'camera_frames_stalled')
+        self.assert_clean()
+
+    def test_malformed_oversized_and_truncated_records_fail_explicitly(self):
+        cases=[("print('frame=9\\nprogress=continue\\nframe=3\\nprogress=continue',flush=True)",'recording_progress_invalid'),
+               ("print('frame=3\\ndrop_frames=9\\nprogress=continue\\nframe=4\\ndrop_frames=3\\nprogress=continue',flush=True)",'recording_progress_invalid'),
+               ("print('frame=9223372036854775808\\nprogress=continue',flush=True)",'recording_progress_invalid'),
+               ("print('frame=-1\\nprogress=continue',flush=True)",'recording_progress_invalid'),
+               ("print('frame=3\\nframe=4\\nprogress=continue',flush=True)",'recording_progress_invalid'),
+               ("sys.stdout.write('x'*600); sys.stdout.flush()",'recording_progress_invalid'),
+               ("sys.stdout.write('frame=3'); sys.stdout.flush(); sys.exit(0)",'recording_progress_invalid'),
+               ("sys.stderr.write('private'*100); sys.stderr.flush()",'recording_error_record_too_large')]
+        for producer, code in cases:
+            with self.subTest(code=code, producer=producer):
+                self.start_child('import sys\n'+producer+'\nsys.stdin.readline()')
+                self.wait_for(lambda:self.adapter.capture_diagnostics()['error_code'] is not None)
+                self.assertEqual(self.recorder.tick()['error_code'],code)
+                self.assert_clean()
+
+    def test_diagnostic_storage_failure_terminates_child_without_exposing_native_content(self):
+        with patch.object(self.adapter,'_rewrite',side_effect=OSError('private credential storage')):
+            self.start_child("import sys; print('frame=3\\nprogress=continue',flush=True); sys.stdin.readline()")
+            self.wait_for(lambda:self.adapter.capture_diagnostics()['error_code'] is not None)
+            self.assertEqual(self.recorder.tick()['error_code'],'recording_diagnostics_write_failed')
+        self.assertNotIn('credential',json.dumps(self.recorder.health()))
+        self.assert_clean()
+
+    def test_partial_reader_start_failure_reaps_spawned_child_before_start_returns(self):
+        start = threading.Thread.start
+        def fail_second(thread):
+            if thread.name=='recording-errors':
+                raise RuntimeError('private thread startup failure')
+            return start(thread)
+        with patch('robot_test_hub.recorder.threading.Thread.start',new=fail_second):
+            with self.assertRaises(RecordingError):
+                self.start_child('import sys; sys.stdin.readline()')
+        self.assertIsNotNone(self.adapter.process.poll())
+        self.assertEqual(self.adapter.capture_diagnostics()['readers_alive'],0)
+        self.assertTrue(self.adapter.process.stdout.closed)
+        self.assertTrue(self.adapter.process.stderr.closed)
+        self.assertIsNone(self.recorder.owner)
+
+    def test_failed_reader_cleanup_retains_capture_owner_until_retry(self):
+        self.start_child("import sys; print('frame=3\\nprogress=continue',flush=True); sys.stdin.readline()")
+        self.wait_for(lambda:self.adapter.progress_snapshot()['progress'] is not None)
+        reader = self.adapter._capture_readers[0]
+        with patch.object(reader,'join',side_effect=OSError('private cleanup failure')):
+            self.assertEqual(self.recorder.stop()['error_code'],'camera_shutdown_failed')
+            self.assertTrue(self.recorder.process_started)
+            self.assertIsNotNone(self.recorder.owner)
+        self.recorder.stop()
+        self.assert_clean()
 
 
 if __name__=='__main__':
