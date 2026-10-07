@@ -437,7 +437,6 @@ class StreamingCaptureTests(unittest.TestCase):
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
         self.base = Path(self.temporary.name)
         self.clock = [0.0]
         self.config = FFmpegConfig(str(self.base/'ffmpeg.exe'), str(self.base/'ffprobe.exe'),
@@ -447,7 +446,22 @@ class StreamingCaptureTests(unittest.TestCase):
         self.adapter = FFmpegAdapter(self.config, clock=lambda:self.clock[0])
         self.recorder = Recorder(self.base/'video', self.config, adapter=self.adapter,
             monotonic=lambda:self.clock[0], free_bytes=lambda folder:10000)
-        self.addCleanup(self.recorder.stop)
+        # One ordered cleanup owns retries: stop() may retain ownership while
+        # slow disk writes finish, so deleting the directory after one call is unsafe.
+        self.addCleanup(self.cleanup_fixture)
+
+    def cleanup_fixture(self):
+        deadline = time.monotonic()+20
+        while True:
+            self.recorder.stop()
+            if not self.recorder.process_started:
+                break
+            if time.monotonic()>=deadline:
+                self.fail('Local capture fixture cleanup timed out: '+str(self.adapter.capture_diagnostics()))
+            time.sleep(.01)
+        self.assertIsNone(self.recorder.owner)
+        self.assertEqual(self.adapter.capture_diagnostics()['readers_alive'],0)
+        self.temporary.cleanup()
 
     def start_child(self, script):
         original = subprocess.Popen
@@ -463,7 +477,9 @@ class StreamingCaptureTests(unittest.TestCase):
         self.original.write_bytes(b'UNFINALIZED ORIGINAL PROTOCOL FIXTURE')
 
     def wait_for(self, predicate):
-        deadline = time.monotonic()+3
+        # Real child integration includes durable writes; allow slow CI disks
+        # without changing fake-clock watchdog or frame/retention assertions.
+        deadline = time.monotonic()+20
         while not predicate() and time.monotonic()<deadline:
             time.sleep(.01)
         self.assertTrue(predicate(), self.adapter.capture_diagnostics())
@@ -477,6 +493,33 @@ class StreamingCaptureTests(unittest.TestCase):
         self.assertFalse(self.recorder.process_started)
         self.assertIsNone(self.recorder.owner)
         self.assertEqual(self.original.read_bytes(), b'UNFINALIZED ORIGINAL PROTOCOL FIXTURE')
+
+    def test_failed_assertion_cleanup_retries_before_removing_owned_directory(self):
+        fixtures=[]
+        class Interrupted(StreamingCaptureTests):
+            def test_abort(inner):
+                fixtures.append(inner)
+                inner.start_child("import sys; print('frame=3\\nprogress=continue',flush=True); sys.stdin.readline()")
+                inner.wait_for(lambda:inner.adapter.progress_snapshot()['progress'] is not None)
+                stop=inner.adapter.stop
+                attempts=[0]
+                def pending_cleanup():
+                    attempts[0]+=1
+                    if attempts[0]<=2:
+                        raise OSError('fixture cleanup temporarily pending')
+                    return stop()
+                inner.adapter.stop=pending_cleanup
+                inner.assertTrue(False,'intentional assertion before capture stop')
+        result=unittest.TestResult()
+        Interrupted('test_abort').run(result)
+        self.assertEqual(len(result.failures),1)
+        self.assertEqual(result.errors,[])
+        fixture=fixtures[0]
+        self.assertFalse(fixture.base.exists())
+        self.assertIsNone(fixture.recorder.owner)
+        self.assertFalse(fixture.recorder.process_started)
+        self.assertIsNotNone(fixture.adapter.process.poll())
+        self.assertEqual(fixture.adapter.capture_diagnostics()['readers_alive'],0)
 
     def test_lifetime_flood_rolls_bounded_files_and_preserves_frame_drop_progress(self):
         self.start_child("import sys\nfor i in range(1,101):\n print(f'frame={i}\\ndrop_frames={i//10}\\nprogress=continue',flush=True)\n sys.stderr.write('ordinary private diagnostic\\n'); sys.stderr.flush()\nsys.stdin.readline()\nprint('frame=100\\ndrop_frames=10\\nprogress=end',flush=True)")
