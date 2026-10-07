@@ -5,11 +5,13 @@ import copy
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from robot_test_hub.config import Config
 from robot_test_hub.importer import Importer,install_schema
@@ -182,6 +184,36 @@ class IncidentLogsTests(unittest.TestCase):
             with self.subTest(value=value),self.assertRaises(LogError):self.logs.metadata(self.item)
         self.document['original_logs']['projection_version']=2
         self.assertEqual(self.logs.metadata(self.item)['items'][0]['state'],'download_candidate')
+
+    def test_windows_313_ctime_semantics_accept_unchanged_fd_and_keep_all_mutation_checks(self):
+        real_fstat=os.fstat;real_stat=Path.stat
+        changes={}
+        def snapshot(info,*,fd):
+            values={key:getattr(info,key) for key in ('st_mode','st_dev','st_ino','st_size','st_mtime_ns','st_ctime_ns')}
+            birth=getattr(info,'st_birthtime_ns',info.st_ctime_ns)
+            values.update(st_birthtime_ns=birth,st_ctime_ns=birth+(1000000000 if fd else 0))
+            values.update(changes.get('fd' if fd else 'path',{}))
+            return SimpleNamespace(**values)
+        def fstat(descriptor):return snapshot(real_fstat(descriptor),fd=True)
+        def path_stat(path,*args,**kwargs):
+            value=real_stat(path,*args,**kwargs)
+            return snapshot(value,fd=False) if path==self.path else value
+        with patch('robot_test_hub.incident_logs.os.fstat',side_effect=fstat),patch.object(Path,'stat',path_stat):
+            with self.logs.open(self.item,self.job['id']) as original:
+                self.assertEqual(original.read(65536),self.raw)
+            with self.logs.open(self.item,self.job['id']) as original:
+                info=real_stat(self.path);birth=getattr(info,'st_birthtime_ns',info.st_ctime_ns)
+                cases=[('fd','st_ctime_ns',birth+1000000001),
+                       ('path','st_ctime_ns',birth+1),
+                       ('path','st_ino',info.st_ino+1),
+                       ('path','st_birthtime_ns',birth+1),
+                       ('fd','st_mtime_ns',info.st_mtime_ns+1),
+                       ('path','st_size',info.st_size+1)]
+                for api,key,value in cases:
+                    changes[api]={key:value}
+                    with self.subTest(api=api,key=key),self.assertRaises(LogError):original.read(1)
+                    changes.clear()
+                self.assertEqual(original.read(65536),self.raw)
 
 
 if __name__=='__main__':unittest.main()

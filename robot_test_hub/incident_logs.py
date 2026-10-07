@@ -159,12 +159,25 @@ class IncidentLogs:
             return dict(schema_version=1,item_id=item_id,basis=basis,qualification='pinned_catalog_references',items=items)
 
     @staticmethod
-    def _stamp(info):return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+    def _stamp(info):
+        return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns,
+                getattr(info,'st_birthtime_ns',None))
+
+    @staticmethod
+    def _same_file(opened,current):
+        # Windows CPython 3.13 fstat reports ChangeTime as ctime, while
+        # path stat retains creation time as ctime. Compare shared identity
+        # fields across APIs; retain each API's full mutation stamp separately.
+        a,b=IncidentLogs._stamp(opened),IncidentLogs._stamp(current)
+        return a[:4]==b[:4] and (a[5] is None or b[5] is None or a[5]==b[5])
 
     def _identity(self,stream,path,stamp):
         safe_path(self.service.root,path.stem)
         opened=os.fstat(stream.fileno());current=path.stat()
-        if (not stat.S_ISREG(opened.st_mode) or self._stamp(opened)!=stamp or self._stamp(current)!=stamp):
+        fd_stamp,path_stamp=stamp
+        if (not stat.S_ISREG(opened.st_mode) or not stat.S_ISREG(current.st_mode) or
+                self._stamp(opened)!=fd_stamp or self._stamp(current)!=path_stamp or
+                not self._same_file(opened,current)):
             raise LogError('incident_log_evidence_conflict',409)
 
     @contextmanager
@@ -182,7 +195,7 @@ class IncidentLogs:
                 descriptor=os.open(path,os.O_RDONLY|getattr(os,'O_BINARY',0)|getattr(os,'O_NOFOLLOW',0)|getattr(os,'O_NONBLOCK',0))
                 try:stream=os.fdopen(descriptor,'rb')
                 except BaseException:os.close(descriptor);raise
-                info=os.fstat(stream.fileno());stamp=self._stamp(info)
+                info=os.fstat(stream.fileno());stamp=(self._stamp(info),self._stamp(path.stat()))
                 self._identity(stream,path,stamp)
                 if info.st_size!=pin['size_bytes']:raise LogError('incident_log_evidence_conflict',409)
                 deadline=self.clock()+self.verification_timeout;value=hashlib.sha256();size=0

@@ -127,6 +127,34 @@ class IncidentLogReviewTests(unittest.TestCase):
         self.assertTrue(self.service.close())
         replacement=DataRootOwner(self.service.root);replacement.close()
 
+    def test_path_ctime_api_mismatch_keeps_fd_mutation_and_identity_checks(self):
+        # CPython Windows3.13 fstat exposes ChangeTime as ctime, while
+        # path.stat preserves CreationTime; unchanged files differ legitimately.
+        with self.raw.open('rb') as stream:
+            baseline=os.fstat(stream.fileno())
+            def info(**changes):
+                values={name:getattr(baseline,name) for name in
+                    ('st_mode','st_dev','st_ino','st_size','st_mtime_ns','st_ctime_ns')}
+                values.update(changes);return SimpleNamespace(**values)
+            opened=info(st_ctime_ns=900);current=info(st_ctime_ns=700)
+            stamp=(self.manager._stamp(opened),self.manager._stamp(current))
+            original_stat=type(self.raw).stat
+            def path_stat(path,*args,**kwargs):
+                if path==self.raw:return current
+                return original_stat(path,*args,**kwargs)
+            with patch('robot_test_hub.incident_logs.os.fstat',return_value=opened),\
+                    patch.object(type(self.raw),'stat',path_stat):
+                self.manager._identity(stream,self.raw,stamp)
+                current=info(st_ctime_ns=701)
+                with self.assertRaises(LogError):self.manager._identity(stream,self.raw,stamp)
+                current=info(st_ctime_ns=700,st_ino=baseline.st_ino+1)
+                with self.assertRaises(LogError):self.manager._identity(stream,self.raw,stamp)
+                current=info(st_ctime_ns=700,st_mtime_ns=baseline.st_mtime_ns+1)
+                with self.assertRaises(LogError):self.manager._identity(stream,self.raw,stamp)
+                current=info(st_ctime_ns=700)
+                with patch('robot_test_hub.incident_logs.os.fstat',return_value=info(st_ctime_ns=1000)):
+                    with self.assertRaises(LogError):self.manager._identity(stream,self.raw,stamp)
+
     def test_saved_incident_exact_public_synthetic_original_and_metadata_honesty(self):
         metadata=self.manager.metadata(self.item['item_id'])
         self.assertEqual(metadata['qualification'],'pinned_catalog_references')
