@@ -16,6 +16,7 @@ Design and implementation workspace for turning physical robot testing into sear
 - [Opt-in practice recording and coverage](docs/RECORDING.md)
 - [Manual video alignment core](docs/VIDEO_ALIGNMENT.md)
 - [Manual footage investigation workflow](docs/VIDEO_INVESTIGATION.md)
+- [Find footage from saved notes and runs](docs/VIDEO_CONTEXT.md)
 - [Opt-in verified backup and restore](docs/BACKUP.md)
 - [Analysis/review evidence and remaining gaps](docs/ANALYSIS_REVIEW.md)
 - [Reviewed October 7 checkpoint](docs/VALIDATION_CURRENT.md)
@@ -84,6 +85,7 @@ Ctrl+C stops the foreground host; SIGTERM and Windows Ctrl+Break are handled too
 - Automatic indexing of verified supported recordings, immutable run/time revisions, and local date/time search with explicit DST choices and clock gaps. See [run catalog](docs/RUNS.md).
 - A driver notebook with revision history, immediate/seconds-ago/historical notes, durable browser outbox, offline reload, and automatic retry. Browser verification confirmed original incident time survives hub outage and reload. See [notebook](docs/NOTEBOOK.md).
 - Independent opt-in recording with private configuration, cached health/coverage, verified footage recovery and a Practice video page. Actual generated-media tests pass; camera timing and automatic note/run clips remain unqualified.
+- Revisioned manual camera calibration and saved-note/run footage selection, with pinned evidence, separate timing uncertainties, ambiguous clock pieces and explicit gaps. Preview and clip export remain unfinished.
 - Automated regression suites covering transfer faults, migration/ownership, importer precision, time mapping, notebook retries, and service integration. CI covers Windows/Linux and Python 3.10/3.13.
 
 The demo intentionally has no credentials or robot address. `.logdata` artifacts are opaque synthetic payloads, not recordings for AdvantageScope. Test success demonstrates the collector model, not actual SystemCore transfer latency or physical robot operation.

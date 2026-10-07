@@ -1,6 +1,6 @@
 # Reviewed local checkpoint — October 7, 2026
 
-Latest increment: the [manual footage investigation](VIDEO_INVESTIGATION.md) service/browser workflow passed independent Sol review and a full native-enabled Windows run of **380 tests: 378 passed, two symbolic-link privilege skips**. Generated encoded footage established revision save/reload, exact point selection, gaps, note-revision context and uncertainty separation. Browser functional checks passed; screenshot capture returned blank backgrounds, leaving visual appearance unverified. Automatic wall-clock note mapping, preview/clips/export and physical camera qualification remain incomplete.
+Latest increment: [saved note/run footage association](VIDEO_CONTEXT.md) passed independent Sol review and a full native-enabled Windows run of **401 tests in 63.532 seconds: 399 passed, two symbolic-link privilege skips**. An isolated browser with actual generated encoded footage confirmed precise-note frame selection, wider uncertain-note gaps, direct run intervals, wrong/unknown boot rejection and unknown-clock rejection. Screenshots of the context controls and result rendered correctly in this turn. Note timing, imported clock allowance and video uncertainty remain separate; no physical synchronization accuracy is established. Preview/clips/export and physical camera qualification remain incomplete.
 
 Published investigation commit `4c2975f` also passed all four Windows/Linux, Python 3.10/3.13 checks ([run 37639883666](https://github.com/6391-Ursuline-Bearbotics/robot-test-hub/actions/runs/37639883666)).
 

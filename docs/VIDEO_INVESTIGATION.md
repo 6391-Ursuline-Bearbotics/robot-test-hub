@@ -1,6 +1,6 @@
 # Manual footage investigation
 
-This first browser workflow connects an explicitly selected **robot time interval** to verified recording frames. It can include an exact saved notebook revision as context. It does not yet convert a note's wall-clock time into robot time, play footage, preserve a clip, or export to AdvantageScope. The original footage and robot logs remain unchanged.
+This browser workflow connects an explicitly selected **robot time interval** to verified recording frames. It can include an exact saved notebook revision as context. The separate [saved-context workflow](VIDEO_CONTEXT.md) also converts note UTC through imported robot clock anchors or uses a saved run's robot interval. Neither workflow plays footage, preserves a clip, or exports to AdvantageScope. The original footage and robot logs remain unchanged.
 
 ## Operator workflow
 
@@ -47,4 +47,4 @@ Published service/browser commit `4c2975f` passed all four Windows/Linux, Python
 
 ## Remaining work
 
-Automatic UTC-note/run association needs inversion of the validated boot-scoped robot clock mapping, propagation of note and clock uncertainty, and explicit handling of ambiguous clock pieces and gaps. Timeline-linked media preview, clip preservation, AdvantageScope instructions/export, camera-specific timing measurement and video backup remain separate work. The [camera setup worksheet](CAMERA_SETUP.md) captures the physical commissioning details still needed.
+Saved UTC-note/run candidate association is now available through the [saved-context workflow](VIDEO_CONTEXT.md), including clock inversion, uncertainty, ambiguity and gaps. Timeline-linked media preview, clip preservation, AdvantageScope instructions/export, camera-specific timing measurement and video backup remain separate work. The [camera setup worksheet](CAMERA_SETUP.md) captures the physical commissioning details still needed.

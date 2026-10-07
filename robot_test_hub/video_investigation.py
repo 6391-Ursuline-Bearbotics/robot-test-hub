@@ -304,7 +304,7 @@ class VideoInvestigation:
 
     def _selection_bound(self, mapping, robot_id, boot_id, start, end):
         document=mapping.document()
-        if (robot_id,boot_id)!=(document['robot_id'],document['boot_id']):return
+        if (robot_id,boot_id)!=(document['robot_id'],document['boot_id']):return 0
         selected=0
         for fit in mapping._fits:
             window=fit[0]
@@ -321,6 +321,24 @@ class VideoInvestigation:
                     selected+=max(0,right-left)
                     if selected>MAX_SELECTED_FRAMES:
                         raise InvestigationError('oversized_interval',413)
+        return selected
+
+    def associate(self,payload):
+        from .video_context import ContextError,associate_context,load_context
+        fields(payload,('alignment_id','revision','sha256','catalog_revision','context'))
+        if self.service.stop.is_set() or self.service.closed:
+            raise InvestigationError('service_stopping',503)
+        alignment_id=identity(payload['alignment_id']);revision=integer(payload['revision'],1,1000000)
+        try:
+            catalog,context=load_context(self.notebook,payload['catalog_revision'],payload['context'])
+            mapping,actual=self._load(alignment_id,revision,payload['sha256'])
+            association=associate_context(mapping,catalog,context,self._selection_bound)
+        except ContextError as exc:
+            raise InvestigationError(exc.code,exc.status) from None
+        except AlignmentError:
+            raise InvestigationError('alignment_evidence_conflict',409) from None
+        return _response(dict(schema_version=1,alignment_id=alignment_id,revision=revision,sha256=actual,
+                              catalog_revision=payload['catalog_revision'],**association))
 
     def map(self, payload):
         fields(payload, ('alignment_id','revision','sha256','robot_id','boot_id','start_robot_ns',

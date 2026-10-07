@@ -233,7 +233,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                     or (origin and (urlsplit(origin).netloc != self.headers.get("Host") or urlsplit(origin).scheme != "http"))
                     or self.headers.get("Content-Type") != "application/json"):
                 return self.reject_unread(403, b'{}')
-            if self.path in ('/api/v1/video/alignments','/api/v1/video/map'):
+            if self.path in ('/api/v1/video/alignments','/api/v1/video/map','/api/v1/video/associate'):
                 return self.video_investigation_post()
             if self.path.startswith("/api/v1/annotations"):
                 return self.notebook_post()
@@ -309,7 +309,10 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                 encoded=self.rfile.read(length)
                 if len(encoded)!=length:raise ValueError()
                 payload=strict_json(encoded)
-                result=investigation.create(payload) if self.path.endswith('/alignments') else investigation.map(payload)
+                operation={'/api/v1/video/alignments':investigation.create,
+                           '/api/v1/video/map':investigation.map,
+                           '/api/v1/video/associate':investigation.associate}[self.path]
+                result=operation(payload)
                 return self.send(200,json.dumps(result,allow_nan=False).encode())
             except (InvestigationError,ValueError,TypeError,KeyError,OverflowError,RecursionError,OSError,sqlite3.Error) as exc:
                 return self.video_investigation_error(exc)
