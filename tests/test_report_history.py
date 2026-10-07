@@ -1,4 +1,5 @@
 """Bounded read-only history and trace receipts using public invented reports."""
+from contextlib import closing
 import hashlib
 import http.client
 import json
@@ -89,7 +90,7 @@ class ReportHistoryTests(unittest.TestCase):
         self.assertEqual(tail['returned'],207);self.assertIsNone(tail['next_offset'])
         self.assertEqual(tail['evidence_trace'],self.trace[1000:]);self.assertEqual(tail['result_sha256'],digest)
         self.insert(99);self.db.commit()
-        with sqlite3.connect(self.root/'catalog.sqlite3') as restarted:
+        with closing(sqlite3.connect(self.root/'catalog.sqlite3')) as restarted:
             self.assertEqual(report_api.get(restarted,route,{}),detail)
         for report,raw in self.original.items():self.assertEqual(self.db.execute('SELECT result_json FROM analysis_reports WHERE report_id=?',(report,)).fetchone()[0],raw)
 
