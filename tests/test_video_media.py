@@ -241,5 +241,40 @@ class MediaTests(unittest.TestCase):
             with self.assertRaises(MediaError) as raised:worker._quota()
         self.assertEqual(raised.exception.code,'media_disk_limit')
 
+    def test_manual_import_projection_new_download_pin_and_legacy_immutable_recovery(self):
+        from robot_test_hub.importer import Importer
+        from robot_test_hub.runs import RunCatalog
+        from robot_test_hub.incident_logs import IncidentLogs
+        from test_wpilog import FIXTURES
+        with self.book._connection() as db:
+            importer=Importer(self.service.root,db)
+            imported=importer.import_file(FIXTURES/'alpha7-main.wpilog',source_type='MANUAL_LOCAL')
+            catalog=RunCatalog(db).rebuild([(imported['id'],list(importer.iter_dataset(imported['id'],'cycle')))])
+        run=next(run for run in catalog['runs'] if run['known_boot'])
+        self.base=int(run['start_monotonic_ns'])
+        calibration=self.payload();calibration.update(robot_id=run['robot_id'],boot_id=run['boot_id'])
+        alignment=self.backend.create(calibration)
+        payload=dict(request_id='legacy-manual',selection=dict(kind='context',candidate_index=0,
+            alignment_id=alignment['alignment_id'],revision=alignment['revision'],sha256=alignment['sha256'],
+            catalog_revision=catalog['revision'],context=dict(kind='run',run_id=run['run_id'])))
+        worker=self.worker();worker.submit(payload);original=worker._log_references
+        def legacy(*args,**kwargs):return original(*args,projection_version=1)
+        with patch.object(worker,'_log_references',side_effect=legacy):
+            worker.process(worker.jobs[payload['request_id']],self.service.stop)
+        item=worker.get(payload['request_id'])['items'][0];path=worker.folder/(item['item_id']+'.json')
+        before=path.read_bytes();old=json.loads(before)
+        self.assertNotIn('projection_version',old['original_logs'])
+        self.assertEqual(old['original_logs']['items'][0]['source_type'],'other')
+        worker.process(worker.jobs[payload['request_id']],self.service.stop)
+        self.assertEqual(path.read_bytes(),before)
+        logs=IncidentLogs(self.service)
+        self.assertEqual(logs.metadata(item['item_id'])['items'][0]['state'],'unavailable')
+        payload['request_id']='new-manual';worker.submit(payload);worker.process(worker.jobs[payload['request_id']],self.service.stop)
+        new_item=worker.get(payload['request_id'])['items'][0]
+        new=json.loads((worker.folder/(new_item['item_id']+'.json')).read_bytes())
+        self.assertEqual(new['original_logs']['projection_version'],2)
+        self.assertEqual(new['original_logs']['items'][0]['source_type'],'MANUAL_LOCAL')
+        self.assertEqual(logs.metadata(new_item['item_id'])['items'][0]['state'],'download_candidate')
+
 
 if __name__=='__main__':unittest.main()

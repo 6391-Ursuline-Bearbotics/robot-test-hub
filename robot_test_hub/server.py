@@ -26,6 +26,7 @@ from .recorder import RecordingError
 from .recorder_service import load_video_config
 from .video_investigation import VideoInvestigation, InvestigationError, strict_json
 from .video_media import load_media_config, MediaError
+from .incident_logs import IncidentLogs, LogError, byte_range
 
 
 def create_http_server(service: HubService, source: DemoSource, port: int) -> ThreadingHTTPServer:
@@ -33,6 +34,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
     notebook_page = (Path(__file__).parent / "static/notebook.html").read_bytes()
     notebook = Notebook(service.root / "catalog.sqlite3")
     investigation = VideoInvestigation(service, notebook)
+    incident_logs = IncidentLogs(service)
     with closing(sqlite3.connect(service.root / 'catalog.sqlite3',timeout=2)) as db:
         db.execute('BEGIN IMMEDIATE')
         with db:
@@ -78,6 +80,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
             if not self.allowed_host():
                 return self.send(403, b'{}')
             if urlsplit(self.path).path.startswith('/api/v1/video/media/'):
+                if '/logs' in urlsplit(self.path).path:return self.incident_log_request()
                 return self.media_stream()
             if (urlsplit(self.path).path in ('/api/v1/video/media-tools','/api/v1/video/preservations')
                     or urlsplit(self.path).path.startswith('/api/v1/video/preservations/')):
@@ -346,6 +349,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
         def do_HEAD(self):
             if not self.allowed_host():return self.send(403,b'{}')
             if urlsplit(self.path).path.startswith('/api/v1/video/media/'):
+                if '/logs' in urlsplit(self.path).path:return self.incident_log_request(head=True)
                 return self.media_stream(head=True)
             self.send_response(404);self.send_header('Content-Length','0');self.end_headers()
 
@@ -392,6 +396,41 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                 return self.video_investigation_error(exc)
             finally:
                 if stream is not None:stream.close()
+
+        def incident_log_request(self,head=False):
+            started=False
+            try:
+                url=urlsplit(self.path)
+                if url.query:raise LogError('invalid_incident_log_query')
+                parts=url.path[len('/api/v1/video/media/'):].split('/')
+                if len(parts) not in (2,3) or parts[1]!='logs':raise LogError('invalid_incident_log_route')
+                if len(parts)==2:
+                    if head:raise LogError('invalid_incident_log_route',405)
+                    result=incident_logs.metadata(parts[0])
+                    return self.send(200,json.dumps(result,allow_nan=False).encode())
+                if len(self.headers.get_all('Range',[]))>1:raise LogError('invalid_incident_log_range',416)
+                with incident_logs.open(parts[0],parts[2]) as original:
+                    size=original.receipt['size_bytes']
+                    start,end,status=byte_range(self.headers.get('Range'),size)
+                    self.send_response(status)
+                    self.send_header('Content-Type','application/octet-stream')
+                    self.send_header('Content-Length',str(end-start+1))
+                    self.send_header('Content-Disposition',f'attachment; filename="{original.receipt["sha256"]}.wpilog"')
+                    self.send_header('Accept-Ranges','bytes');self.send_header('Cache-Control','no-store')
+                    self.send_header('X-Content-Type-Options','nosniff')
+                    if status==206:self.send_header('Content-Range',f'bytes {start}-{end}/{size}')
+                    self.end_headers();started=True
+                    if not head:
+                        original.seek(start);remaining=end-start+1
+                        while remaining:
+                            block=original.read(min(65536,remaining))
+                            if not block:raise LogError('incident_log_evidence_conflict',409)
+                            self.wfile.write(block);remaining-=len(block)
+            except (BrokenPipeError,ConnectionResetError,TimeoutError):
+                self.close_connection=True
+            except (InvestigationError,OSError,ValueError,TypeError,KeyError,sqlite3.Error) as exc:
+                if started:self.close_connection=True
+                else:return self.video_investigation_error(exc)
 
         def review_post(self):
             actions={'assignments':'assign_component','maintenance':'record_maintenance','baselines':'approve_baseline',

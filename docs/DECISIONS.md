@@ -15,6 +15,8 @@
 | Human-approved healthy baselines | Prevent gradual faults from becoming normal automatically. |
 | Notebook saves independently of robot | Late/offline observations are still valuable. |
 | Continuous practice video with clip extraction | Late reports and pre-event context survive enable-trigger delays. |
+| Available practice camera: Panasonic AW-HE40SWP | User supplied the exact model. Trial documented RTSP capture first; firmware/settings, connection and measured timing remain commissioning work. |
+| Explicit original-log downloads from incident references on loopback | User approved archived WPILOG delivery to the browser on this computer. Pins and original bytes are verified; no external uploads or broader network exposure. |
 | No automatic robot deletion initially | Backup and retention must be proven separately. |
 | Human reviews proposed fixes | AI may summarize evidence; no automatic deployment/tuning. |
 

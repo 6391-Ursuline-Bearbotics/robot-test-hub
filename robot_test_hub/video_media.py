@@ -324,7 +324,7 @@ class MediaWorker:
                 shutil.disk_usage(self.folder).free<self.config.minimum_free_bytes+self.reservation+additional):
             raise MediaError('media_disk_limit',503)
 
-    def _log_references(self,backend,selection,evaluation,alignment):
+    def _log_references(self,backend,selection,evaluation,alignment,*,projection_version=2):
         """Retain catalog/import identities without exposing archive filenames."""
         ids=[];basis='unavailable'
         if selection['kind']=='context':
@@ -348,12 +348,16 @@ class MediaWorker:
                 if row is not None:
                     digest(row['artifact_sha256']);integer(row['size_bytes'],0,1<<63)
                     source=row['source_type']
+                    labels=('SYNTHETIC','MANUAL','VERIFIED_TRANSFER','TRANSFER_CHECKSUM_MISMATCH') if projection_version==1 else (
+                        'SYNTHETIC','MANUAL_LOCAL','VERIFIED_TRANSFER','TRANSFER_CHECKSUM_MISMATCH')
                     item.update(state='catalog_reference',sha256=row['artifact_sha256'],size_bytes=row['size_bytes'],
-                        source_type=source if source in ('SYNTHETIC','MANUAL','VERIFIED_TRANSFER','TRANSFER_CHECKSUM_MISMATCH') else 'other',
+                        source_type=source if source in labels else 'other',
                         format_valid=row['format_state']=='valid',original_bytes_reverified_for_export=False)
                 items.append(item)
-        return dict(basis=basis,items=items,download_available=False,
+        result=dict(basis=basis,items=items,download_available=False,
                     qualification='catalog_references_only' if items else 'unavailable')
+        if projection_version==2:result['projection_version']=2
+        return result
 
     def process(self,job,stop):
         try:return self._process(job,stop)
@@ -425,6 +429,13 @@ class MediaWorker:
                     raw=stream.read(4194305)
                 if len(raw)>4194304:raise MediaError('media_sidecar_too_large',413)
                 old=strict_json(raw)
+                old_logs=old.get('original_logs')
+                if not isinstance(old_logs,dict):raise MediaError('media_evidence_conflict',409)
+                if 'projection_version' not in old_logs:
+                    sidecar['original_logs']=self._log_references(backend,job['payload']['selection'],evaluation,alignment,
+                        projection_version=1)
+                elif type(old_logs['projection_version']) is not int or old_logs['projection_version']!=2:
+                    raise MediaError('media_evidence_conflict',409)
                 tools=old.get('tools')
                 fields(tools,('version','ffmpeg_sha256','ffprobe_sha256'))
                 digest(tools['ffmpeg_sha256']);digest(tools['ffprobe_sha256'])

@@ -50,7 +50,7 @@ Unfinished outputs are retained as unpublished evidence rather than promoted on 
 
 Media endpoints resolve opaque artifact identities, support bounded single-range reads for browser seeking, and expose no private archive path. Downloads are local, explicit operator actions; they do not upload footage or notes elsewhere.
 
-The H.264 MP4 review copies omit audio. Each actual exposure-contiguous group becomes its own clip with normalized PTS; source segment boundaries, missing exposures and candidate ambiguity remain separate. FFprobe verifies frame count, relative PTS and frame durations before publication. Sidecars retain the complete pinned evaluation, original recording/manifest hashes, exact source/derived frame correspondence, tool pins and uncertainty. The `original_logs` section contains catalog/import references when available. Those log bytes are **not reverified for this export and have no download endpoint yet**; a catalog reference is not a downloadable log/video pair.
+The H.264 MP4 review copies omit audio. Each actual exposure-contiguous group becomes its own clip with normalized PTS; source segment boundaries, missing exposures and candidate ambiguity remain separate. FFprobe verifies frame count, relative PTS and frame durations before publication. Sidecars retain the complete pinned evaluation, original recording/manifest hashes, exact source/derived frame correspondence, tool pins and uncertainty. The `original_logs` section contains catalog/import references when available. Those log bytes are **not reverified when this sidecar is preserved**. The separate [original-log workflow](INCIDENT_LOGS.md) now checks pinned references and verifies original bytes when an explicit download begins.
 
 ## AdvantageScope manual alignment
 
@@ -74,4 +74,4 @@ An isolated browser using generated footage preserved the saved note's candidate
 
 ## Remaining qualification
 
-Actual AdvantageScope application use, camera exposure/clock accuracy, multi-hour operation, disk/resource load, original-log downloads, video backup and retention remain separate work. Log/video-linked seeking in a single hub timeline and automatic visible-cue detection are not implemented. The [camera setup worksheet](CAMERA_SETUP.md) records the pending model and connection details. No robot or camera operation is authorized by this document.
+Actual AdvantageScope application use, camera exposure/clock accuracy, multi-hour operation, disk/resource load, video backup and retention remain separate work. Log/video-linked seeking in a single hub timeline and automatic visible-cue detection are not implemented. The [camera setup worksheet](CAMERA_SETUP.md) records the user-confirmed AW-HE40SWP model and pending installation details. No robot or camera operation is authorized by this document.

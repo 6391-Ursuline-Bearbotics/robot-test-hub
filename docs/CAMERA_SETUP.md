@@ -1,6 +1,14 @@
 # Practice camera setup before commissioning
 
-For a Panasonic pan/tilt/zoom installation, confirm the exact model, firmware, outputs and installed settings before choosing an input route. Camera support remains unqualified. A front photograph does not establish RTSP, USB video or capture-card compatibility; do not choose a device profile from appearance.
+The user identified the available camera as **Panasonic AW-HE40SWP**. This confirms the intended model, not the installed firmware or physical recording performance. Camera support remains unqualified until a capture test and timing measurements pass.
+
+## AW-HE40SWP route
+
+This is the white SDI member of the HE40 family. Panasonic lists H.264 IP video with RTSP support, PoE+ and USB Video Class support; its physical video output is HD-SDI. The manufacturer's [HE40S specifications](https://eu.connect.panasonic.com/de/en/broadcast-proav/aw-he40s) and [operations manual covering AW-HE40SWP](https://pro-av.panasonic.net/manual/pdf/AW-HE40P.E_full%28SQW0456-1%29_E.pdf) are the model references.
+
+Recommended first trial: wired Ethernet from the camera to the practice network and recording computer, using the hub's private `input_format: rtsp` configuration. This should avoid needing an SDI capture device if the installed firmware and stream settings work. Use an appropriate PoE+ supply or the camera's specified power supply. USB video or an SDI capture device are fallback routes to qualify separately.
+
+Record firmware, selected output priority, exact stream endpoint/authentication and actual resolution/rate before capture. Do not guess a URL or alter Dan's settings automatically. Start provisionally at 1080p near 30 fps and measure; IP and SDI format capabilities differ, so do not infer a 1080p60 SDI mode from an IP-stream specification. No camera was contacted or firmware/settings changed to prepare these instructions.
 
 ## Select the input route
 

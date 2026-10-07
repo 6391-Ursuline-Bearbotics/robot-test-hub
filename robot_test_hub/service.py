@@ -128,6 +128,7 @@ class HubService:
         self.closed = False
         self.media=MediaWorker(self,video_media_config,adapter_factory=media_adapter_factory or NativeMediaAdapter)
         self.threads = []
+        self.io_lifetimes = []
         self.diagnostics.record("service_initialized", "Local source service initialized; no deployment or source deletion")
         self.diagnostics.record("transfer_limits", f"One request outstanding; maximum {config.chunk_size} bytes; client deadline {config.io_timeout} s; source tail requires transport qualification")
 
@@ -351,9 +352,14 @@ class HubService:
             except Exception as exc:
                 self.diagnostics.record("source_cancel_failed", "Source cancellation failed; waiting for outstanding I/O", exception=exc)
         deadline = time.monotonic() + self.config.shutdown_timeout
-        for thread in self.threads:
+        if not self.settings_lock.acquire(timeout=max(0,deadline-time.monotonic())):
+            self.diagnostics.record('shutdown_timeout','Local I/O registration is outstanding; ownership retained')
+            return False
+        try:workers=list(self.threads)+list(self.io_lifetimes)
+        finally:self.settings_lock.release()
+        for thread in workers:
             thread.join(max(0, deadline - time.monotonic()))
-        if any(thread.is_alive() for thread in self.threads):
+        if any(thread.is_alive() for thread in workers):
             self.diagnostics.record("shutdown_timeout", "Worker still has outstanding I/O; ownership retained. Adapter must provide bounded I/O/cancellation")
             return False
         if not self.settings_lock.acquire(timeout=max(0,deadline-time.monotonic())):

@@ -18,6 +18,7 @@ Design and implementation workspace for turning physical robot testing into sear
 - [Manual footage investigation workflow](docs/VIDEO_INVESTIGATION.md)
 - [Find footage from saved notes and runs](docs/VIDEO_CONTEXT.md)
 - [Preserve, play and download incident clips](docs/VIDEO_MEDIA.md)
+- [Download an incident's original robot logs](docs/INCIDENT_LOGS.md)
 - [Opt-in verified backup and restore](docs/BACKUP.md)
 - [Analysis/review evidence and remaining gaps](docs/ANALYSIS_REVIEW.md)
 - [Reviewed October 7 checkpoint](docs/VALIDATION_CURRENT.md)
