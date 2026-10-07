@@ -3,7 +3,7 @@ from contextlib import closing
 import sqlite3
 from .runs import RunCatalog
 from .timebase import local_candidates
-from .reports import list_for_run
+from .reports import public_for_run
 
 
 def get(root, path, query, notebook):
@@ -34,7 +34,8 @@ def get(root, path, query, notebook):
                         notes=notebook.list(start_ns=interval['utc_start_ns'],end_ns=interval['utc_end_ns'],include_unknown=False)
                         for note in notes['annotations']:
                             candidates[note['event_id']]=note
-                    return {'schema_version':1,'run':run,'reports':list_for_run(db,identity),'annotation_candidates':list(candidates.values()),
+                    reports,display=public_for_run(db,identity)
+                    return {'schema_version':1,'run':run,'reports':reports,'reports_display':display,'annotation_candidates':list(candidates.values()),
                             'annotation_basis':'UTC interval overlap; candidate association, not robot acknowledgment'}
             raise KeyError('run_not_found')
     raise KeyError('route_not_found')

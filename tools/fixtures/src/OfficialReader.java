@@ -9,6 +9,7 @@ import org.littletonrobotics.junction.wpilog.WPILOGReader;
 import org.wpilib.datalog.DataLogReader;
 import org.wpilib.datalog.DataLogRecord;
 import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.util.struct.StructBuffer;
 
 /** Independent reader executable: never imports or invokes the fixture generator. */
@@ -48,6 +49,15 @@ public final class OfficialReader {
             List<Object> poses = new ArrayList<>();
             for (Pose2d p : StructBuffer.create(Pose2d.struct).readArray(r.getRaw())) poses.add(pose(p));
             yield poses;
+          }
+          case "struct:SwerveModuleVelocity[]" -> {
+            List<Object> modules = new ArrayList<>();
+            for (SwerveModuleVelocity module :
+                StructBuffer.create(SwerveModuleVelocity.struct).readArray(r.getRaw())) {
+              modules.add(Map.of("velocity_mps", module.velocity,
+                  "angle_rad", module.angle.getRadians()));
+            }
+            yield modules;
           }
           case "structschema" -> new String(r.getRaw(), java.nio.charset.StandardCharsets.UTF_8);
           default -> HexFormat.of().formatHex(r.getRaw());

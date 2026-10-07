@@ -4,6 +4,7 @@ import json
 from .importer import Importer, EXTRACTOR_VERSION, MAPPING_REVISION
 from .runs import rebuild_from_imports
 from .reports import generate
+from .analysis_plan import review_snapshot
 
 
 class Pipeline:
@@ -37,11 +38,12 @@ class Pipeline:
                 self.db.execute('UPDATE transfer_meta SET format_status=? WHERE file_id=?',(format_state,candidate['id']))
                 self.db.execute('UPDATE verification_jobs SET format_status=? WHERE file_id=?',(format_state,candidate['id']))
             break  # One recording per worker tick; status/collection remain independent.
-        signature=tuple((r['id'],r['dataset_sha256']) for r in self.db.execute(
+        imports=tuple((r['id'],r['dataset_sha256']) for r in self.db.execute(
             "SELECT id,dataset_sha256 FROM import_jobs WHERE state IN ('succeeded','succeeded_with_unsupported') ORDER BY id"))
+        signature=(imports,review_snapshot(self.db)['revision'])
         if signature!=self.last_signature:
             document=rebuild_from_imports(self.root,self.db)
             reports=generate(self.root,self.db,document)
             self.last_signature=signature
-            return {'state':'indexed','imports':len(signature),'runs':len(document['runs']),'reports':len(reports),'revision':document['revision']}
-        return {'state':'idle','imports':len(signature)}
+            return {'state':'indexed','imports':len(imports),'runs':len(document['runs']),'reports':len(reports),'revision':document['revision']}
+        return {'state':'idle','imports':len(imports)}

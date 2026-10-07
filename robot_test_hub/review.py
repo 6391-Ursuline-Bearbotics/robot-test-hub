@@ -16,7 +16,7 @@ from .swerve import BASELINE_KEYS
 
 DISPOSITIONS = ('confirmed_hardware','confirmed_software','expected_behavior','false_alarm','insufficient_evidence','unresolved')
 MAINTENANCE_TYPES = ('inspection','physical_repair','module_swap','battery_change','configuration_change','software_change')
-KINDS = ('assignment','maintenance','baseline','finding_review','regression_bundle')
+KINDS = ('assignment','maintenance','baseline','finding_review','regression_bundle','analysis_plan')
 
 
 def install_schema(db):
@@ -111,6 +111,20 @@ class ReviewStore:
             raise ValueError('Revision must follow expected current revision')
         self.db.execute('INSERT INTO review_records VALUES (?,?,?,?,?)',(kind,record_id,revision,canonical(payload),str(time.time_ns())))
         return payload
+
+    @_write_transaction
+    def record_analysis_plan(self,payload):
+        from .analysis_plan import validate_plan
+        payload=validate_plan(payload)
+        start=int(payload['start_utc_ns']);end=int(payload['end_utc_ns']) if payload['end_utc_ns'] is not None else None
+        for old in self.records('analysis_plan'):
+            if old['id']!=payload['id'] and old['robot_id']==payload['robot_id'] and _overlap(start,end,
+                    int(old['start_utc_ns']),int(old['end_utc_ns']) if old['end_utc_ns'] is not None else None):
+                raise ValueError('analysis_plan_intervals_overlap')
+        if payload['approved_baseline_id'] is not None:
+            baseline=self._latest('baseline',payload['approved_baseline_id'])
+            if baseline is None or baseline.get('approved') is not True:raise ValueError('selected_approved_baseline_unavailable')
+        return self._append('analysis_plan',payload)
 
     @_write_transaction
     def assign_component(self,payload):
@@ -341,9 +355,16 @@ class ReviewStore:
     def snapshot(self,limit=100):
         if type(limit) is not int or not 1<=limit<=500:
             raise ValueError('Invalid review snapshot limit')
-        data={kind:self.records(kind)[-limit:] for kind in KINDS}
+        data={};counts={}
+        for kind in KINDS:
+            predicate='kind=? AND revision=(SELECT MAX(revision) FROM review_records x WHERE x.kind=r.kind AND x.record_id=r.record_id)'
+            counts[kind]=self.db.execute('SELECT COUNT(*) FROM review_records r WHERE '+predicate,(kind,)).fetchone()[0]
+            rows=self.db.execute('SELECT payload_json FROM review_records r WHERE '+predicate+' ORDER BY created_utc_ns DESC,record_id DESC LIMIT ?',(kind,limit)).fetchall()
+            data[kind]=[json.loads(row[0]) for row in reversed(rows)]
         jobs=self.db.execute('SELECT result_json FROM analyzer_jobs ORDER BY created_utc_ns DESC LIMIT ?',(limit,)).fetchall()
-        data.update(schema_version=1,analysis_jobs=[json.loads(row[0]) for row in jobs],
+        from .reports import public_check
+        data.update(schema_version=1,analysis_jobs=[public_check(json.loads(row[0]),trace_limit=0) for row in jobs],
+                    records_display={kind:{'total':counts[kind],'returned':len(data[kind]),'truncated':counts[kind]>len(data[kind])} for kind in KINDS},
                     dispositions=list(DISPOSITIONS),maintenance_types=list(MAINTENANCE_TYPES),
                     action_scope='local_review_records_only')
         return data

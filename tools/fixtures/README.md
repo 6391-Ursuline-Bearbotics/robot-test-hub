@@ -1,5 +1,7 @@
 # Public synthetic WPILOG fixtures
 
+The additional `GenerateSwerveSessions.java` qualification generator uses the same locked native writer to produce invented four-module sessions. `tests/test_auto_swerve_native.py`, enabled with `ROBOT_HUB_STATUS_INTEGRATION=1`, generates them in temporary storage and verifies actual imported reports against a separate official reader. It covers a three-run approved cohort, a later front-left tracking outlier, a new boot, a maintenance boundary and refusal to invent REAL freshness. The recordings are not committed and do not qualify physical robot performance. See [automatic analysis](../../docs/AUTOMATIC_SWERVE.md).
+
 T04 provides four tiny genuine AdvantageKit recordings generated with the team's exact installed profile: WPILib **2027.0.0-alpha-7**, AdvantageKit **27.0.0-alpha-6**, and **JDK 25**, Windows x86-64. All values and identities are invented. There are no robot recordings, source connections, HAL robot initialization, deployment, or hub runtime dependencies. The public fixture directory is `tests/fixtures/synthetic/`; generated native libraries/classes stay under ignored `tools/fixtures/build/`.
 
 From the hub repository root in PowerShell:

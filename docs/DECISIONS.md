@@ -13,6 +13,9 @@
 | Custom receiver rotation, separately validated | Pinned AdvantageKit does not rotate on disable. Avoid restarting logger. |
 | Original evidence immutable | Notes, mappings, analyzer changes are revisions/derivatives. |
 | Human-approved healthy baselines | Prevent gradual faults from becoming normal automatically. |
+| Explicit revisioned UTC practice plans and selected cohorts | Assign comparable test/configuration context; edits regenerate reports without changing original evidence. |
+| Separate signal, run-catalog and clock revisions | New imports do not invalidate an unchanged signal mapping; results retain each revision independently. |
+| Provisional tracking thresholds; REAL freshness required | Automatic reports cannot establish physical health from logging-cycle timestamps or invented sample freshness. |
 | Notebook saves independently of robot | Late/offline observations are still valuable. |
 | Continuous practice video with clip extraction | Late reports and pre-event context survive enable-trigger delays. |
 | Available practice camera: Panasonic AW-HE40SWP | User supplied the exact model. Trial documented RTSP capture first; firmware/settings, connection and measured timing remain commissioning work. |

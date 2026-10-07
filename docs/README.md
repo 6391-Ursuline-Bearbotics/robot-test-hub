@@ -18,6 +18,7 @@ The robot records locally whenever its program runs. After it is disabled long e
 | [VIDEO_MEDIA.md](VIDEO_MEDIA.md) | Implemented incident preservation, playback, downloads, manual AdvantageScope cues and qualification limits |
 | [INCIDENT_LOGS.md](INCIDENT_LOGS.md) | On-demand verified original WPILOG downloads scoped to immutable incident references |
 | [ANALYSIS.md](ANALYSIS.md) | Ingestion, health metrics, baselines, uncertainty, feedback/replay |
+| [AUTOMATIC_SWERVE.md](AUTOMATIC_SWERVE.md) | Implemented session plans, automatic swerve/cohort reports, bounded plots and qualification limits |
 | [UI_AND_OPERATIONS.md](UI_AND_OPERATIONS.md) | Screens, operator actions, diagnostics, storage/backup, setup |
 | [VALIDATION.md](VALIDATION.md) | Failure matrix, fixtures, bench trials, release evidence |
 | [IMPLEMENTATION.md](IMPLEMENTATION.md) | Dependency-ordered tasks, acceptance criteria, model handoff |

@@ -1,5 +1,7 @@
 # Analysis eligibility corrections
 
+Current integration uses `automatic-reports-4`, `swerve-tracking` 3 and mapping `6391-alpha7-final-swerve-2`. Revisioned practice plans, automatic cohort execution and bounded plots are documented in [AUTOMATIC_SWERVE.md](AUTOMATIC_SWERVE.md). The sections below retain historical review evidence; REAL acquisition freshness remains unavailable.
+
 The independent local review reproduced four defects and corrected them in `analysis.py`, `swerve.py`, and `tests/test_analysis.py`. This is a Python/synthetic evidence qualification, not a measured robot health result.
 
 | Reproduced defect | Corrected behavior |

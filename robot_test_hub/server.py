@@ -434,7 +434,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
 
         def review_post(self):
             actions={'assignments':'assign_component','maintenance':'record_maintenance','baselines':'approve_baseline',
-                     'findings':'review_finding','bundles':'regression_bundle'}
+                     'findings':'review_finding','bundles':'regression_bundle','analysis-plans':'record_analysis_plan'}
             action=self.path[len('/api/v1/review/'):]
             if action not in actions:
                 return self.reject_unread(404,b'{}')
@@ -444,14 +444,19 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                 length=int(self.headers.get('Content-Length','0'))
                 if not 0 < length <= 16384:
                     return self.reject_unread(400,b'{"error_code":"invalid_request_size"}')
-                payload=json.loads(self.rfile.read(length))
+                body=self.rfile.read(length)
+                if len(body)!=length:raise ValueError('Incomplete review body')
+                payload=strict_json(body)
                 if not isinstance(payload,dict):
                     raise ValueError('Expected a JSON object')
-                with closing(sqlite3.connect(service.root/'catalog.sqlite3',timeout=2)) as db:
-                    result=getattr(ReviewStore(db),actions[action])(payload)
+                with service.settings_lock:
+                    if service.stop.is_set() or service.closed:
+                        return self.send(503,b'{"error_code":"service_stopping"}')
+                    with closing(sqlite3.connect(service.root/'catalog.sqlite3',timeout=2)) as db:
+                        result=getattr(ReviewStore(db),actions[action])(payload)
                 return self.send(200,json.dumps(result,allow_nan=False).encode())
             except (ValueError,TypeError,KeyError,OverflowError,RecursionError) as exc:
-                return self.send(400,json.dumps({'error_code':'invalid_review','error':str(exc)}).encode())
+                return self.send(400,b'{"error_code":"invalid_review"}')
             except sqlite3.Error:
                 return self.send(503,b'{"error_code":"review_storage_unavailable"}')
 
