@@ -77,7 +77,8 @@ class AutomaticSwerveTests(unittest.TestCase):
     def test_known_build_and_si_metrics_are_pinned(self):
         check=self.check(self.execute());self.assertEqual(check['outcome'],'evaluated_no_finding')
         values=[m['value'] for m in check['metrics'] if m['name']=='drive_rmse_mps']
-        self.assertEqual(values,[.5]*4)
+        self.assertEqual(len(values),4)
+        for value in values:self.assertAlmostEqual(value,.5,places=12)
         context=check['provenance']['context']
         self.assertEqual(context['recorded_build_sha256'],['a'*64])
         self.assertEqual(context['build_context_basis'],'recorded_alias_and_human_plan')
