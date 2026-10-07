@@ -4,6 +4,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from robot_test_hub.transfer import BoundedIO, Cancellation, ManifestPage, Throughput, TransferCancelled, TransferTimeout
 
@@ -426,14 +427,37 @@ class TransferFaultTests(unittest.TestCase):
         self.assertEqual(self.rows()[old.id]['error_code'], 'identity_conflict')
 
     def test_persisted_retry_backoff_survives_restart(self):
-        self.source.faults['file-0'] = TransferError('network loss')
-        self.collector.tick()
-        next_retry = self.rows()['file-0']['next_retry']
         self.collector.close()
-        self.collector = self.make()
-        self.assertEqual(self.rows()['file-0']['next_retry'], next_retry)
-        self.collector.tick()
-        self.assertEqual(len(self.source.reads), 1)
+        wall_clock = {'now': 1_800_000_000.0}
+        # Retry deadlines persist in UTC. Both constructors must share a
+        # controlled UTC/monotonic relationship, independent of slow CI startup.
+        with patch('robot_test_hub.collector.time.time', side_effect=lambda: wall_clock['now']):
+            self.collector = self.make()
+            self.source.faults['file-0'] = TransferError('network loss')
+            self.collector.tick()
+            next_retry = self.rows()['file-0']['next_retry']
+            self.assertEqual(next_retry, wall_clock['now'] + 1)
+            self.assertEqual(len(self.source.reads), 1)
+            self.collector.close()
+            wall_clock['now'] += .25
+            self.source.now += .25
+            self.collector = self.make()
+            self.assertEqual(self.rows()['file-0']['next_retry'], next_retry)
+            self.collector.tick()
+            self.assertEqual(len(self.source.reads), 1)
+            wall_clock['now'] += .5
+            self.source.now += .5
+            self.assertLess(wall_clock['now'], next_retry)
+            self.collector.tick()
+            self.assertEqual(len(self.source.reads), 1)
+            wall_clock['now'] += .5
+            self.source.now += .5
+            self.assertGreater(wall_clock['now'], next_retry)
+            self.source.faults.clear()
+            self.collector.tick()
+            self.assertEqual(len(self.source.reads), 2)
+            self.assertEqual(self.rows()['file-0']['offset'], 4)
+            self.assertEqual(self.rows()['file-0']['attempts'], 0)
 
 class TransferAdditionalTests(unittest.TestCase):
     setUp = ProductionTransferTests.setUp

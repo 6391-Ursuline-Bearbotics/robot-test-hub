@@ -2,6 +2,10 @@
 
 Latest increment: the [manual footage investigation](VIDEO_INVESTIGATION.md) service/browser workflow passed independent Sol review and a full native-enabled Windows run of **380 tests: 378 passed, two symbolic-link privilege skips**. Generated encoded footage established revision save/reload, exact point selection, gaps, note-revision context and uncertainty separation. Browser functional checks passed; screenshot capture returned blank backgrounds, leaving visual appearance unverified. Automatic wall-clock note mapping, preview/clips/export and physical camera qualification remain incomplete.
 
+Published investigation commit `4c2975f` also passed all four Windows/Linux, Python 3.10/3.13 checks ([run 37639883666](https://github.com/6391-Ursuline-Bearbotics/robot-test-hub/actions/runs/37639883666)).
+
+A test-only follow-up controls UTC and monotonic clocks in the persisted retry deadline regression. An earlier documentation-only commit's Windows/Python 3.13 run had allowed the real one-second deadline to elapse during fixture restart, making a second read legitimate. The repaired test asserts the exact durable UTC deadline, blocks reads before it across restart, and verifies a successful read after it. All 40 focused transfer tests pass; independent review ran the repaired case and accepted it. Production retry policy and backoff are unchanged.
+
 This checkpoint publishes completed collection, evidence-analysis/review and backup work. It is not physical commissioning or completion of the full design.
 
 Three independent Sol reviews covered live source transport/status, analysis/cohort/report correctness, and backup/restore. A further Sol review covered robot recording/status/build identity. They fixed and added regressions for unexpected SSH disconnect/reconnect, backup staging inventory/link hazards, repair/configuration/assignment cohort boundaries, overlapping runs/policy mismatch, preserved nonadvancing source cycles, and queued-disabled versus current-enabled rotation.

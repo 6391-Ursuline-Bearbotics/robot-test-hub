@@ -43,6 +43,8 @@ An isolated browser archive used actual encoded 10 Hz black/white cue footage wi
 
 Browser accessibility and displayed text verified these behaviors. Both screenshot methods returned a blank background, so visual appearance remains unverified. Generated clocks/cues and supplied uncertainty are fixture evidence; physical camera alignment, including the <100 ms target, remains unqualified.
 
+Published service/browser commit `4c2975f` passed all four Windows/Linux, Python 3.10/3.13 checks ([CI run 37639883666](https://github.com/6391-Ursuline-Bearbotics/robot-test-hub/actions/runs/37639883666)). Optional native and generated-media qualifications are the separate local Windows evidence above.
+
 ## Remaining work
 
 Automatic UTC-note/run association needs inversion of the validated boot-scoped robot clock mapping, propagation of note and clock uncertainty, and explicit handling of ambiguous clock pieces and gaps. Timeline-linked media preview, clip preservation, AdvantageScope instructions/export, camera-specific timing measurement and video backup remain separate work. The [camera setup worksheet](CAMERA_SETUP.md) captures the physical commissioning details still needed.
