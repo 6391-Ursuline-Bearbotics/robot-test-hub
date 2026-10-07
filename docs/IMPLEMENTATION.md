@@ -40,7 +40,7 @@ Useful release A: T01–T07 and T09–T12 (collection, time search, hub notebook
 | UI | Transfer queue, diagnostics, run search, offline notebook, recording-quality reports, review/maintenance forms | Phone pairing, robot markers, review history and video integration |
 | Robot | T09 identity/status and T10 experimental rotation, explicit SIM/REAL recording selection | USB/load qualification, marker IO and bench run; T08–T12 |
 | Analysis | Automatic recording-quality reports, deterministic swerve metrics, explicit cohort approval and maintenance-aware comparison | Automatic swerve/cohort scheduling, plots, REAL freshness; T14–T15 |
-| Video | Design and acceptance contracts; recorder core in development | Recorder integration, native/camera qualification and alignment; T16–T17 |
+| Video | Recorder/manual alignment cores independently reviewed; actual generated-video qualification passes | Recorder service/UI integration under review; note/run investigation, live cue detection and physical timing qualification; T16–T17 |
 | Packaging | Foreground CLI, pinned timezone dependency, Windows/Linux CI | Autostart, upgrade/rollback and restore qualification; T18–T19 |
 
 Status polling, transfers, local verification and indexing use independent workers. Tests and browser checks establish local behavior; real transport, sensor freshness, recording load, camera alignment and independent backup require their own evidence. No hardware deployment or operation has been performed.
@@ -193,7 +193,7 @@ Acceptance: module swap tracked by physical ID; maintenance splits cohorts corre
 
 ## T16 — Practice recording adapter
 
-Status: **planned; camera selection needed only for live setup**. Depends: T06, T07. Read CONTEXT_AND_VIDEO.
+Status: **standalone core implemented and reviewed; generated-media qualification passes**. Twenty deterministic tests plus a native FFmpeg/FFprobe 9.0.2 generated-footage test verify PTS/gaps, original hashes and clip retries. Worker/configuration/API/browser integration is being reviewed separately. Live camera setup and physical performance remain unqualified. See [recording evidence](RECORDING.md). Depends: T06, T07. Read CONTEXT_AND_VIDEO.
 
 Work: recorder interface and first OBS/FFmpeg implementation with pinned-version checks, continuous bounded segments, health statistics, clip preservation around notes/runs, raw/derived artifact links. Mock adapter for CI.
 
@@ -201,7 +201,7 @@ Acceptance: independently generated footage clips correctly by actual PTS; netwo
 
 ## T17 — Video alignment and investigation view
 
-Status: **planned**. Depends: T16 and T09 for logged cue. Read CONTEXT_AND_VIDEO.
+Status: **manual alignment core implemented and independently reviewed; generated-media qualification passes**. Twenty protocol tests (one Windows symlink skip) and actual encoded cue footage validate frame selection, exact clock fitting, uncertainty, gap handling, revision reload and encoder-restart isolation. Service/UI/export and physical cue measurements remain incomplete. See [alignment evidence](VIDEO_ALIGNMENT.md). Depends: T16 and T09 for logged cue. Read CONTEXT_AND_VIDEO.
 
 Work: manual sync anchors first, then logged visible-cue detection, drift/discontinuity mappings, measured uncertainty, timeline-linked preview, AdvantageScope export/instructions. Do not depend on undocumented AS automation.
 
