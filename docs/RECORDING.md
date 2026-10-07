@@ -2,6 +2,8 @@
 
 The hub has an opt-in recording worker, private configuration, cached health/segment APIs and a Practice video page. `robot_test_hub.recorder` supplies the recording core and FFmpeg adapter. Importing modules or starting the hub without `--video-config` never starts a camera. Saving a note does not yet request footage automatically; mapping note/run times and selecting clips remains T17 integration work.
 
+For a camera awaiting installation, use the [camera setup worksheet](CAMERA_SETUP.md) to identify its confirmed input route and commissioning measurements. Camera-specific compatibility requires the exact model and an actual capture test.
+
 ## Configure the independent worker
 
 Save private video settings under ignored `data/`. The JSON must include `schema_version: 1` plus the `FFmpegConfig` fields. Executable paths must be absolute and are not discovered automatically. This example uses generated footage only; replace tool paths with your explicitly selected local installation:
