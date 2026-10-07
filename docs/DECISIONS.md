@@ -17,6 +17,7 @@
 | Separate signal, run-catalog and clock revisions | New imports do not invalidate an unchanged signal mapping; results retain each revision independently. |
 | Immutable report selection with bounded trace pages | Older results remain investigable while new results arrive; complete traces are reachable without accumulating them in the browser. |
 | Provisional tracking thresholds; REAL freshness required | Automatic reports cannot establish physical health from logging-cycle timestamps or invented sample freshness. |
+| Recorded Phoenix status warnings separate from physical freshness | SDK errors can precede connection debounce; receipt/transmit times and SDK validity are observations until hardware timing is independently qualified. See [source audit and bench worksheet](SWERVE_STATUS_TIMING.md). |
 | Notebook saves independently of robot | Late/offline observations are still valuable. |
 | Continuous practice video with clip extraction | Late reports and pre-event context survive enable-trigger delays. |
 | Available practice camera: Panasonic AW-HE40SWP | User supplied the exact model. Trial documented RTSP capture first; firmware/settings, connection and measured timing remain commissioning work. |

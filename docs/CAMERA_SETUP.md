@@ -4,7 +4,7 @@ The user identified the available camera as **Panasonic AW-HE40SWP**. This confi
 
 ## AW-HE40SWP route
 
-This is the white SDI member of the HE40 family. Panasonic lists H.264 IP video with RTSP support, PoE+ and USB Video Class support; its physical video output is HD-SDI. The manufacturer's [HE40S specifications](https://eu.connect.panasonic.com/de/en/broadcast-proav/aw-he40s) and [operations manual covering AW-HE40SWP](https://pro-av.panasonic.net/manual/pdf/AW-HE40P.E_full%28SQW0456-1%29_E.pdf) are the model references.
+This is the white SDI member of the HE40 family. Panasonic lists H.264 IP video with RTSP support, PoE+ and USB Video Class support; its physical video output is HD-SDI. The manufacturer's [HE40S specifications](https://eu.connect.panasonic.com/de/en/broadcast-proav/aw-he40s), [HE40 streaming/protocol specification](https://pro-av.panasonic.net/en/sales_o/camera/aw-he40/pdf/aw-he40_spec.pdf) and [operations manual covering AW-HE40SWP](https://pro-av.panasonic.net/manual/pdf/AW-HE40P.E_full%28SQW0456-1%29_E.pdf) are the model references.
 
 Recommended first trial: wired Ethernet from the camera to the practice network and recording computer, using the hub's private `input_format: rtsp` configuration. This should avoid needing an SDI capture device if the installed firmware and stream settings work. Use an appropriate PoE+ supply or the camera's specified power supply. USB video or an SDI capture device are fallback routes to qualify separately.
 

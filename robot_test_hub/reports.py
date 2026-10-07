@@ -11,7 +11,9 @@ from .analysis_plan import review_snapshot, resolve_plan
 from .swerve import (adapt_robot_swerve, swerve_analyzer, swerve_tracking, ROBOT_FIELDS,
                      ROBOT_MAPPING_VERSION, MODULE_POSITIONS)
 
-VERSION = 'automatic-reports-4'
+VERSION = 'automatic-reports-5'
+from .phoenix_status import FIELDS as PHOENIX_FIELDS, phoenix_status_analyzer
+
 MAX_ROWS = 50000
 
 
@@ -66,7 +68,7 @@ def _swerve(evidence,configuration):
 
 def analyzers():
     return [Analyzer(Declaration('recording-quality', VERSION, (PROFILE,)), _quality),
-            Analyzer(swerve_analyzer((PROFILE,)).declaration,_swerve)]
+            Analyzer(swerve_analyzer((PROFILE,)).declaration,_swerve), phoenix_status_analyzer()]
 
 
 def generate(root, db, document, *, max_rows=MAX_ROWS):
@@ -96,7 +98,7 @@ def generate(root, db, document, *, max_rows=MAX_ROWS):
         context['mapping_revision']=mappings[0] if len(mappings)==1 else 'mixed-unqualified'
         context['max_rows'] = max_rows
         context['import_job_ids'] = run['segment_ids']
-        context['row_selection'] = 'source_order_required_schemas_lifecycle_held_state_and_run_cycles'
+        context['row_selection'] = 'source_order_required_schemas_lifecycle_held_state_phoenix_sdk_observations_and_run_cycles'
         selected,plan=resolve_plan(run,snapshot);context.update(selected)
         hashes = tuple(sorted({j['artifact_sha256'] for j in jobs}))
         source_types = {manifests[j['id']]['source_type'] for j in jobs}
@@ -144,7 +146,7 @@ def generate(root, db, document, *, max_rows=MAX_ROWS):
                 before=stamp is None or stamp<lo
                 if row['kind'] in ('cycle','sample') and before:continue
                 if row['kind']=='observation':
-                    relevant=(row.get('field') in set(ROBOT_FIELDS.values())|CONNECTION_FIELDS or row.get('type')=='structschema')
+                    relevant=(row.get('field') in set(ROBOT_FIELDS.values())|CONNECTION_FIELDS|PHOENIX_FIELDS or row.get('type')=='structschema')
                     if not relevant and (before or row.get('validity')=='valid'):continue
                 if row['kind'] == 'cycle':
                     aliases = {k:v.get('value') for k,v in row.get('aliases',{}).items()}

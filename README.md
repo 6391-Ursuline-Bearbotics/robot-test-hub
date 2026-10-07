@@ -4,6 +4,8 @@ Design and implementation workspace for turning physical robot testing into sear
 
 **Current status: local collection demo, opt-in live transfer adapter, qualified Alpha 7 WPILOG importer, searchable run history, offline driver notebook, and opt-in practice recording.** Transfer, indexing, and status run independently. Live NT/SFTP passes local protocol tests; physical performance and live camera timing remain unqualified. The transfer demo uses opaque synthetic bytes; genuine synthetic WPILOG fixtures exercise the importer.
 
+Automatic reports also flag recorded motor-controller SDK status errors, preserving exact source evidence even before a connection debounce changes. [Status and timing diagnostics](docs/SWERVE_STATUS_TIMING.md) remain separate from physical freshness/health qualification. The confirmed practice camera is [Panasonic AW-HE40SWP](docs/CAMERA_SETUP.md); wired RTSP capture is the first commissioning trial.
+
 ## Start here
 
 - [Full design and document map](docs/README.md)
