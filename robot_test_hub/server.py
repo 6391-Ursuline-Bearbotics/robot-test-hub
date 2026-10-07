@@ -25,6 +25,7 @@ from .storage import OwnershipError, SchemaError
 from .recorder import RecordingError
 from .recorder_service import load_video_config
 from .video_investigation import VideoInvestigation, InvestigationError, strict_json
+from .video_media import load_media_config, MediaError
 
 
 def create_http_server(service: HubService, source: DemoSource, port: int) -> ThreadingHTTPServer:
@@ -76,6 +77,11 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
         def do_GET(self):
             if not self.allowed_host():
                 return self.send(403, b'{}')
+            if urlsplit(self.path).path.startswith('/api/v1/video/media/'):
+                return self.media_stream()
+            if (urlsplit(self.path).path in ('/api/v1/video/media-tools','/api/v1/video/preservations')
+                    or urlsplit(self.path).path.startswith('/api/v1/video/preservations/')):
+                return self.media_get()
             if self.path == "/":
                 return self.send(200, page, "text/html; charset=utf-8")
             if self.path == "/notebook":
@@ -233,7 +239,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                     or (origin and (urlsplit(origin).netloc != self.headers.get("Host") or urlsplit(origin).scheme != "http"))
                     or self.headers.get("Content-Type") != "application/json"):
                 return self.reject_unread(403, b'{}')
-            if self.path in ('/api/v1/video/alignments','/api/v1/video/map','/api/v1/video/associate'):
+            if self.path in ('/api/v1/video/alignments','/api/v1/video/map','/api/v1/video/associate','/api/v1/video/preservations'):
                 return self.video_investigation_post()
             if self.path.startswith("/api/v1/annotations"):
                 return self.notebook_post()
@@ -311,11 +317,81 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                 payload=strict_json(encoded)
                 operation={'/api/v1/video/alignments':investigation.create,
                            '/api/v1/video/map':investigation.map,
-                           '/api/v1/video/associate':investigation.associate}[self.path]
+                           '/api/v1/video/associate':investigation.associate,
+                           '/api/v1/video/preservations':service.media.submit}[self.path]
                 result=operation(payload)
                 return self.send(200,json.dumps(result,allow_nan=False).encode())
             except (InvestigationError,ValueError,TypeError,KeyError,OverflowError,RecursionError,OSError,sqlite3.Error) as exc:
                 return self.video_investigation_error(exc)
+
+        def media_get(self):
+            if service.stop.is_set() or service.closed:
+                return self.send(503,b'{"schema_version":1,"error_code":"service_stopping"}')
+            try:
+                url=urlsplit(self.path);query=parse_qs(url.query,keep_blank_values=True,max_num_fields=2)
+                if any(len(v)!=1 for v in query.values()):raise ValueError()
+                if url.path=='/api/v1/video/media-tools':
+                    if query:raise ValueError()
+                    result=service.media.tools_snapshot()
+                elif url.path=='/api/v1/video/preservations':
+                    if query.keys()-{'limit','cursor'}:raise ValueError()
+                    result=service.media.page(int(query.get('limit',['20'])[0]),query.get('cursor',[None])[0])
+                else:
+                    if query:raise ValueError()
+                    result=service.media.get(url.path[len('/api/v1/video/preservations/'):])
+                return self.send(200,json.dumps(result,allow_nan=False).encode())
+            except (InvestigationError,OSError,ValueError,TypeError,KeyError) as exc:
+                return self.video_investigation_error(exc)
+
+        def do_HEAD(self):
+            if not self.allowed_host():return self.send(403,b'{}')
+            if urlsplit(self.path).path.startswith('/api/v1/video/media/'):
+                return self.media_stream(head=True)
+            self.send_response(404);self.send_header('Content-Length','0');self.end_headers()
+
+        def media_stream(self,head=False):
+            stream=None
+            try:
+                if service.stop.is_set() or service.closed:raise MediaError('service_stopping',503)
+                url=urlsplit(self.path)
+                if url.query:raise ValueError()
+                parts=url.path[len('/api/v1/video/media/'):].split('/')
+                if len(parts)>2 or (len(parts)==2 and parts[1]!='sidecar'):raise ValueError()
+                sidecar=len(parts)==2
+                stream,size=service.media.open_item(parts[0],sidecar)
+                start,end,status=0,size-1,200
+                value=self.headers.get('Range')
+                if value is not None:
+                    import re
+                    match=re.fullmatch(r'bytes=(\d*)-(\d*)',value)
+                    if match is None or not any(match.groups()):raise MediaError('invalid_media_range',416)
+                    a,b=match.groups()
+                    if a:
+                        start=int(a);end=min(int(b),size-1) if b else size-1
+                    else:
+                        count=int(b);start=max(0,size-count)
+                        if count==0:raise MediaError('invalid_media_range',416)
+                    if start>=size or end<start:raise MediaError('invalid_media_range',416)
+                    status=206
+                self.send_response(status)
+                self.send_header('Content-Type','application/json' if sidecar else 'video/mp4')
+                self.send_header('Content-Length',str(end-start+1))
+                self.send_header('Accept-Ranges','bytes');self.send_header('X-Content-Type-Options','nosniff')
+                self.send_header('Cache-Control','no-store')
+                if sidecar:self.send_header('Content-Disposition',f'attachment; filename="{parts[0]}.json"')
+                if status==206:self.send_header('Content-Range',f'bytes {start}-{end}/{size}')
+                self.end_headers()
+                if not head:
+                    stream.seek(start);remaining=end-start+1
+                    while remaining:
+                        block=stream.read(min(65536,remaining))
+                        if not block:break
+                        self.wfile.write(block);remaining-=len(block)
+            except (BrokenPipeError,ConnectionResetError,TimeoutError):pass
+            except (InvestigationError,OSError,ValueError,TypeError,KeyError) as exc:
+                return self.video_investigation_error(exc)
+            finally:
+                if stream is not None:stream.close()
 
         def review_post(self):
             actions={'assignments':'assign_component','maintenance':'record_maintenance','baselines':'approve_baseline',
@@ -385,14 +461,18 @@ def main() -> int:
     parser.add_argument('--nt-port',type=int,help='Explicit authoritative NT port; required with --source-config')
     parser.add_argument('--wpilib-install',type=Path,help='Pinned Alpha 7 installation for native status reader')
     parser.add_argument('--video-config',type=Path,help='Private explicit video JSON; opts into independent recording')
+    parser.add_argument('--video-media-config',type=Path,help='Explicit pinned local tools for historical media derivatives')
     args = parser.parse_args()
     try:
         config = Config.load(args.config, port=args.port, data_dir=args.data_dir, idle_delay=args.idle_delay)
         video_config=load_video_config(args.video_config) if args.video_config is not None else None
+        video_media_config=load_media_config(args.video_media_config) if args.video_media_config is not None else None
     except ConfigError as exc:
         parser.error(str(exc))
     except RecordingError:
         parser.error('Invalid private video configuration; check --video-config schema, paths, explicit input and bounds')
+    except MediaError:
+        parser.error('Invalid local media tools configuration; check --video-media-config paths, binary pins and bounds')
     service = None
     source = None
     httpd = None
@@ -410,7 +490,7 @@ def main() -> int:
             if args.nt_host is not None or args.nt_port is not None or args.wpilib_install is not None:
                 raise ValueError('NT options require --source-config; no endpoint is inferred')
             source = DemoSource()
-        service = HubService(config, source,video_config=video_config)
+        service = HubService(config, source,video_config=video_config,video_media_config=video_media_config)
         httpd = create_http_server(service, source, config.port)
         httpd.timeout = 0.2
         for name in ("SIGINT", "SIGTERM", "SIGBREAK"):

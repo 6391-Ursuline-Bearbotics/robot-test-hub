@@ -50,4 +50,4 @@ An isolated browser host reused the actual generated 10 Hz black/white recording
 
 ## Remaining work
 
-Frame selection still needs timeline-linked video preview, clip preservation and export, and a verified AdvantageScope manual workflow. Camera exposure/cue timing, robot epoch accuracy, client clock error, season-scale archives and physical practice behavior need measurements. The [camera setup worksheet](CAMERA_SETUP.md) records the still-pending model and connection details. No hardware operation or deployment is implied by this software workflow.
+Selected candidates now have explicit [clip preservation, playback, MP4 downloads and timing sidecars](VIDEO_MEDIA.md). Timeline-linked telemetry/video seeking and actual AdvantageScope application qualification remain incomplete. Camera exposure/cue timing, robot epoch accuracy, client clock error, season-scale archives and physical practice behavior need measurements. The [camera setup worksheet](CAMERA_SETUP.md) records the still-pending model and connection details. No hardware operation or deployment is implied by this software workflow.

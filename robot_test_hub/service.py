@@ -84,9 +84,12 @@ class CachedSource:
 
 class HubService:
     def __init__(self, config: Config, source: Source, *, collector_factory=Collector,
-                 video_config=None, recorder_factory=None):
+                 video_config=None, recorder_factory=None, video_media_config=None, media_adapter_factory=None):
         from .recorder import FFmpegConfig, Recorder
         from .recorder_service import RecorderWorker
+        from .video_media import MediaToolsConfig, MediaWorker, NativeMediaAdapter
+        if video_media_config is not None and not isinstance(video_media_config,MediaToolsConfig):
+            raise ValueError('Explicit validated local media tools configuration required')
         if video_config is not None and not isinstance(video_config,FFmpegConfig):
             raise ValueError('Explicit validated private video configuration required')
         self.config, self.source = config, source
@@ -123,6 +126,7 @@ class HubService:
         self.health['video']={'state':'starting' if video_config else 'disabled'}
         self.started = False
         self.closed = False
+        self.media=MediaWorker(self,video_media_config,adapter_factory=media_adapter_factory or NativeMediaAdapter)
         self.threads = []
         self.diagnostics.record("service_initialized", "Local source service initialized; no deployment or source deletion")
         self.diagnostics.record("transfer_limits", f"One request outstanding; maximum {config.chunk_size} bytes; client deadline {config.io_timeout} s; source tail requires transport qualification")
@@ -159,7 +163,8 @@ class HubService:
         self.threads = [threading.Thread(target=self._status_worker, name="hub-status"),
                         threading.Thread(target=self._collector_worker, name="hub-collector"),
                         threading.Thread(target=self._pipeline_worker,name='hub-indexer'),
-                        threading.Thread(target=self._video_worker,name='hub-video')]
+                        threading.Thread(target=self._video_worker,name='hub-video'),
+                        threading.Thread(target=self.media.run,args=(self.stop,),name='hub-media')]
         if self.config.backup_destination is not None:
             self.threads.append(threading.Thread(target=self._backup_worker, name="hub-backup"))
         for thread in self.threads:

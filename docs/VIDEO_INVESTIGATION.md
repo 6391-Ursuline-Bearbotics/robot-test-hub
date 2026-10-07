@@ -47,4 +47,4 @@ Published service/browser commit `4c2975f` passed all four Windows/Linux, Python
 
 ## Remaining work
 
-Saved UTC-note/run candidate association is now available through the [saved-context workflow](VIDEO_CONTEXT.md), including clock inversion, uncertainty, ambiguity and gaps. Timeline-linked media preview, clip preservation, AdvantageScope instructions/export, camera-specific timing measurement and video backup remain separate work. The [camera setup worksheet](CAMERA_SETUP.md) captures the physical commissioning details still needed.
+Saved UTC-note/run candidate association is available through the [saved-context workflow](VIDEO_CONTEXT.md), including clock inversion, uncertainty, ambiguity and gaps. Explicit intervals and candidates now support [clip preservation, playback, downloads and manual AdvantageScope cue sidecars](VIDEO_MEDIA.md). Shared telemetry/video seeking, actual AdvantageScope application use, camera-specific timing measurement and video backup remain separate work. The [camera setup worksheet](CAMERA_SETUP.md) captures the physical commissioning details still needed.

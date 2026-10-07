@@ -15,6 +15,7 @@ The robot records locally whenever its program runs. After it is disabled long e
 | [TRANSFER.md](TRANSFER.md) | Idle permission, checkpoint/recovery, prioritization, ETA, source load |
 | [ROBOT_INTEGRATION.md](ROBOT_INTEGRATION.md) | Exact current logging behavior, rotation, instrumentation, alpha integration |
 | [CONTEXT_AND_VIDEO.md](CONTEXT_AND_VIDEO.md) | Clock mapping, notes, run search, camera capture/alignment |
+| [VIDEO_MEDIA.md](VIDEO_MEDIA.md) | Implemented incident preservation, playback, downloads, manual AdvantageScope cues and qualification limits |
 | [ANALYSIS.md](ANALYSIS.md) | Ingestion, health metrics, baselines, uncertainty, feedback/replay |
 | [UI_AND_OPERATIONS.md](UI_AND_OPERATIONS.md) | Screens, operator actions, diagnostics, storage/backup, setup |
 | [VALIDATION.md](VALIDATION.md) | Failure matrix, fixtures, bench trials, release evidence |
