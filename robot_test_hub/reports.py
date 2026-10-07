@@ -231,11 +231,12 @@ def public_check(check, *, trace_limit=500):
 
 
 def public_for_run(db,run_id,*,limit=5):
+    from .report_api import detail,RUN_FILTER
     # Extract identity in SQL so unrelated complete report JSON is not loaded.
-    count=db.execute("SELECT COUNT(*) FROM analysis_reports WHERE json_extract(result_json,'$.run_id')=?",(run_id,)).fetchone()[0]
-    rows=db.execute("SELECT result_json FROM analysis_reports WHERE json_extract(result_json,'$.run_id')=? ORDER BY created_utc_ns DESC,report_id DESC LIMIT ?",(run_id,limit)).fetchall()
+    count=db.execute('SELECT COUNT(*) FROM analysis_reports WHERE '+RUN_FILTER,(run_id,)).fetchone()[0]
+    rows=db.execute('SELECT report_id FROM analysis_reports WHERE '+RUN_FILTER+' ORDER BY CAST(created_utc_ns AS INTEGER) DESC,report_id DESC LIMIT ?',(run_id,limit)).fetchall()
     items=[]
     for row in rows:
-        report=json.loads(row[0]);report['checks']=[public_check(c) for c in report['checks']];items.append(report)
+        items.append(detail(db,run_id,row[0])['report'])
     return items,{'total':count,'returned':len(items),'limit':limit,'truncated':count>len(items),
                   'basis':'latest_immutable_report_versions','trace_limit_per_module':500}

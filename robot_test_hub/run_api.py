@@ -13,6 +13,9 @@ def get(root, path, query, notebook):
         return {'schema_version':1,'candidates':local_candidates(query['local'],query['timezone'])}
     with closing(sqlite3.connect(root/'catalog.sqlite3',timeout=2)) as db:
         catalog=RunCatalog(db)
+        if path.startswith('/api/v1/runs/') and '/reports' in path:
+            from . import report_api
+            return report_api.get(db,path,query)
         if path=='/api/v1/runs':
             if query.keys()-{'from','to','robot','include_unknown','offset','limit'}:
                 raise ValueError('Invalid run query')

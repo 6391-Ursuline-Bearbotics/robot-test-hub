@@ -15,6 +15,7 @@
 | Human-approved healthy baselines | Prevent gradual faults from becoming normal automatically. |
 | Explicit revisioned UTC practice plans and selected cohorts | Assign comparable test/configuration context; edits regenerate reports without changing original evidence. |
 | Separate signal, run-catalog and clock revisions | New imports do not invalidate an unchanged signal mapping; results retain each revision independently. |
+| Immutable report selection with bounded trace pages | Older results remain investigable while new results arrive; complete traces are reachable without accumulating them in the browser. |
 | Provisional tracking thresholds; REAL freshness required | Automatic reports cannot establish physical health from logging-cycle timestamps or invented sample freshness. |
 | Notebook saves independently of robot | Late/offline observations are still valuable. |
 | Continuous practice video with clip extraction | Late reports and pre-event context survive enable-trigger delays. |

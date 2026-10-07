@@ -23,6 +23,8 @@ public final class GenerateSwerveSessions {
           new double[] {.35});
       write(out, "swerve-real-mode", "native-swerve-boot-c", "REAL", 60_000_000_000L,
           new double[] {.35});
+      write(out, "swerve-sim-long", "native-swerve-boot-d", "SIM", 90_000_000_000L,
+          new double[] {.02}, 649, true);
     } finally {
       WPIUtilJNI.disableMockTime();
     }
@@ -30,6 +32,11 @@ public final class GenerateSwerveSessions {
 
   private static void write(Path out, String name, String boot, String runtime,
       long epochOffset, double[] errors) {
+    write(out, name, boot, runtime, epochOffset, errors, 20, false);
+  }
+
+  private static void write(Path out, String name, String boot, String runtime,
+      long epochOffset, double[] errors, int enabledSamples, boolean lateFault) {
     WPILOGWriter writer = new WPILOGWriter(out.resolve(name + ".wpilog").toString(),
         AdvantageScopeOpenBehavior.NEVER);
     writer.start();
@@ -38,9 +45,9 @@ public final class GenerateSwerveSessions {
     try {
       for (int run = 0; run < errors.length; run++) {
         // Explicit disabled boundaries and a 100 ms cycle clock throughout.
-        for (int sample = 0; sample <= 21; sample++, sequence++) {
+        for (int sample = 0; sample <= enabledSamples + 1; sample++, sequence++) {
           long stamp = 1_000_000_000L + sequence * 100_000_000L;
-          boolean enabled = sample > 0 && sample < 21;
+          boolean enabled = sample > 0 && sample <= enabledSamples;
           table.setTimestamp(stamp);
           table.put("Metadata/FixtureProfile", "wpilib-2027.0.0-alpha-7_akit-27.0.0-alpha-6");
           table.put("Metadata/SourceType", "SYNTHETIC");
@@ -61,8 +68,9 @@ public final class GenerateSwerveSessions {
           for (int module = 0; module < 4; module++) {
             commands[module] = new SwerveModuleVelocity(enabled ? 1.0 : 0.0,
                 Rotation2d.ZERO);
+            double error = lateFault && sample >= 550 ? .8 : errors[run];
             measured[module] = new SwerveModuleVelocity(enabled ?
-                1.0 - (module == 0 ? errors[run] : 0) : 0.0, Rotation2d.ZERO);
+                1.0 - (module == 0 ? error : 0) : 0.0, Rotation2d.ZERO);
             table.put("Drive/Module" + module + "/DriveConnected", true);
             table.put("Drive/Module" + module + "/TurnConnected", true);
             table.put("Drive/Module" + module + "/TurnEncoderConnected", true);

@@ -22,6 +22,7 @@ Design and implementation workspace for turning physical robot testing into sear
 - [Opt-in verified backup and restore](docs/BACKUP.md)
 - [Analysis/review evidence and remaining gaps](docs/ANALYSIS_REVIEW.md)
 - [Automatic swerve reports and explicit practice plans](docs/AUTOMATIC_SWERVE.md)
+- [Retained report history and complete trace navigation](docs/REPORT_HISTORY.md)
 - [Reviewed October 7 checkpoint](docs/VALIDATION_CURRENT.md)
 
 ## Run the local demo

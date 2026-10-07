@@ -4,6 +4,7 @@ All values are invented; native library execution never starts a robot or camera
 """
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -158,6 +159,74 @@ class AutomaticSwerveNativeTests(unittest.TestCase):
         self.assertIn('baseline_maintenance_configuration_boundary',after_repair['unavailable'])
         self.assertFalse(after_repair['coverage']['baseline_comparisons'])
         self.assertEqual(json.dumps(self.store.records('baseline')[0],sort_keys=True),cohort_bytes)
+
+    def test_long_actual_writer_history_and_late_fault_trace_pages(self):
+        from robot_test_hub.run_api import get
+        official=subprocess.run(self.command+['OfficialReader',
+            str(self.fixture_root/'swerve-sim-long.wpilog')],env=self.environment,
+            check=True,capture_output=True,text=True,timeout=30)
+        document=json.loads(official.stdout)
+        self.assertEqual(len(document['advantagekit_replay_cycles']),651)
+        measured=[row['value'][0]['velocity_mps'] for row in document['records']
+                  if row.get('name')=='/RealOutputs/SwerveStates/Measured'
+                  and row.get('type')=='struct:SwerveModuleVelocity[]' and 'value' in row]
+        self.assertEqual([round(value,2) for value in measured],[0,.98,.2,0])
+        job=self.import_case('swerve-sim-long')
+        native_assignments(self.store)
+        self.store.record_analysis_plan(native_plan())
+        self.pipeline.tick()
+        for revision in range(2,8):
+            self.store.record_analysis_plan({**native_plan(),'revision':revision,
+                'expected_revision':revision-1,'rationale':'Invented history revision '+str(revision)})
+            self.assertEqual(self.pipeline.tick()['state'],'indexed')
+        run=self.runs()[0];run_id=run['run_id']
+        report= list_for_run(self.db,run_id)[0]
+        check=next(item for item in report['checks'] if item['analyzer_id']=='swerve-tracking')
+        self.assertEqual(check['outcome'],'finding')
+        metric=next(item for item in check['metrics'] if item['name']=='drive_rmse_mps'
+                    and item['module_position']=='front-left')
+        self.assertAlmostEqual(metric['value'],math.sqrt((549*.02**2+99*.8**2)/648),places=10)
+        prefix='/api/v1/runs/'+run_id+'/reports'
+        first=get(self.root,prefix,{'limit':'3'},None)
+        self.assertEqual(first['total'],8)
+        ids=[item['report_id'] for item in first['items']]
+        snapshot=first['snapshot_id'];cursor=first['next_cursor']
+        original_bytes=self.db.execute('SELECT result_json FROM analysis_reports WHERE report_id=?',
+                                      (report['report_id'],)).fetchone()[0]
+        self.store.record_analysis_plan({**native_plan(),'revision':8,'expected_revision':7,
+                                         'rationale':'New result while older history is being paged'})
+        self.pipeline.tick()
+        while cursor is not None:
+            page=get(self.root,prefix,{'limit':'3','cursor':cursor},None)
+            self.assertEqual(page['snapshot_id'],snapshot)
+            self.assertEqual(page['total'],8)
+            ids.extend(item['report_id'] for item in page['items'])
+            cursor=page['next_cursor']
+        self.assertEqual(len(ids),8);self.assertEqual(len(set(ids)),8)
+        self.assertEqual(get(self.root,prefix,{'limit':'3'},None)['total'],9)
+        pinned=prefix+'/'+report['report_id']
+        detail=get(self.root,pinned,{},None)
+        expected_hash=hashlib.sha256(original_bytes.encode()).hexdigest()
+        self.assertEqual(detail['result_sha256'],expected_hash)
+        query={'analyzer_id':'swerve-tracking','module_id':'native-component-0','limit':'500'}
+        start=get(self.root,pinned+'/traces',{**query,'offset':'0'},None)
+        tail=get(self.root,pinned+'/traces',{**query,'offset':'500'},None)
+        self.assertEqual((start['total'],start['returned'],start['next_offset']),(648,500,500))
+        self.assertEqual((tail['total'],tail['returned'],tail['next_offset']),(648,148,None))
+        self.assertTrue(all(abs(item['drive_error_mps']+.02)<1e-10 for item in start['evidence_trace']))
+        errors=[item['drive_error_mps'] for item in tail['evidence_trace']]
+        self.assertTrue(all(abs(value+.02)<1e-10 for value in errors[:49]))
+        self.assertTrue(all(abs(value+.8)<1e-10 for value in errors[49:]))
+        self.assertEqual(start['result_sha256'],expected_hash)
+        self.assertEqual(tail['result_sha256'],expected_hash)
+        for item in tail['evidence_trace']:
+            self.assertEqual(item['source_reference']['source_hash'],job['artifact_sha256'])
+        Pipeline(self.root,self.db).tick()
+        self.assertEqual(get(self.root,pinned+'/traces',{**query,'offset':'500'},None),tail)
+        self.assertEqual(self.db.execute('SELECT result_json FROM analysis_reports WHERE report_id=?',
+                                        (report['report_id'],)).fetchone()[0],original_bytes)
+        self.assertEqual(hashlib.sha256((self.fixture_root/'swerve-sim-long.wpilog').read_bytes()).hexdigest(),
+                         job['artifact_sha256'])
 
     def test_actual_real_mode_and_synthetic_source_cannot_gain_ideal_freshness(self):
         native_assignments(self.store)
