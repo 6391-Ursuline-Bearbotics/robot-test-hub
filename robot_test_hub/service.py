@@ -84,7 +84,11 @@ class CachedSource:
 
 class HubService:
     def __init__(self, config: Config, source: Source, *, collector_factory=Collector,
-                 video_config=None, recorder_factory=None, video_media_config=None, media_adapter_factory=None):
+                 video_config=None, recorder_factory=None, video_media_config=None, media_adapter_factory=None,
+                 marker_config=None, marker_status_factory=None, marker_transport_factory=None):
+        from .marker_service import MarkerWorker, MarkerConfig
+        if marker_config is not None and not isinstance(marker_config,MarkerConfig):
+            raise ValueError("Explicit validated marker configuration required")
         from .recorder import FFmpegConfig, Recorder
         from .recorder_service import RecorderWorker
         from .video_media import MediaToolsConfig, MediaWorker, NativeMediaAdapter
@@ -127,6 +131,18 @@ class HubService:
         self.started = False
         self.closed = False
         self.media=MediaWorker(self,video_media_config,adapter_factory=media_adapter_factory or NativeMediaAdapter)
+        marker_options={}
+        if marker_status_factory is not None:marker_options['status_factory']=marker_status_factory
+        if marker_transport_factory is not None:marker_options['transport_factory']=marker_transport_factory
+        try:
+            self.markers=MarkerWorker(self,marker_config,**marker_options)
+        except BaseException:
+            # Marker schema/startup failure precedes worker creation. Release archive ownership
+            # so a repaired startup can open the same root rather than waiting for process exit.
+            self.settings_db.close()
+            self.diagnostics.close()
+            self.owner.close()
+            raise
         self.threads = []
         self.io_lifetimes = []
         self.diagnostics.record("service_initialized", "Local source service initialized; no deployment or source deletion")
@@ -165,7 +181,8 @@ class HubService:
                         threading.Thread(target=self._collector_worker, name="hub-collector"),
                         threading.Thread(target=self._pipeline_worker,name='hub-indexer'),
                         threading.Thread(target=self._video_worker,name='hub-video'),
-                        threading.Thread(target=self.media.run,args=(self.stop,),name='hub-media')]
+                        threading.Thread(target=self.media.run,args=(self.stop,),name='hub-media'),
+                        threading.Thread(target=self.markers.run,args=(self.stop,),name='hub-markers')]
         if self.config.backup_destination is not None:
             self.threads.append(threading.Thread(target=self._backup_worker, name="hub-backup"))
         for thread in self.threads:
@@ -339,6 +356,7 @@ class HubService:
         if result["state"] in ("paused", "attention", "stopping", "discovering", "verifying", "starting"):
             result.update(bytes_per_second=None, eta_seconds=None)
         result['video']=self.video.snapshot()
+        result['markers']=self.markers.snapshot()
         return result
 
     def close(self) -> bool:

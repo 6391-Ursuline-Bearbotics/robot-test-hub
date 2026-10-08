@@ -19,6 +19,7 @@
 | Provisional tracking thresholds; REAL freshness required | Automatic reports cannot establish physical health from logging-cycle timestamps or invented sample freshness. |
 | Recorded Phoenix status warnings separate from physical freshness | SDK errors can precede connection debounce; receipt/transmit times and SDK validity are observations until hardware timing is independently qualified. See [source audit and bench worksheet](SWERVE_STATUS_TIMING.md). |
 | Notebook saves independently of robot | Late/offline observations are still valuable. |
+| Explicit saved-revision marker delivery with boot/hash pins | Separate contextual receipt; preserve original incident time, never automatically retarget after reboot or claim USB durability. Default off and loopback UI only. |
 | Continuous practice video with clip extraction | Late reports and pre-event context survive enable-trigger delays. |
 | Available practice camera: Panasonic AW-HE40SWP | User supplied the exact model. Trial documented RTSP capture first; firmware/settings, connection and measured timing remain commissioning work. |
 | Explicit original-log downloads from incident references on loopback | User approved archived WPILOG delivery to the browser on this computer. Pins and original bytes are verified; no external uploads or broader network exposure. |

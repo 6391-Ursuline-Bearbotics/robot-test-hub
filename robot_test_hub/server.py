@@ -16,6 +16,8 @@ from urllib.parse import parse_qs, urlsplit
 from .config import Config, ConfigError
 from .demo import DemoSource
 from .notebook import MAX_BODY, Notebook, NotebookError
+from .marker_delivery import MarkerError, strict_json as marker_json
+from .marker_service import load_marker_config
 from .queue_api import status_view, transfer_page
 from . import run_api
 from .runs import install_schema as install_run_schema
@@ -79,6 +81,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
         def do_GET(self):
             if not self.allowed_host():
                 return self.send(403, b'{}')
+            if urlsplit(self.path).path.startswith('/api/v1/markers'):
+                return self.marker_request()
             if urlsplit(self.path).path.startswith('/api/v1/video/media/'):
                 if '/logs' in urlsplit(self.path).path:return self.incident_log_request()
                 return self.media_stream()
@@ -171,6 +175,52 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                 return self.send(200, json.dumps(result, allow_nan=False).encode())
             self.send(404, b'{}')
 
+        def marker_request(self,post=False):
+            try:
+                url=urlsplit(self.path)
+                query=parse_qs(url.query,keep_blank_values=True,max_num_fields=2)
+                if any(len(v)!=1 for v in query.values()):raise MarkerError('invalid_marker_query')
+                prefix='/api/v1/markers/deliveries'
+                def owned_read(operation):
+                    if not service.settings_lock.acquire(timeout=.25):raise MarkerError('marker_storage_busy',503)
+                    try:
+                        if service.closed:raise MarkerError('service_stopping',503)
+                        return operation()
+                    finally:service.settings_lock.release()
+                if post:
+                    length=int(self.headers.get('Content-Length','0'))
+                    if not 0<length<=16384:
+                        return self.reject_unread(400,b'{"schema_version":1,"error_code":"invalid_marker_request_size"}')
+                    value=marker_json(self.rfile.read(length))
+                    if query:raise MarkerError('invalid_marker_query')
+                    if url.path==prefix:result=service.markers.schedule(value)
+                    elif url.path.startswith(prefix+'/') and url.path.endswith('/retry'):
+                        if value!={}:raise MarkerError('invalid_marker_request')
+                        result=service.markers.retry(url.path[len(prefix)+1:-6])
+                    else:raise MarkerError('marker_route_not_found',404)
+                elif url.path.startswith('/api/v1/markers/annotations/'):
+                    if set(query)!={'revision'}:raise MarkerError('invalid_marker_query')
+                    event_id=url.path[len('/api/v1/markers/annotations/'):]
+                    saved=owned_read(lambda:notebook.exact_revision(event_id,int(query['revision'][0])))
+                    result={'schema_version':1,'event_id':saved['event_id'],'note_revision':saved['revision'],'annotation_sha256':saved['sha256']}
+                elif url.path=='/api/v1/markers':
+                    if query:raise MarkerError('invalid_marker_query')
+                    result=service.markers.snapshot()
+                elif url.path==prefix:
+                    if query.keys()-{'limit','cursor'}:raise MarkerError('invalid_marker_query')
+                    result=owned_read(lambda:service.markers.store.page(limit=int(query.get('limit',['20'])[0]),cursor=query.get('cursor',[None])[0]))
+                elif url.path.startswith(prefix+'/'):
+                    if query:raise MarkerError('invalid_marker_query')
+                    result=owned_read(lambda:service.markers.store.get(url.path[len(prefix)+1:]))
+                else:raise MarkerError('marker_route_not_found',404)
+                return self.send(200,json.dumps(result,allow_nan=False).encode())
+            except (MarkerError,NotebookError) as exc:
+                self.send(exc.status,json.dumps({'schema_version':1,'error_code':exc.code}).encode())
+            except (sqlite3.Error,OSError):
+                self.send(503,b'{"schema_version":1,"error_code":"marker_storage_unavailable"}')
+            except (ValueError,TypeError,KeyError,UnicodeError,RecursionError):
+                self.send(400,b'{"schema_version":1,"error_code":"invalid_marker_request"}')
+
         def notebook_get(self):
             try:
                 url = urlsplit(self.path)
@@ -242,6 +292,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                     or (origin and (urlsplit(origin).netloc != self.headers.get("Host") or urlsplit(origin).scheme != "http"))
                     or self.headers.get("Content-Type") != "application/json"):
                 return self.reject_unread(403, b'{}')
+            if self.path.startswith('/api/v1/markers'):
+                return self.marker_request(post=True)
             if self.path in ('/api/v1/video/alignments','/api/v1/video/map','/api/v1/video/associate','/api/v1/video/preservations'):
                 return self.video_investigation_post()
             if self.path.startswith("/api/v1/annotations"):
@@ -505,16 +557,20 @@ def main() -> int:
     parser.add_argument('--nt-port',type=int,help='Explicit authoritative NT port; required with --source-config')
     parser.add_argument('--wpilib-install',type=Path,help='Pinned Alpha 7 installation for native status reader')
     parser.add_argument('--video-config',type=Path,help='Private explicit video JSON; opts into independent recording')
+    parser.add_argument('--marker-config',type=Path,help='Private explicit marker endpoint and boot-aware note delivery opt-in')
     parser.add_argument('--video-media-config',type=Path,help='Explicit pinned local tools for historical media derivatives')
     args = parser.parse_args()
     try:
         config = Config.load(args.config, port=args.port, data_dir=args.data_dir, idle_delay=args.idle_delay)
+        marker_config=load_marker_config(args.marker_config) if args.marker_config is not None else None
         video_config=load_video_config(args.video_config) if args.video_config is not None else None
         video_media_config=load_media_config(args.video_media_config) if args.video_media_config is not None else None
     except ConfigError as exc:
         parser.error(str(exc))
     except RecordingError:
         parser.error('Invalid private video configuration; check --video-config schema, paths, explicit input and bounds')
+    except MarkerError:
+        parser.error('Invalid private marker configuration; check explicit identity, endpoint, runtime and bounds')
     except MediaError:
         parser.error('Invalid local media tools configuration; check --video-media-config paths, binary pins and bounds')
     service = None
@@ -534,7 +590,7 @@ def main() -> int:
             if args.nt_host is not None or args.nt_port is not None or args.wpilib_install is not None:
                 raise ValueError('NT options require --source-config; no endpoint is inferred')
             source = DemoSource()
-        service = HubService(config, source,video_config=video_config,video_media_config=video_media_config)
+        service = HubService(config, source,video_config=video_config,video_media_config=video_media_config,marker_config=marker_config)
         httpd = create_http_server(service, source, config.port)
         httpd.timeout = 0.2
         for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
@@ -544,7 +600,8 @@ def main() -> int:
         if hasattr(source,'start'):
             source.start()
         service.start()
-        label='DEMO ONLY — synthetic bytes, no robot connection' if isinstance(source,DemoSource) else 'LIVE READER — physical performance unqualified'
+        label=('DEMO TRANSFER — synthetic bytes; explicit marker connection enabled' if marker_config is not None
+               else 'DEMO ONLY — synthetic bytes, no robot connection') if isinstance(source,DemoSource) else 'LIVE READER — physical performance unqualified'
         print(f"{label}: http://127.0.0.1:{config.port}", flush=True)
         if not isinstance(source,DemoSource):
             print(f"Idle delay {config.idle_delay:g} s; freshness {config.freshness:g} s; chunk {config.chunk_size} bytes",flush=True)

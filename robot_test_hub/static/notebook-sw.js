@@ -1,5 +1,5 @@
 /* Cache only the notebook shell. Never cache API responses or collector controls. */
-const CACHE = 'robot-test-hub-notebook-shell-v1';
+const CACHE = 'robot-test-hub-notebook-shell-v2';
 const SHELL = ['/notebook','/notebook.js'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('robot-test-hub-notebook-shell-')&&key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));

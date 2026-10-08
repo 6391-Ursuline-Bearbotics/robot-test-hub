@@ -2,7 +2,7 @@
 
 Design and implementation workspace for turning physical robot testing into searchable evidence: automatic log collection, run history, driver observations, synchronized practice video, and repeatable health reports.
 
-**Current status: local collection demo, opt-in live transfer adapter, qualified Alpha 7 WPILOG importer, searchable run history, offline driver notebook, and opt-in practice recording.** Transfer, indexing, and status run independently. Live NT/SFTP passes local protocol tests; physical performance and live camera timing remain unqualified. The transfer demo uses opaque synthetic bytes; genuine synthetic WPILOG fixtures exercise the importer.
+**Current status: local collection demo, opt-in live transfer adapter, qualified Alpha 7 WPILOG importer, searchable run history, offline driver notebook with optional robot note delivery, and opt-in practice recording.** Transfer, indexing, and status run independently. Live NT/SFTP and passive markers pass local protocol/native tests; physical performance and live camera timing remain unqualified. The transfer demo uses opaque synthetic bytes; genuine synthetic WPILOG fixtures exercise the importer.
 
 Automatic reports also flag recorded motor-controller SDK status errors, preserving exact source evidence even before a connection debounce changes. [Status and timing diagnostics](docs/SWERVE_STATUS_TIMING.md) remain separate from physical freshness/health qualification. The confirmed practice camera is [Panasonic AW-HE40SWP](docs/CAMERA_SETUP.md); wired RTSP capture is the first commissioning trial.
 
@@ -13,6 +13,7 @@ Automatic reports also flag recorded motor-controller SDK status errors, preserv
 - [Decisions and unresolved hardware questions](docs/DECISIONS.md)
 - [Contributor/agent instructions](AGENTS.md)
 - [Live transfer setup and bench requirements](docs/LIVE_TRANSFER.md)
+- [Explicit robot note delivery and contextual receipts](docs/NOTE_MARKERS.md)
 - [Offline live-transfer readiness check](docs/LIVE_TRANSFER.md#check-setup-before-connecting)
 - [Save live transfer session reports](docs/TRANSFER_SESSION.md)
 - [Opt-in practice recording and coverage](docs/RECORDING.md)
@@ -99,7 +100,7 @@ The demo intentionally has no credentials or robot address. `.logdata` artifacts
 
 ## Prototype limitations
 
-Read the [implementation gap table](docs/IMPLEMENTATION.md#prototype-gap-table) before using this as a production system. The [opt-in live adapter](docs/LIVE_TRANSFER.md) passes local SSH/SFTP and Alpha 7 NT tests; it requires explicitly configured robot access. Physical USB, cancellation and robot load remain unqualified. Notebook access is loopback only; phone pairing and robot marker delivery remain unfinished. Season-scale indexing, video alignment/camera commissioning, independent backup qualification, autostart packaging and physical commissioning remain open tasks.
+Read the [implementation gap table](docs/IMPLEMENTATION.md#prototype-gap-table) before using this as a production system. The [opt-in live adapter](docs/LIVE_TRANSFER.md) passes local SSH/SFTP and Alpha 7 NT tests; it requires explicitly configured robot access. Physical USB, cancellation and robot load remain unqualified. Notebook access is loopback only; phone pairing remains unfinished. [Robot note delivery](docs/NOTE_MARKERS.md) is explicit/default-off and locally qualified; it preserves original incident times and does not claim USB durability. Season-scale indexing, video alignment/camera commissioning, independent backup qualification, autostart packaging and physical commissioning remain open tasks.
 
 ## Data handling
 

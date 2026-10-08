@@ -32,6 +32,18 @@
     result.event_utc_start_ns = result.event_utc_end_ns = String(BigInt(result.submitted_utc_ns) - BigInt(seconds) * 1000000000n);
     return result;
   }
+  function markerRequest(note, pin, destination, deliveryId) {
+    const validId=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(value);
+    if(note?.storage_state!=='saved_in_hub'||note.delivery_state!=='historical_hub_only'
+      ||pin?.schema_version!==1||pin.event_id!==note.event_id||pin.note_revision!==note.revision
+      ||typeof pin.annotation_sha256!=='string'||!/^[a-f0-9]{64}$/.test(pin.annotation_sha256)
+      ||destination?.enabled!==true||destination.ready_for_delivery!==true
+      ||!['REAL','SIM'].includes(destination.runtime_mode)||!validId(destination.robot_id)
+      ||!validId(destination.current_confirmed_boot_id)||!validId(deliveryId))throw Error('Saved revision or current robot destination is unavailable');
+    return {delivery_id:deliveryId,event_id:note.event_id,note_revision:note.revision,
+      annotation_sha256:pin.annotation_sha256,destination_robot_id:destination.robot_id,
+      destination_boot_id:destination.current_confirmed_boot_id};
+  }
   function revisedPayload(note, changes) {
     const result = copy(note);
     for (const key of ['hub_received_utc_ns','storage_state','delivery_state']) delete result[key];
@@ -108,6 +120,20 @@
     }
     listJobs() { return this.transaction(['jobs'],false,(tx,done)=>{const r=tx.objectStore('jobs').getAll();r.onsuccess=()=>done(r.result);}); }
     listNotes() { return this.transaction(['notes'],false,(tx,done)=>{const r=tx.objectStore('notes').getAll();r.onsuccess=()=>done(r.result);}); }
+    rememberMarker(request) {
+      const key='marker:'+request.event_id+':'+request.note_revision+':'+request.destination_robot_id+':'+request.destination_boot_id;
+      return this.transaction(['settings'],true,(tx,done)=>{
+        const settings=tx.objectStore('settings'),get=settings.get(key);
+        get.onsuccess=()=>{
+          const old=get.result?.value;
+          if(old&&(old.annotation_sha256!==request.annotation_sha256||old.event_id!==request.event_id||old.note_revision!==request.note_revision||old.destination_robot_id!==request.destination_robot_id||old.destination_boot_id!==request.destination_boot_id)){
+            tx.notebookFailure=Error('Saved marker pins conflict; review the original delivery');tx.abort();return;
+          }
+          if(!old)settings.add({key,value:copy(request)});
+          done(old||request);
+        };
+      });
+    }
     enqueue(job) {
       return this.transaction(['jobs'],true,(tx,done)=>{
         const store=tx.objectStore('jobs'),request=store.get(job.key);
@@ -178,5 +204,5 @@
       } finally { this.running=false; }
     }
   }
-  return {createJob,markPayload,revisedPayload,sameRequest,claim,outcome,localPage,Store,Outbox};
+  return {createJob,markPayload,revisedPayload,sameRequest,claim,outcome,localPage,markerRequest,Store,Outbox};
 });

@@ -15,6 +15,7 @@ The robot records locally whenever its program runs. After it is disabled long e
 | [TRANSFER.md](TRANSFER.md) | Idle permission, checkpoint/recovery, prioritization, ETA, source load |
 | [ROBOT_INTEGRATION.md](ROBOT_INTEGRATION.md) | Exact current logging behavior, rotation, instrumentation, alpha integration |
 | [CONTEXT_AND_VIDEO.md](CONTEXT_AND_VIDEO.md) | Clock mapping, notes, run search, camera capture/alignment |
+| [NOTE_MARKERS.md](NOTE_MARKERS.md) | Implemented explicit note delivery, exact revision/hash pins, boot-aware retries and contextual robot receipts |
 | [VIDEO_MEDIA.md](VIDEO_MEDIA.md) | Implemented incident preservation, playback, downloads, manual AdvantageScope cues and qualification limits |
 | [INCIDENT_LOGS.md](INCIDENT_LOGS.md) | On-demand verified original WPILOG downloads scoped to immutable incident references |
 | [ANALYSIS.md](ANALYSIS.md) | Ingestion, health metrics, baselines, uncertainty, feedback/replay |

@@ -5,7 +5,7 @@
 :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#101820;color:#e8eef4}body{max-width:1050px;margin:auto;padding:28px 22px}a{color:#e6b957}header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #34424f;padding-bottom:18px}h1{margin:8px 0;font-size:32px}h2{margin-top:0;font-size:22px}.eyebrow{color:#e6b957;font-size:12px;letter-spacing:.12em}p,.muted{color:#aebfcb;line-height:1.5}.notice{background:#342f1e;border:1px solid #8b7339;padding:14px;border-radius:8px;margin:20px 0}.panel,article{background:#17232e;border:1px solid #304150;border-radius:10px;padding:22px;margin:16px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}label{display:block;font-size:14px;margin:10px 0 6px}input,textarea,select,button{font:inherit;color:inherit;background:#203141;border:1px solid #586f82;border-radius:6px;padding:10px;box-sizing:border-box}input,textarea,select{width:100%}textarea{min-height:90px;resize:vertical}button{cursor:pointer;margin:6px 6px 6px 0}button:hover{background:#36516a}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #e6b957;outline-offset:2px}.primary{background:#e6b957;color:#17232e;border-color:#e6b957;font-weight:700;padding:14px 24px}.actions{margin:16px 0}.small{font-size:13px}#feedback{min-height:24px;color:#f2d890}.note-text{white-space:pre-wrap;overflow-wrap:anywhere}.meta{font-size:13px;color:#aebfcb;overflow-wrap:anywhere}.check{display:flex;gap:8px;align-items:center}.check input{width:auto}summary{cursor:pointer;margin:14px 0}.history{border-left:2px solid #586f82;padding-left:16px;margin-top:12px}.hidden,[hidden]{display:none!important}@media(max-width:650px){.grid{grid-template-columns:1fr;gap:0}header{display:block}body{padding:18px 14px}.panel,article{padding:16px}}
 </style>
 <header><div><div class="eyebrow">URSULINE BEARBOTICS / TEAM 6391</div><h1>Practice notebook</h1></div><div><a href="/">Transfer dashboard</a> · <a href="/video">Practice video</a><a href="/alignment">Video alignment</a></div></header>
-<div class="notice">Notes are saved on this device before delivery to the hub. They remain historical/hub-only observations; no robot acknowledgment or delivery is available. Device storage belongs to this browser and hub address.</div>
+<div class="notice">Notes are saved on this device before delivery to the hub. A saved revision can be sent explicitly to a configured robot session. Its event time stays unchanged. Device storage belongs to this browser and hub address.</div>
 <p id="device-status" class="small" role="status">Opening device storage…</p><p id="offline-shell" class="small muted">Preparing notebook for offline reload…</p>
 <section class="panel" aria-labelledby="mark-title"><h2 id="mark-title">Mark an event</h2><p>Press a marker now and add details later. Your browser supplies the event clock; its accuracy has not been measured.</p>
 <div class="actions"><button class="primary" id="mark">Mark event</button><button id="ago10">10 seconds ago</button><button id="ago30">30 seconds ago</button></div>
@@ -16,6 +16,7 @@
 <details><summary>Enter a historical time or interval</summary><p class="small">Use an ISO date and time with an explicit UTC offset, such as 2026-10-03T18:52:00-05:00. Include the offset to distinguish repeated daylight-saving times.</p><div class="grid"><div><label for="exact-start">Event start</label><input id="exact-start" placeholder="2026-10-03T18:52:00-05:00"></div><div><label for="exact-end">Event end (optional)</label><input id="exact-end" placeholder="Same as start if empty"></div></div><button id="exact">Save historical event</button><button id="unknown">Mark with unknown event time</button></details>
 <p id="feedback" role="status" aria-live="polite"></p><div id="unsent" hidden><h3>Notes awaiting hub confirmation</h3><p class="small">These requests are saved in this browser. Retries keep the same event ID, revision, text, and intended time. Conflicts need review and are not retried automatically.</p><button id="retry-notes">Sync pending device notes</button><div id="device-notes"></div></div></section>
 <section class="panel" aria-labelledby="search-title"><h2 id="search-title">Find saved notes</h2><p class="small">Search overlaps the intended event interval. Time uncertainty is shown with each note; it does not expand the search interval.</p><div class="grid"><div><label for="search-start">From (ISO time with UTC offset)</label><input id="search-start" placeholder="Leave both blank for all notes"></div><div><label for="search-end">To (ISO time with UTC offset)</label><input id="search-end" placeholder="Leave both blank for all notes"></div></div><label class="check"><input id="include-unknown" type="checkbox" checked>Include notes whose event time is unknown</label><button id="search">Search / refresh</button><p id="list-status" role="status" class="small"></p><div id="notes"></div><button id="next" hidden>Next page</button><button id="first" hidden>First page</button></section>
+<section class="panel" aria-labelledby="marker-title"><h2 id="marker-title">Robot note delivery</h2><p id="marker-health" role="status">Checking optional note bridge…</p><p class="small">Robot receipts confirm logging input only. They do not establish incident time or confirm a durable USB write. Original observations stay saved in the hub.</p><div id="marker-deliveries"></div><button id="marker-next" hidden>More deliveries</button><button id="marker-first" hidden>First deliveries</button></section>
 <script src="/notebook.js"></script><script>
 const el=id=>document.getElementById(id), session=crypto.randomUUID(), offline=NotebookOffline;
 let store=null,outbox=null,deviceId=null;
@@ -52,4 +53,56 @@ async function initializeDevice(){try{store=await offline.Store.open(window.inde
 if('serviceWorker' in navigator&&window.isSecureContext){navigator.serviceWorker.register('/notebook-sw.js',{scope:'/'}).then(()=>navigator.serviceWorker.ready).then(()=>{el('offline-shell').textContent='Notebook shell saved for offline reload in this browser and hub address'}).catch(()=>{el('offline-shell').textContent='Offline reload setup unavailable. Keep this page open to use device storage.'})}else el('offline-shell').textContent='Offline reload requires a supported browser on loopback or HTTPS.';
 window.addEventListener('online',()=>kickSync());window.addEventListener('focus',()=>{renderOutbox().catch(()=>{});kickSync()});setInterval(()=>kickSync(),10000);
 el('search').onclick=()=>{cursor=null;refreshNotes()};el('next').onclick=()=>{cursor=nextCursor;refreshNotes()};el('first').onclick=()=>{cursor=null;refreshNotes()};initializeDevice();
+let markerDestination=null,markerCursor=null,markerNext=null;
+const markerLabels={queued:'Saved delivery · waiting to send',waiting_fresh_status:'Waiting for fresh robot status',awaiting_ack:'Sent · awaiting robot receipt',retry_wait:'Receipt unconfirmed · retry pending',robot_acknowledged:'Robot accepted logging input',rejected:'Robot rejected this delivery',historical_boot_ended:'Original robot session ended · delivery unconfirmed',unavailable:'Delivery unavailable · note remains saved'};
+const originalRenderNotes=renderNotes;
+renderNotes=function(result,cached=false){
+  originalRenderNotes(result,cached);
+  [...el('notes').children].forEach((card,index)=>{
+    const note=result.annotations[index],button=append(card,'button','Send saved revision to robot');
+    button.className='marker-send';button.dataset.cached=String(cached);button.disabled=cached||!markerDestination?.ready_for_delivery;
+    button.onclick=()=>sendMarker(note,button,markerDestination);
+  });
+};
+async function sendMarker(note,button,displayed){
+  button.disabled=true;
+  try{
+    if(!store)throw Error('Device storage unavailable; delivery was not scheduled');
+    const destination=await request('/api/v1/markers');
+    if(!displayed||destination.robot_id!==displayed.robot_id||destination.current_confirmed_boot_id!==displayed.current_confirmed_boot_id)throw Error('Robot session changed. Review the current destination before sending.');
+    const pin=await request('/api/v1/markers/annotations/'+encodeURIComponent(note.event_id)+'?revision='+note.revision);
+    const proposed=offline.markerRequest(note,pin,destination,crypto.randomUUID());
+    const saved=await store.rememberMarker(proposed);
+    const result=await request('/api/v1/markers/deliveries',{method:'POST',headers:{'Content-Type':'application/json','X-Hub-Request':'1'},body:JSON.stringify(saved)});
+    message((markerLabels[result.delivery.state]||'Delivery saved')+' · revision '+note.revision+' · original event time preserved');
+  }catch(error){message('Robot delivery unconfirmed: '+error.message+'. A timed-out request keeps its original delivery pins on this device.');}
+  finally{await refreshMarkers();button.disabled=!markerDestination?.ready_for_delivery;}
+}
+async function refreshMarkers(){
+  try{
+    markerDestination=await request('/api/v1/markers');
+    const health=markerDestination;
+    el('marker-health').textContent=!health.enabled?'Robot note delivery is off. Notes remain saved in the hub.':health.ready_for_delivery?'Destination '+health.robot_id+' · '+health.runtime_mode+' · session '+health.current_confirmed_boot_id:'Bridge '+health.state+' · waiting for a confirmed robot session';
+    const page=await request('/api/v1/markers/deliveries?limit=20'+(markerCursor?'&cursor='+encodeURIComponent(markerCursor):''));
+    el('marker-deliveries').replaceChildren();
+    for(const delivery of page.items){
+      const card=document.createElement('article');
+      append(card,'p',markerLabels[delivery.state]||'Unknown delivery state');
+      append(card,'p','Event '+delivery.event_id+' · revision '+delivery.note_revision+' · '+delivery.destination_robot_id+' · session '+delivery.destination_boot_id,'meta');
+      append(card,'p','Attempts '+delivery.attempts+(delivery.error_code?' · '+delivery.error_code:''),'meta');
+      if(delivery.receipt_robot_ns!==null)append(card,'p','Contextual robot receipt '+delivery.receipt_robot_ns+' ns · USB durability unavailable','meta');
+      if(delivery.runtime_mode!==null)append(card,'p','Receipt runtime '+delivery.runtime_mode+(delivery.duplicate?' · duplicate returned original receipt':''),'meta');
+      if(delivery.logger_queue_fault===true)append(card,'p','Logger receiver queue fault was reported with this receipt. Recorded coverage needs review.','meta');
+      if(['queued','waiting_fresh_status','awaiting_ack','retry_wait'].includes(delivery.state)){
+        const retry=append(card,'button','Retry same delivery');
+        retry.onclick=async()=>{retry.disabled=true;try{await request('/api/v1/markers/deliveries/'+encodeURIComponent(delivery.delivery_id)+'/retry',{method:'POST',headers:{'Content-Type':'application/json','X-Hub-Request':'1'},body:'{}'});message('Retry keeps the original revision, event time and robot session');}catch(error){message('Retry unavailable: '+error.message);}finally{await refreshMarkers();}};
+      }
+      el('marker-deliveries').append(card);
+    }
+    markerNext=page.next_cursor;el('marker-next').hidden=markerNext===null;el('marker-first').hidden=markerCursor===null;
+  }catch(error){markerDestination=null;el('marker-health').textContent='Bridge status unavailable. Notes remain saved; no new robot delivery will be scheduled.';}
+  for(const button of document.querySelectorAll('.marker-send'))button.disabled=button.dataset.cached==='true'||!markerDestination?.ready_for_delivery;
+}
+el('marker-next').onclick=()=>{markerCursor=markerNext;refreshMarkers()};el('marker-first').onclick=()=>{markerCursor=null;refreshMarkers()};
+refreshMarkers();setInterval(refreshMarkers,5000);
 </script></html>

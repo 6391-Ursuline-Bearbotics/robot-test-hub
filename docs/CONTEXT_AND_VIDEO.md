@@ -24,7 +24,7 @@ Primary action: **Mark event**. One action durably stores the current client eve
 
 Record author/device, submission timestamp, intended event interval, original user input, clock quality, tags/text, run candidates, and marker delivery state. Do not force a confident run assignment where mapping is ambiguous.
 
-The browser client needs an offline outbox (e.g. IndexedDB) before claiming offline note support. Persist UUID and payload before HTTP send. Server idempotency prevents duplicates. After hub acceptance, the hub independently queues optional robot delivery. UI states: `saved on device`, `saved in hub`, `robot acknowledged`, `historical/hub-only`, `needs time clarification`. Local success is not robot acknowledgment.
+The browser client needs an offline outbox (e.g. IndexedDB) before claiming offline note support. Persist UUID and payload before HTTP send. Server idempotency prevents duplicates. After hub acceptance, an explicit operator action can independently queue optional robot delivery; saving a note never automatically shares it with a robot. UI states: `saved on device`, `saved in hub`, `robot acknowledged`, `historical/hub-only`, `needs time clarification`. Local success is not robot acknowledgment. The [implemented marker contract](NOTE_MARKERS.md) keeps storage receipts separate and defines acknowledgment as contextual logging-input admission, with USB durability unavailable.
 
 Edits append revisions; historical logs remain untouched. Repeated retries preserve the original submitted/event times. Retrospective notes must remain possible when the robot is powered off. A note submitted while connected to a different boot must retain its original event context.
 

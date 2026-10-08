@@ -195,6 +195,20 @@ class Notebook:
                 result = {"schema_version": 1, "annotation": self._annotation(row), "idempotent": False}
             return result
 
+    def exact_revision(self, event_id, revision):
+        """Return exact committed normalized bytes; not a current-revision substitution."""
+        import hashlib
+        _id(event_id)
+        if type(revision) is not int or not 1 <= revision <= 1000000:
+            raise NotebookError('invalid_annotation', 'Invalid saved revision')
+        with self._connection() as db:
+            row = db.execute('SELECT payload_json FROM annotation_revisions WHERE event_id=? AND revision=?', (event_id, revision)).fetchone()
+            if row is None:
+                raise NotebookError('annotation_revision_not_found', 'Saved note revision unavailable', 404)
+            encoded = row['payload_json']
+            return {'event_id': event_id, 'revision': revision, 'payload_json': encoded,
+                    'sha256': hashlib.sha256(encoded.encode('utf-8')).hexdigest()}
+
     def list(self, *, start_ns=None, end_ns=None, include_unknown=True, limit=50, cursor=None):
         if type(limit) is not int or not 1 <= limit <= 100 or type(include_unknown) is not bool:
             raise NotebookError("invalid_query", "limit must be 1–100 and include_unknown a boolean")

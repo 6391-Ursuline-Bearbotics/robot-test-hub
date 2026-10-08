@@ -29,6 +29,16 @@ async function main(){
   assert.throws(()=>api.createJob({...base(),revision:2}));
   assert.throws(()=>api.createJob(base(),'/api/control'));
   assert.throws(()=>api.createJob(edit,revision.url,1,{...receipt(job),revision:9}));
+  const destination={enabled:true,ready_for_delivery:true,runtime_mode:'SIM',robot_id:'robot-a',current_confirmed_boot_id:'boot-a'};
+  const pin={schema_version:1,event_id:'event-a',note_revision:1,annotation_sha256:'a'.repeat(64)};
+  const marker=api.markerRequest(receipt(job),pin,destination,'delivery-a');
+  assert.equal(marker.destination_boot_id,'boot-a');assert.equal(marker.note_revision,1);
+  assert.equal(marker.annotation_sha256,pin.annotation_sha256);
+  assert.equal('text' in marker,false);assert.equal('author' in marker,false);
+  assert.throws(()=>api.markerRequest(job.payload,pin,destination,'delivery-a'));
+  assert.throws(()=>api.markerRequest(receipt(job),{...pin,note_revision:2},destination,'delivery-a'));
+  assert.throws(()=>api.markerRequest(receipt(job),pin,{...destination,ready_for_delivery:false},'delivery-a'));
+  assert.throws(()=>api.markerRequest(receipt(job),pin,{...destination,runtime_mode:'REPLAY'},'delivery-a'));
 
   let claimed=api.claim(job,null,'tab-a',0);
   assert.equal(claimed.state,'sending');assert.equal(claimed.body,body);assert.equal(claimed.attempts,1);
