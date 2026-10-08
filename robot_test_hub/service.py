@@ -123,7 +123,12 @@ class HubService:
                       "files": [], "pending_files": 0, "completed_files": 0, "remaining_bytes": 0,
                       "bytes_per_second": None, "eta_seconds": None, "active_id": None, "discovery_complete": False}
         self.backup_cache = {"schema_version": 1, "enabled": config.backup_destination is not None, "state": "starting" if config.backup_destination else "disabled", "failure_domain_qualified": False, "last_capture_utc_ns": None, "last_completed_utc_ns": None, "error_code": None}
+        self.log_export_cache = {"schema_version": 1, "enabled": config.log_export_destination is not None,
+                                 "state": "starting" if config.log_export_destination else "disabled",
+                                 "cloud_upload_confirmed": False, "copied_files": 0, "pending_files": 0,
+                                 "pending_bytes": 0, "skipped_files": 0, "error_code": None}
         self.health = {"collector": {"state": "starting"}, "status": {"state": "starting"}, 'indexer':{'state':'starting'}}
+        self.health["log_export"] = {"state": self.log_export_cache["state"]}
         self.health["backup"] = {"state": "starting" if config.backup_destination else "disabled"}
         self.video=RecorderWorker(self.root,video_config,recorder_factory=recorder_factory or Recorder,
                                   publish=self._video_publish)
@@ -185,6 +190,8 @@ class HubService:
                         threading.Thread(target=self.markers.run,args=(self.stop,),name='hub-markers')]
         if self.config.backup_destination is not None:
             self.threads.append(threading.Thread(target=self._backup_worker, name="hub-backup"))
+        if self.config.log_export_destination is not None:
+            self.threads.append(threading.Thread(target=self._log_export_worker, name="hub-log-export"))
         for thread in self.threads:
             thread.start()
 
@@ -222,6 +229,28 @@ class HubService:
             with self.cache_lock:
                 if self.health['indexer']['state']!='failed':
                     self.health['indexer']={'state':'stopped','error_code':None}
+
+    def _log_export_publish(self, snapshot):
+        with self.cache_lock:
+            self.log_export_cache = snapshot
+            self.health["log_export"] = {"state": snapshot["state"], "error_code": snapshot["error_code"]}
+
+    def _log_export_worker(self):
+        from .log_export import LogExporter
+        try:
+            exporter = LogExporter(self.root, self.config.log_export_destination,
+                                   stopping=self.stop.is_set, publish=self._log_export_publish)
+            while not self.stop.is_set():
+                try:
+                    exporter.tick()
+                except (OSError, ValueError, RuntimeError) as exc:
+                    self.diagnostics.record("log_export_retry", "Log sharing interrupted; local originals preserved. Check Drive folder", exception=exc)
+                self.stop.wait(self.config.log_export_interval)
+        except Exception as exc:
+            self._health("log_export", "failed", "log_export_worker_failed")
+            self.diagnostics.record("log_export_worker_failed", "Log sharing stopped; local originals preserved", exception=exc)
+            with self.cache_lock:
+                self.log_export_cache.update(state="failed", error_code="log_export_worker_failed")
 
     def _backup_publish(self, snapshot):
         with self.cache_lock:
@@ -333,6 +362,7 @@ class HubService:
             result = copy.deepcopy(self.cache)
             health = copy.deepcopy(self.health)
             backup = copy.deepcopy(self.backup_cache)
+            log_export = copy.deepcopy(self.log_export_cache)
         status = self.cached_source.status()
         age = time.monotonic() - status.observed_at
         snapshot_age = time.monotonic() - result.get("snapshot_monotonic", time.monotonic())
@@ -340,7 +370,7 @@ class HubService:
         capture = backup.get("last_capture_utc_ns")
         age_ns = time.time_ns() - int(capture) if capture is not None else None
         backup["capture_age_seconds"] = age_ns / 1e9 if age_ns is not None and age_ns >= 0 else None
-        result.update({"backup": backup, "schema_version": 1, "source_type": getattr(self.source,'source_type','unconfigured'), "workers": health,
+        result.update({"log_export": log_export, "backup": backup, "schema_version": 1, "source_type": getattr(self.source,'source_type','unconfigured'), "workers": health,
                        "paused_by_operator": self.paused.is_set(), "snapshot_age_seconds": max(0, snapshot_age), "source_status": {
                            "enabled": status.enabled, "transfer_allowed": status.transfer_allowed, "fresh": fresh, "age_seconds": age if math.isfinite(age) and age >= 0 else None}})
         if health["collector"]["state"] == "failed":

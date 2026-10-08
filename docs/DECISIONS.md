@@ -5,6 +5,7 @@
 | Decision | Reason / consequence |
 | --- | --- |
 | Public repo `6391-Ursuline-Bearbotics/robot-test-hub` | User explicitly selected name and public visibility. Data remains private/local. |
+| One dedicated DS laptop collects; Google Drive shares completed originals | User confirmed October 8. Active data stays local; home inspection needs one-way publication. |
 | Local-first Python service and browser UI | Fits existing Python analysis work; runs without cloud or internet. |
 | Files plus SQLite; optional derived Parquet later | Simple portable operation and reproducible original evidence. |
 | Run identity independent of files | Existing recordings span enable/disable cycles; future rotation may split runs. |
@@ -32,7 +33,7 @@ These are implementation defaults, not claims that all features exist. Change a 
 
 | Question | Needed for | Work that can proceed now |
 | --- | --- | --- |
-| Which computer owns collection: DS laptop or practice PC? | Service installation, resource limits | Core, fake adapters, UI, tests |
+| Dedicated DS laptop confirmed; local SSD and Drive folder paths? | School configuration | Opt-in export, synthetic validation and setup guide |
 | Actual SystemCore image, SFTP account/host key, USB mount/filesystem? | Real adapter and rotation deployment | Adapter interface, failure injection |
 | Which authoritative Alpha 7 status transport is accessible? | Fresh permission / generation mapping | Contract and synthetic heartbeat tests |
 | Typical log growth and idle connection throughput? | Rate/chunk defaults, retention sizing | Configurable ETA and benchmarking harness |

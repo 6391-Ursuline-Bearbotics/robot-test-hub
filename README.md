@@ -22,6 +22,7 @@ Automatic reports also flag recorded motor-controller SDK status errors, preserv
 - [Find footage from saved notes and runs](docs/VIDEO_CONTEXT.md)
 - [Preserve, play and download incident clips](docs/VIDEO_MEDIA.md)
 - [Download an incident's original robot logs](docs/INCIDENT_LOGS.md)
+- [Share completed logs through Google Drive](docs/GOOGLE_DRIVE.md)
 - [Opt-in verified backup and restore](docs/BACKUP.md)
 - [Analysis/review evidence and remaining gaps](docs/ANALYSIS_REVIEW.md)
 - [Automatic swerve reports and explicit practice plans](docs/AUTOMATIC_SWERVE.md)

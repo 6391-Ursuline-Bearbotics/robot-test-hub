@@ -41,6 +41,7 @@ Useful release A: T01–T07 and T09–T12 (collection, time search, hub notebook
 | Robot | T09 identity/status, T10 experimental rotation, explicit SIM/REAL recording selection and opt-in passive marker inputs | USB/load qualification and physical marker/transfer bench run; T08–T12 |
 | Analysis | Automatic recording/swerve/recorded Phoenix SDK status reports, explicit session plans and cohort selection, bounded evidence plots with retained-report/trace navigation, immutable human approval and maintenance-aware comparison | REAL acquisition freshness, human-review record history, other subsystem analyzers and physical thresholds; T14–T15 |
 | Video | Reviewed recording/alignment cores, independent workers, redacted APIs/browser, two-cue calibration, explicit interval and saved note/run candidates, verified incident MP4 preservation/playback/downloads, timing sidecars and pinned original WPILOG downloads; generated-media qualification passes | Archive startup/metadata scale, live cue detection, shared telemetry/video seeking, actual AdvantageScope use, video backup and physical timing qualification; T16–T17 |
+| Home log access | Opt-in deduplicated completed-original export; identity sidecars, filename index, home verification and status | School/home round trip and cloud upload confirmation; notes/reports/video sharing separate |
 | Packaging | Foreground CLI, pinned timezone dependency, Windows/Linux CI | Autostart, upgrade/rollback and restore qualification; T18–T19 |
 
 Status polling, transfers, local verification and indexing use independent workers. Tests and browser checks establish local behavior; real transport, sensor freshness, recording load, camera alignment and independent backup require their own evidence. No hardware deployment or operation has been performed.
@@ -240,3 +241,11 @@ Acceptance: never deletes active/unverified/pinned/only-copy evidence; interrupt
 ## Completing a handoff
 
 Update the task status and README/gap table. Record exact commands and environment for tests; link relevant commissioning evidence where applicable. Keep user-facing outcome concise. If blocked on hardware or data, finish the independently testable portion, state the specific missing input, and leave the task partially complete rather than fabricating a successful adapter.
+
+## T21 - One-way original-log sharing through Google Drive
+
+Status: **implemented locally; physical/cloud qualification outstanding** (October 8, 2026). User selected one dedicated DS laptop and Google Drive for home inspection. No distributed collector or writable database sync is required. See [GOOGLE_DRIVE.md](GOOGLE_DRIVE.md).
+
+Acceptance: opt-in existing destination outside local data; completed originals only; exact SHA-256/length readback; deduplicate transfer/import references; preserve conflicts and originals; retry interruption/offline folder; cached redacted status; distinguish local publication from actual upload. Home opens WPILOGs directly or verifies sidecars. No credentials, notebook/video copy, deletion or Google API integration.
+
+Synthetic validation is recorded in GOOGLE_DRIVE and VALIDATION_CURRENT. Actual school/home access, sync order/latency, capacity and DS load require commissioning.

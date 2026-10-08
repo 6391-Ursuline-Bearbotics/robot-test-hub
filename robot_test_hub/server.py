@@ -155,6 +155,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                     return self.send(200,json.dumps(result,allow_nan=False).encode())
                 except (ValueError,TypeError,OverflowError):
                     return self.send(400,b'{"schema_version":1,"error_code":"invalid_query"}')
+            if self.path == "/api/v1/log-export":
+                return self.send(200,json.dumps(service.snapshot()["log_export"],allow_nan=False).encode())
             if self.path == "/api/v1/backup":
                 return self.send(200,json.dumps(service.snapshot()["backup"],allow_nan=False).encode())
             if self.path in ("/api/status", "/api/v1/status"):

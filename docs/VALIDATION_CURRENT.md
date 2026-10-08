@@ -128,3 +128,13 @@ The full Windows/Python 3.10.7 suite ran 362 tests in 59.951 seconds: 360 passed
 CI for `6d47cce` passed both Linux jobs and Windows/Python 3.10. Windows/Python 3.13 exposed an unclosed fixture-only SQLite reader during temporary-directory removal: the connection's transaction context does not close its handle. The checkpoint helper now explicitly closes that connection on success or error. Its focused service test passes in 1.228 seconds with unchanged assertions; production files are unchanged by this follow-up.
 
 The final cleanup qualification commit `9a830d7` passed all four Windows/Linux, Python 3.10/3.13 CI jobs ([run 37635892252](https://github.com/6391-Ursuline-Bearbotics/robot-test-hub/actions/runs/37635892252)).
+
+## October 8 - Dedicated-laptop Google Drive log sharing
+
+T21 adds opt-in deduplicated original-log publication to an existing Drive-for-desktop folder. Local working data and robot transfer behavior stay separate. Published sidecars retain size/hash/original filename; cached redacted status always distinguishes local publication from unconfirmed cloud upload. No robot code, credentials or private recordings were changed or accessed.
+
+Focused Windows Python 3.10.7 tests: 14 passed. Full required suite in the project's configured virtual environment: 537 tests in 62.544 seconds, 517 passed and 20 skipped. The skips are optional native qualification and Windows symlink checks; this run does not requalify native robot transports. An initial system-Python attempt lacked the SFTP dependency and resolved tests imports incorrectly; the configured virtual environment passes.
+
+Browser verification used a temporary loopback server and a public genuine synthetic Alpha 7 log. Transfers displayed 1 copied / 0 pending and explicitly stated cloud upload is not confirmed. UTF-8 text renders correctly. The synthetic service was stopped afterward.
+
+School/home account access, real Drive mounts, upload order/latency, AdvantageScope use and physical DS resource load still require the first school-to-home round trip described in GOOGLE_DRIVE.md. Automatic deletion remains unavailable.
