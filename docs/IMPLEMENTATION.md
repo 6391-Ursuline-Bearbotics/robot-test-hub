@@ -154,6 +154,8 @@ Acceptance: protocol integration tests against fake/temporary SFTP service; no s
 
 ## T12 — Physical transfer qualification
 
+October 9: [Log flow commissioning checklist](LOG_FLOW_COMMISSIONING.md) consolidates school prerequisites, the physical bench sequence, analysis, and the school-to-home Drive round trip. User deferred camera work; this initial log-flow pilot does not depend on video commissioning. Hardware pass/fail evidence still belongs in the private archive.
+
 Local preparation includes `python -m robot_test_hub.live_check`: a no-network, no-archive readiness check for explicit source settings, pinned SSH host/port, private-key parsing, transfer defaults and the compiled locked native reader. Eleven focused tests cover failure guidance, redaction, nonstandard ports, CLI overrides, source replacement and absence of robot/archive access. The live launcher now prepares the native reader before opening the archive; three CLI startup tests verify ordering and six live-configuration tests cover prepared command reuse, pure settings validation and native failures. Compiler diagnostics remain captured. This prepares commissioning; it does not replace physical qualification. See [setup](LIVE_TRANSFER.md#check-setup-before-connecting).
 
 Local commissioning support also includes a read-only [transfer session recorder](TRANSFER_SESSION.md), saving whitelisted local status samples and a persisted summary. Queue, freshness, reported rate/ETA and reader recovery observations remain distinct from physical traffic/load measurements. Robot boot and cumulative downloaded-byte totals are unavailable in the current status API. The recorder never controls the robot or changes collection permission.

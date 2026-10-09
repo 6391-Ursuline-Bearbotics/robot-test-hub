@@ -10,6 +10,7 @@ Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the 
 
 ## Start here
 
+- [Log flow commissioning checklist for the school](docs/LOG_FLOW_COMMISSIONING.md)
 - [Full design and document map](docs/README.md)
 - [Implementation handoff](docs/IMPLEMENTATION.md): small tasks with dependencies, acceptance tests, and suggested model prompts
 - [Decisions and unresolved hardware questions](docs/DECISIONS.md)
