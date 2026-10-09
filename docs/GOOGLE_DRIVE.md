@@ -54,7 +54,7 @@ python -m robot_test_hub.log_export verify "C:/Team/DownloadedLogs/FULL_SHA256.w
 
 4. Open the WPILOG normally in AdvantageScope. The hub is not required merely to open a log. For hub analysis, use the existing manual importer with a separate home archive; see [IMPORTER.md](IMPORTER.md).
 
-This initial scope shares originals, identity sidecars and the filename index. It does not synchronize notebook revisions, reports, video, connection settings or the live searchable catalog. For occasional complete hub recovery use [verified backup generations](BACKUP.md); never point active data into Drive. Home imports regenerate supported run/analysis information but cannot reconstruct hub-only notes or approvals.
+This workflow shares originals, identity sidecars and the filename index. Optional [main-laptop analytics](COLUMNAR_ANALYTICS.md) also publishes small HTML/CSV/JSON reports when analytics_share_summaries is explicitly enabled. It does not synchronize notebook revisions, video, connection settings, Parquet or the live searchable catalog. For occasional complete hub recovery use [verified backup generations](BACKUP.md); never point active data into Drive. Home imports regenerate supported run/analysis information but cannot reconstruct hub-only notes or approvals.
 
 ## Practice and storage
 

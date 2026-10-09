@@ -6,6 +6,8 @@ Design and implementation workspace for turning physical robot testing into sear
 
 Automatic reports also flag recorded motor-controller SDK status errors, preserving exact source evidence even before a connection debounce changes. [Status and timing diagnostics](docs/SWERVE_STATUS_TIMING.md) remain separate from physical freshness/health qualification. The confirmed practice camera is [Panasonic AW-HE40SWP](docs/CAMERA_SETUP.md); wired RTSP capture is the first commissioning trial.
 
+Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the dedicated laptop, caches run statistics, and shares portable practice summaries through the configured Drive folder. Original WPILOGs remain available for AdvantageScope; detailed Parquet and working databases stay local.
+
 ## Start here
 
 - [Full design and document map](docs/README.md)
@@ -23,6 +25,7 @@ Automatic reports also flag recorded motor-controller SDK status errors, preserv
 - [Preserve, play and download incident clips](docs/VIDEO_MEDIA.md)
 - [Download an incident's original robot logs](docs/INCIDENT_LOGS.md)
 - [Share completed logs through Google Drive](docs/GOOGLE_DRIVE.md)
+- [Main-laptop DuckDB/Parquet analytics and portable reports](docs/COLUMNAR_ANALYTICS.md)
 - [Opt-in verified backup and restore](docs/BACKUP.md)
 - [Analysis/review evidence and remaining gaps](docs/ANALYSIS_REVIEW.md)
 - [Automatic swerve reports and explicit practice plans](docs/AUTOMATIC_SWERVE.md)

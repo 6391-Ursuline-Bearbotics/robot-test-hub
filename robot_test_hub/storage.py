@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class OwnershipError(RuntimeError):
@@ -111,6 +111,14 @@ def open_catalog(root: Path) -> sqlite3.Connection:
             for table in ('analyzer_jobs','analysis_reports','review_records'):
                 if not db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
                     raise SchemaError('Catalog analysis schema is incomplete; preserve the data directory')
+            if version <= 4:
+                from .columnar import install_schema as columnar_schema
+                columnar_schema(db)
+                db.execute("INSERT INTO schema_migrations VALUES (5,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+                db.execute("PRAGMA user_version=5")
+            for table in ("columnar_jobs","columnar_artifacts","summary_reports","summary_artifacts","summary_run_cache"):
+                if not db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
+                    raise SchemaError("Catalog columnar schema is incomplete; preserve the data directory")
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")

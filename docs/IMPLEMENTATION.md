@@ -249,3 +249,9 @@ Status: **implemented locally; physical/cloud qualification outstanding** (Octob
 Acceptance: opt-in existing destination outside local data; completed originals only; exact SHA-256/length readback; deduplicate transfer/import references; preserve conflicts and originals; retry interruption/offline folder; cached redacted status; distinguish local publication from actual upload. Home opens WPILOGs directly or verifies sidecars. No credentials, notebook/video copy, deletion or Google API integration.
 
 Synthetic validation is recorded in GOOGLE_DRIVE and VALIDATION_CURRENT. Actual school/home access, sync order/latency, capacity and DS load require commissioning.
+
+## T22 — Main-laptop columnar analytics and portable summaries
+
+Status: **implemented locally; school-laptop and physical/cloud qualification outstanding** (October 8, 2026). See [COLUMNAR_ANALYTICS.md](COLUMNAR_ANALYTICS.md). Optional pinned DuckDB, immutable lossless Parquet, exact integer timestamps/typed high-rate values, source-order swerve normalization, durable conversion retry, bounded native resources/interruption, cached per-run queries, recording-quality/tracking/current reports and conservative comparable-test cohorts are implemented. Loopback report downloads verify small allowlisted artifacts. Opt-in Drive publication includes standalone HTML/CSV/JSON only; coherent backup includes registered derivatives. Existing robot integration, transfer gate and legacy health qualification are preserved. No robot changes in this increment.
+
+Remaining: real-log commissioning, school DS load/disk measurements, actual Drive round trip, historical profiles, full index/legacy-analyzer migration, event query UI and separately approved retention. Performance measurements separate synthetic native query time from end-to-end import time; physical freshness and thresholds are never inferred from recorded-value statistics.

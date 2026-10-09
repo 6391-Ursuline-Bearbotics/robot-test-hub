@@ -150,6 +150,8 @@ def _integrity(db):
         required.update({"annotation_revisions", "import_jobs", "import_artifacts", "import_requests", "run_catalog_revisions", "run_catalog_state"})
     if version >= 4:
         required.update({"analyzer_jobs", "analysis_reports", "review_records"})
+    if version >= 5:
+        required.update({"columnar_jobs","columnar_artifacts","summary_reports","summary_artifacts","summary_run_cache"})
     if not required <= tables:
         raise BackupError("Catalog schema is incomplete")
     return version
@@ -193,6 +195,10 @@ def _references(db):
         for row in db.execute("SELECT * FROM import_jobs WHERE state IN ('succeeded','succeeded_with_unsupported') ORDER BY id"):
             for name in ("dataset", "manifest"):
                 add(row[name + "_path"], row[name + "_sha256"], kind="derived")
+    for table, parent, key in (("columnar_artifacts","columnar_jobs","job_id"),("summary_artifacts","summary_reports","report_id")):
+        if table in tables:
+            for row in db.execute("SELECT a.* FROM "+table+" a JOIN "+parent+" p ON p.id=a."+key+" WHERE p.state='succeeded'"):
+                add(row["path"],row["sha256"],row["size_bytes"],kind="derived")
     return [refs[key] for key in sorted(refs)]
 
 

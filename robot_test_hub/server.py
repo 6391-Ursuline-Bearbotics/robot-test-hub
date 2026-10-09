@@ -155,6 +155,24 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                     return self.send(200,json.dumps(result,allow_nan=False).encode())
                 except (ValueError,TypeError,OverflowError):
                     return self.send(400,b'{"schema_version":1,"error_code":"invalid_query"}')
+            if self.path == "/api/v1/summaries":
+                return self.send(200,json.dumps(service.snapshot()["analytics"],allow_nan=False).encode())
+            if self.path == "/summaries":
+                return self.send(200,(Path(__file__).parent/"static/summaries.html").read_bytes(),"text/html; charset=utf-8")
+            if self.path.startswith("/summaries/"):
+                from .analytics import report_file
+                try:
+                    pieces=self.path.split("/")
+                    if len(pieces)!=4:
+                        raise KeyError("Unknown report")
+                    payload=report_file(service.root,pieces[2],pieces[3])
+                    mime={"report.html":"text/html; charset=utf-8","summary.csv":"text/csv; charset=utf-8",
+                          "summary.json":"application/json","manifest.json":"application/json"}[pieces[3]]
+                    return self.send(200,payload,mime)
+                except KeyError:
+                    return self.send(404,b'{}')
+                except (ValueError,OSError,sqlite3.Error):
+                    return self.send(503,b'{"error_code":"summary_integrity_unavailable"}')
             if self.path == "/api/v1/log-export":
                 return self.send(200,json.dumps(service.snapshot()["log_export"],allow_nan=False).encode())
             if self.path == "/api/v1/backup":

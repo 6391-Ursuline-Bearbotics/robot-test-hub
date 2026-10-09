@@ -32,6 +32,12 @@ class Config:
     historical_max_age: float = 300.0
     log_export_destination: str | None = None
     log_export_interval: float = 60.0
+    analytics_enabled: bool = False
+    analytics_share_summaries: bool = False
+    analytics_pause_when_enabled: bool = True
+    analytics_threads: int = 1
+    analytics_memory_mb: int = 512
+    analytics_interval: float = 2.0
     backup_destination: str | None = None
     backup_interval: float = 3600.0
     backup_retry: float = 60.0
@@ -53,11 +59,14 @@ class Config:
             source_root, export_root = Path(self.data_dir).resolve(), Path(self.log_export_destination).resolve()
             if source_root == export_root or source_root.is_relative_to(export_root) or export_root.is_relative_to(source_root):
                 raise ConfigError("log_export_destination must be disjoint from data_dir")
-        for key, low, high in (("port", 1, 65535), ("chunk_size", 1, 16 * 1024 * 1024), ("discovery_page_size", 1, 1000), ("retry_limit", 1, 100)):
+        for key in ("analytics_enabled","analytics_share_summaries","analytics_pause_when_enabled"):
+            if type(getattr(self,key)) is not bool:
+                raise ConfigError(key+" must be boolean")
+        for key, low, high in (("analytics_threads",1,4),("analytics_memory_mb",128,4096),("port", 1, 65535), ("chunk_size", 1, 16 * 1024 * 1024), ("discovery_page_size", 1, 1000), ("retry_limit", 1, 100)):
             value = getattr(self, key)
             if type(value) is not int or not low <= value <= high:
                 raise ConfigError(f"{key} must be an integer between {low} and {high}")
-        for key, maximum in (("idle_delay", 86400), ("freshness", 3600), ("tick_interval", 60),
+        for key, maximum in (("analytics_interval", 3600), ("idle_delay", 86400), ("freshness", 3600), ("tick_interval", 60),
                              ("status_interval", 60), ("shutdown_timeout", 300), ("io_timeout", 300), ("retry_initial", 300), ("retry_max", 3600), ("eta_window", 3600), ("eta_minimum", 3600), ("historical_max_age", 86400), ("log_export_interval", 86400), ("backup_interval", 86400), ("backup_retry", 86400)):
             value = getattr(self, key)
             # Compare bounds before conversion: arbitrarily large JSON integers

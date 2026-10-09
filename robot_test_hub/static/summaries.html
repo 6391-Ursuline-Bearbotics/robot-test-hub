@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>6391 · Practice summaries</title>
+<style>:root{color-scheme:dark;font-family:system-ui;background:#101820;color:#e8eef4}body{max-width:1000px;margin:auto;padding:32px 24px}a{color:#f2cf83}nav{display:flex;gap:24px;flex-wrap:wrap}section{background:#17232e;border:1px solid #304150;border-radius:12px;padding:24px;margin:24px 0}p{line-height:1.6;color:#b9c8d4}h1{font-size:36px}button{padding:12px;background:#26394a;color:white;border:1px solid #586f82}a:focus-visible{outline:3px solid #e6b957}</style></head>
+<body><header><p>URSULINE BEARBOTICS / TEAM 6391</p><h1>Practice summaries</h1><nav aria-label="Hub navigation"><a href="/">Transfers</a><a href="/runs">Run history</a><a href="/review">Review & maintenance</a><a href="/summaries" aria-current="page">Practice summaries</a></nav></header>
+<section><h2>Background analysis</h2><p id="state" role="status">Checking…</p><p id="queue"></p><p id="limits"></p><p id="error" role="alert"></p><p id="latest" hidden><a id="report" href="#">Open latest completed report</a></p><p id="sharing"></p></section>
+<section><h2>What the reports tell you</h2><p>Each report includes recording quality, recorded swerve tracking, and motor-current summaries. Missing or stale evidence is shown as unavailable. Repeated tests are compared only when their recorded configuration and reviewed test context agree.</p><p>These statistics help you investigate. Physical sensor acquisition timing and hardware-health thresholds remain unqualified; a quiet report does not certify a healthy robot.</p><p>Processing runs on this computer with limited resources. It pauses when the hub receives fresh enabled status. Original WPILOGs remain available for AdvantageScope.</p></section>
+<script>
+async function refresh(){try{const response=await fetch('/api/v1/summaries');if(!response.ok)throw Error();const s=await response.json();
+const labels={disabled:'Disabled · Enable analytics in the laptop configuration',starting:'Starting',converting:'Converting a recording',processing:'Recording converted; more work queued',summarizing:'Preparing a report',idle:'Up to date',paused:'Paused while robot is enabled or hub is stopping',waiting_for_imports:'Waiting for a qualified recording',waiting_for_index:'Waiting for run indexing',retry_wait:'Waiting to retry; check diagnostics if this persists',failed:'Analytics stopped; check installation and diagnostics'};
+document.getElementById('state').textContent=labels[s.state]||s.state;
+document.getElementById('queue').textContent=(s.converted_files||0)+' converted recordings · '+(s.pending_files||0)+' pending · '+(s.retry_files||0)+' waiting to retry';
+document.getElementById('limits').textContent=s.enabled?((s.threads||1)+' processing thread(s) · '+(s.memory_limit_mb||512)+' MB DuckDB memory setting · '+(s.queried_runs||0)+' runs queried · '+(s.cached_runs||0)+' reused in latest report'):'';
+document.getElementById('error').textContent=s.error_code?'Attention: '+s.error_code:'';
+document.getElementById('latest').hidden=!s.latest_report_id;if(s.latest_report_id)document.getElementById('report').href='/summaries/'+s.latest_report_id+'/report.html';
+document.getElementById('sharing').textContent=s.summary_sharing_enabled?'Summary sharing is configured. Check Transfers and Google Drive for publication/upload status.':'Summary sharing is disabled; reports stay on this computer.';
+}catch(e){document.getElementById('state').textContent='Cannot reach local hub';} }
+refresh();setInterval(refresh,3000);
+</script></body></html>

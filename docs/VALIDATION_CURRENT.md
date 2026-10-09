@@ -138,3 +138,17 @@ Focused Windows Python 3.10.7 tests: 14 passed. Full required suite in the proje
 Browser verification used a temporary loopback server and a public genuine synthetic Alpha 7 log. Transfers displayed 1 copied / 0 pending and explicitly stated cloud upload is not confirmed. UTF-8 text renders correctly. The synthetic service was stopped afterward.
 
 School/home account access, real Drive mounts, upload order/latency, AdvantageScope use and physical DS resource load still require the first school-to-home round trip described in GOOGLE_DRIVE.md. Automatic deletion remains unavailable.
+
+## October 8 - Main-laptop columnar analytics
+
+T22 implements optional duckdb==1.5.6, immutable records/frames Parquet with exact integer nanoseconds and typed high-rate samples, durable conversion retries, source-order normalization, cancellation-aware integrity reads and native-query interruption. Whole-recording quality includes disabled-only recordings. Cached per-run queries produce tracking/current summaries, and explicit reviewed contexts gate descriptive comparable-test cohorts. No hardware-health verdict or baseline approval is inferred.
+
+Final full configured Windows/Python 3.10.7 suite: **567 tests in 67.400 seconds, 547 passed and 20 skipped** (optional native qualification and Windows symlink privileges). Thirty focused columnar tests pass, including exact row/provenance and >2^53 timestamp preservation, official-reader fixtures, irregular time weighting/wraparound, missing evidence/gaps, source-order regressions, partial-publication retry, corruption checks, new-run/cached-run behavior, disabled-only files, comparable plans, API and enabled-pause/shutdown, report sharing isolation and coherent backup restore. CI installs the analytics extra on the existing Windows/Linux, Python 3.10/3.13 matrix; this local result does not claim those CI jobs have already passed.
+
+Windows subprocess validation used PYTHONUTF8=1 consistently for parent and children. An earlier mixed parent UTF-8/child CP1252 invocation failed an existing subprocess-output reader; the consistent environment passes with no production encoding workaround.
+
+The reproducible benchmark in tools/analytics/benchmark.py queried 500,000 invented module samples (125,000 cycles) using the actual weighted-tracking SQL in 1.045 / 1.200 / 1.120 seconds, one thread, 512 MB DuckDB setting. Synthetic native preparation was 0.431 seconds; Parquet size 9,550,726 bytes. New connections were used; OS caches were not flushed. Import/conversion, run indexing and report publication are excluded. This is not a guaranteed school-laptop or subsecond result.
+
+Browser verification used an isolated temporary synthetic loopback server on port 6394. Practice summaries showed two converted files, zero pending, two cached runs; the standalone report rendered whole-file quality, separate comparable cohorts, SI units, four-module tracking charts and unavailable current values. Report links use the exact captured report identity. Test tabs and server were closed; the existing hub was untouched.
+
+Only robot-test-hub changed; both robot repository working trees remained clean. No private logs, cloud credentials, real cameras or robot deployment were used. Real-log resource measurements, realistic archive growth and the actual school-to-home Drive round trip remain commissioning work. See COLUMNAR_ANALYTICS.md for installation/configuration and explicit first-release limitations.

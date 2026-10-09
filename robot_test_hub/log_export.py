@@ -5,6 +5,7 @@ import argparse
 from contextlib import closing
 import csv
 import hashlib
+import html
 import io
 import json
 import os
@@ -53,12 +54,13 @@ def verify(path):
 
 class LogExporter:
     """One dedicated collector. Receipts survive restarts; originals are never deleted."""
-    def __init__(self, source, destination, *, stopping=lambda: False, publish=lambda value: None):
+    def __init__(self, source, destination, *, stopping=lambda: False, publish=lambda value: None, include_summaries=False):
         self.source, self.destination = Path(source).resolve(), Path(destination).absolute()
         target = self.destination.resolve()
         if self.source == target or self.source.is_relative_to(target) or target.is_relative_to(self.source):
             raise ExportError("Export destination must be disjoint from local data")
         self.stopping, self.publish = stopping, publish
+        self.include_summaries=include_summaries
         key = hashlib.sha256(str(self.destination).encode()).hexdigest()
         self.receipts = _path(self.source, "exports/log-sharing/" + key)
         self.snapshot = {"schema_version": 1, "enabled": True, "state": "starting", "error_code": None,
@@ -124,6 +126,43 @@ class LogExporter:
         if _digest(target) != (row["sha256"], row["size"]):
             raise ExportError("Destination integrity mismatch")
 
+    def _summaries(self):
+        if not self.include_summaries:
+            return
+        from .summaries import FILES
+        catalog=_path(self.source,"catalog.sqlite3")
+        with closing(sqlite3.connect(catalog.as_uri()+"?mode=ro",uri=True)) as db:
+            db.row_factory=sqlite3.Row
+            reports=db.execute("SELECT id,created_utc_ns FROM summary_reports WHERE state='succeeded' ORDER BY created_utc_ns DESC").fetchall()
+            index=[]
+            for report in reports:
+                self._check_stop()
+                report_id=report["id"]
+                if not _SHA.fullmatch(report_id):
+                    raise ExportError("Invalid summary identity")
+                rows=db.execute("SELECT * FROM summary_artifacts WHERE report_id=?",(report_id,)).fetchall()
+                expected={"analytics/reports/"+report_id+"/"+name for name in FILES}
+                if {row["path"] for row in rows}!=expected:
+                    raise ExportError("Incomplete summary artifact inventory")
+                folder=_path(self.destination,"reports/"+report_id)
+                folder.mkdir(parents=True,exist_ok=True)
+                for name in FILES:  # Manifest last; consumers must verify locally downloaded bytes.
+                    row=next(row for row in rows if row["path"].endswith("/"+name))
+                    if row["size_bytes"]>64*1024*1024:
+                        raise ExportError("Summary size limit")
+                    self._copy(_path(self.source,row["path"]),_path(folder,name),
+                               {"sha256":row["sha256"],"size":row["size_bytes"]})
+                index.append('<li><a href="'+report_id+'/report.html">Report captured at UTC nanoseconds '+
+                             html.escape(str(report["created_utc_ns"]))+'</a></li>')
+        page=('<!doctype html><html lang="en"><meta charset="utf-8"><title>6391 reports</title>'
+              '<h1>Robot Test Hub reports</h1><p>Download a report folder and open report.html locally. '
+              'These are captured summaries of recorded data; cloud upload is not confirmed by the hub.</p><ul>'+
+              "".join(index)+'</ul></html>').encode("utf-8")
+        path=_path(self.destination,"reports/index.html")
+        if not path.exists() or path.read_bytes()!=page:
+            _write(path,page)
+        self._emit(copied_reports=len(index))
+
     def tick(self):
         rows = self._candidates()
         self._emit(state="publishing", error_code=None, copied_files=0,
@@ -133,7 +172,13 @@ class LogExporter:
             if not self.destination.is_dir() or self.destination.resolve() != self.destination:
                 raise ExportError("Configured sync folder is unavailable or linked")
             self.receipts.mkdir(parents=True, exist_ok=True)
+            summary_error=None
             with _owner(self.destination):
+                try:
+                    self._summaries()  # Small reports first; a failed report does not block original logs.
+                except (OSError,ValueError,RuntimeError,sqlite3.Error) as exc:
+                    if isinstance(exc,ExportInterrupted):raise
+                    summary_error=type(exc).__name__
                 index = []
                 for row in rows:
                     self._check_stop()
@@ -193,7 +238,7 @@ class LogExporter:
                 path = _path(self.destination, "logs.csv")
                 if not path.exists() or path.read_bytes() != encoded:
                     _write(path, encoded)
-            self._emit(state="idle")
+            self._emit(state="retry_wait" if summary_error else "idle",error_code=summary_error)
         except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
             self._emit(state="stopped" if isinstance(exc, ExportInterrupted) else "retry_wait",
                        error_code=type(exc).__name__)
@@ -206,6 +251,7 @@ def main(argv=None):
     export = sub.add_parser("publish")
     export.add_argument("--data-dir", required=True)
     export.add_argument("--destination", required=True)
+    export.add_argument("--include-summaries",action="store_true")
     check = sub.add_parser("verify")
     check.add_argument("wpilog", type=Path)
     args = parser.parse_args(argv)
@@ -213,11 +259,11 @@ def main(argv=None):
         if args.command == "verify":
             result = verify(args.wpilog)
         else:
-            exporter = LogExporter(args.data_dir, args.destination)
+            exporter = LogExporter(args.data_dir, args.destination,include_summaries=args.include_summaries)
             exporter.tick()
             result = exporter.snapshot
         print(json.dumps(result, sort_keys=True))
-        return 0
+        return 0 if result["state"] in ("idle","verified") else 1
     except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(json.dumps({"state": "error", "error_code": type(exc).__name__}))
         return 1

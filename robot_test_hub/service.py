@@ -128,6 +128,8 @@ class HubService:
                                  "cloud_upload_confirmed": False, "copied_files": 0, "pending_files": 0,
                                  "pending_bytes": 0, "skipped_files": 0, "error_code": None}
         self.health = {"collector": {"state": "starting"}, "status": {"state": "starting"}, 'indexer':{'state':'starting'}}
+        self.analytics_cache={"schema_version":1,"enabled":config.analytics_enabled,"state":"starting" if config.analytics_enabled else "disabled","error_code":None,"latest_report_id":None,"converted_files":0,"pending_files":0,"retry_files":0}
+        self.health["analytics"]={"state":self.analytics_cache["state"]}
         self.health["log_export"] = {"state": self.log_export_cache["state"]}
         self.health["backup"] = {"state": "starting" if config.backup_destination else "disabled"}
         self.video=RecorderWorker(self.root,video_config,recorder_factory=recorder_factory or Recorder,
@@ -192,6 +194,8 @@ class HubService:
             self.threads.append(threading.Thread(target=self._backup_worker, name="hub-backup"))
         if self.config.log_export_destination is not None:
             self.threads.append(threading.Thread(target=self._log_export_worker, name="hub-log-export"))
+        if self.config.analytics_enabled:
+            self.threads.append(threading.Thread(target=self._analytics_worker,name="hub-analytics"))
         for thread in self.threads:
             thread.start()
 
@@ -230,6 +234,34 @@ class HubService:
                 if self.health['indexer']['state']!='failed':
                     self.health['indexer']={'state':'stopped','error_code':None}
 
+    def _analytics_publish(self,snapshot):
+        with self.cache_lock:
+            self.analytics_cache=snapshot
+            self.health["analytics"]={"state":snapshot["state"],"error_code":snapshot["error_code"]}
+
+    def _analytics_paused(self):
+        status=self.cached_source.status()
+        age=time.monotonic()-status.observed_at
+        return self.stop.is_set() or (self.config.analytics_pause_when_enabled and status.enabled is True
+            and 0<=age<=self.config.freshness)
+
+    def _analytics_worker(self):
+        from .analytics import AnalyticsWorker
+        db=None
+        try:
+            db=open_catalog(self.root)
+            worker=AnalyticsWorker(self.root,db,self.config,stopping=self._analytics_paused,publish=self._analytics_publish)
+            while not self.stop.is_set():
+                worker.tick()
+                self.stop.wait(self.config.analytics_interval)
+        except Exception as exc:
+            self.diagnostics.record("analytics_worker_failed","Analytics stopped; check the pinned analytics installation and storage",exception=exc)
+            with self.cache_lock:
+                self.analytics_cache.update(state="failed",error_code=type(exc).__name__)
+                self.health["analytics"]={"state":"failed","error_code":type(exc).__name__}
+        finally:
+            if db is not None:db.close()
+
     def _log_export_publish(self, snapshot):
         with self.cache_lock:
             self.log_export_cache = snapshot
@@ -239,7 +271,8 @@ class HubService:
         from .log_export import LogExporter
         try:
             exporter = LogExporter(self.root, self.config.log_export_destination,
-                                   stopping=self.stop.is_set, publish=self._log_export_publish)
+                                   stopping=self.stop.is_set, publish=self._log_export_publish,
+                                   include_summaries=self.config.analytics_share_summaries)
             while not self.stop.is_set():
                 try:
                     exporter.tick()
@@ -363,6 +396,7 @@ class HubService:
             health = copy.deepcopy(self.health)
             backup = copy.deepcopy(self.backup_cache)
             log_export = copy.deepcopy(self.log_export_cache)
+            analytics = copy.deepcopy(self.analytics_cache)
         status = self.cached_source.status()
         age = time.monotonic() - status.observed_at
         snapshot_age = time.monotonic() - result.get("snapshot_monotonic", time.monotonic())
@@ -370,7 +404,7 @@ class HubService:
         capture = backup.get("last_capture_utc_ns")
         age_ns = time.time_ns() - int(capture) if capture is not None else None
         backup["capture_age_seconds"] = age_ns / 1e9 if age_ns is not None and age_ns >= 0 else None
-        result.update({"log_export": log_export, "backup": backup, "schema_version": 1, "source_type": getattr(self.source,'source_type','unconfigured'), "workers": health,
+        result.update({"analytics":analytics,"log_export": log_export, "backup": backup, "schema_version": 1, "source_type": getattr(self.source,'source_type','unconfigured'), "workers": health,
                        "paused_by_operator": self.paused.is_set(), "snapshot_age_seconds": max(0, snapshot_age), "source_status": {
                            "enabled": status.enabled, "transfer_allowed": status.transfer_allowed, "fresh": fresh, "age_seconds": age if math.isfinite(age) and age >= 0 else None}})
         if health["collector"]["state"] == "failed":
