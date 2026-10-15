@@ -16,7 +16,7 @@ class LauncherIndependentReviewTest(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
-        self.base = Path(self.folder.name)
+        self.base = Path(self.folder.name).resolve()
         self.profile = self.base / 'launch.json'
         self.record = dict(schema_version=1, port=6391, pid=1234,
                            token='a' * 64, instance_id='b' * 32)

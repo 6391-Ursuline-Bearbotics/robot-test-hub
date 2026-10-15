@@ -18,7 +18,9 @@ class WindowsSetupTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="hub windows & $ ")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        # PowerShell and Python may expand Windows 8.3 ancestor names. Keep
+        # expected argv/cwd paths canonical instead of relying on temp spelling.
+        self.root = Path(self.temporary.name).resolve()
         self.checkout = self.root / "source with spaces & $"
         shutil.copytree(SCRIPTS, self.checkout / "scripts" / "windows")
         (self.checkout / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")

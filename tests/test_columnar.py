@@ -59,12 +59,15 @@ def frame_rows(stamps=(1000000000,1020000000,1080000000,1100000000),*,errors=(.5
 class ColumnarTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        self.root=Path(self.temp.name)/"data";self.root.mkdir()
+        # Windows temp roots may use an 8.3 ancestor spelling. Export roots must
+        # be canonical, just like the dedicated log-export fixtures.
+        self.base=Path(self.temp.name).resolve()
+        self.root=self.base/"data";self.root.mkdir()
         self.db=open_catalog(self.root);self.addCleanup(self.db.close)
         self.converter=Converter(self.root,self.db)
 
     def import_log(self,payload=None):
-        source=Path(self.temp.name)/"input.wpilog"
+        source=self.base/"input.wpilog"
         source.write_bytes(payload if payload is not None else protocol_recording())
         return Importer(self.root,self.db).import_file(source,source_type="SYNTHETIC")
 
@@ -140,7 +143,7 @@ class ColumnarTests(unittest.TestCase):
         self.assertEqual(self.converter.convert(job["id"])["state"],"succeeded")
 
     def test_summary_failure_does_not_block_original_publication(self):
-        self.report();destination=Path(self.temp.name)/"drive";destination.mkdir()
+        self.report();destination=self.base/"drive";destination.mkdir()
         exporter=LogExporter(self.root,destination,include_summaries=True)
         with patch.object(exporter,"_summaries",side_effect=OSError("Synthetic report failure")):
             exporter.tick()
@@ -268,7 +271,7 @@ class ColumnarTests(unittest.TestCase):
                 AnalyticsWorker(self.root,self.db,Config(data_dir=str(self.root)))
 
     def test_summary_sharing_optin_only_small_artifacts(self):
-        report=self.report();destination=Path(self.temp.name)/"drive";destination.mkdir()
+        report=self.report();destination=self.base/"drive";destination.mkdir()
         exporter=LogExporter(self.root,destination)
         exporter.tick();self.assertFalse((destination/"reports").exists())
         exporter=LogExporter(self.root,destination,include_summaries=True);exporter.tick()
@@ -282,7 +285,7 @@ class ColumnarTests(unittest.TestCase):
         self.assertEqual((destination/"reports"/report["id"]/"report.html").stat().st_mtime_ns,before)
 
     def test_summary_conflict_preserved_then_retry(self):
-        report=self.report();destination=Path(self.temp.name)/"drive";destination.mkdir()
+        report=self.report();destination=self.base/"drive";destination.mkdir()
         exporter=LogExporter(self.root,destination,include_summaries=True);exporter.tick()
         path=destination/"reports"/report["id"]/"report.html";original=path.read_bytes();path.write_bytes(b"changed")
         exporter.tick()
@@ -292,12 +295,12 @@ class ColumnarTests(unittest.TestCase):
 
     def test_backup_restore_includes_registered_derivatives(self):
         report=self.report()
-        backup=Backup(self.root,Path(self.temp.name)/"backup")
+        backup=Backup(self.root,self.base/"backup")
         result=backup.create("analytics")
         self.assertEqual(result["state"],"complete")
-        folder=Path(self.temp.name)/"backup/analytics"
+        folder=self.base/"backup/analytics"
         verify(folder)
-        recovered=Path(self.temp.name)/"restored";restore(folder,recovered)
+        recovered=self.base/"restored";restore(folder,recovered)
         self.assertEqual(report_file(recovered,report["id"],"summary.json"),report_file(self.root,report["id"],"summary.json"))
         self.assertEqual(len(list(recovered.rglob("*.parquet"))),2)
 

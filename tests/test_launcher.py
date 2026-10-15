@@ -15,7 +15,7 @@ class LauncherTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='hub private ')
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.hub = self.root / 'hub settings.json'
         self.hub.write_text(json.dumps({'schema_version': 1, 'data_dir': 'archive', 'port': 6391}), encoding='utf-8')
         self.path = self.root / 'practice profile.json'
@@ -49,6 +49,29 @@ class LauncherTests(unittest.TestCase):
         self.assertIn(str(self.hub), args)
         self.assertNotIn('--idle-delay', args)
         self.assertEqual(args[-1], str(self.path.with_suffix('.runtime.json')))
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows short-path aliases only')
+    def test_actual_windows_short_path_alias_resolves_to_canonical_fixture(self):
+        import ctypes
+        from ctypes import wintypes
+        get_short_path = ctypes.WinDLL('kernel32', use_last_error=True).GetShortPathNameW
+        get_short_path.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+        get_short_path.restype = wintypes.DWORD
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = get_short_path(str(self.root), buffer, len(buffer))
+        if not length or length >= len(buffer):
+            self.skipTest('Temporary filesystem does not expose a Windows short-path alias')
+        alias = Path(buffer.value)
+        if str(alias).casefold() == str(self.root).casefold():
+            self.skipTest('Short-path alias creation is disabled on this filesystem')
+        self.assertEqual(alias.resolve(), self.root)
+        alias_profile = alias / self.path.name
+        profile = launcher.load_profile(alias_profile)
+        arguments = launcher.server_arguments(alias_profile, profile)
+        self.assertEqual(profile['hub_config'], self.hub)
+        self.assertIn(str(self.hub), arguments)
+        self.assertEqual(arguments[arguments.index('--data-dir') + 1], str(self.root / 'archive'))
+        self.assertEqual(arguments[-1], str(self.path.with_suffix('.runtime.json')))
 
     def test_launcher_never_changes_process_directory(self):
         with patch('os.chdir', side_effect=AssertionError('process-global chdir')):
