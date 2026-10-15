@@ -26,6 +26,7 @@ The robot records locally whenever its program runs. After it is disabled long e
 | [ANALYSIS.md](ANALYSIS.md) | Ingestion, health metrics, baselines, uncertainty, feedback/replay |
 | [AUTOMATIC_SWERVE.md](AUTOMATIC_SWERVE.md) | Implemented session plans, automatic swerve/cohort reports, bounded plots and qualification limits |
 | [SWERVE_STATUS_TIMING.md](SWERVE_STATUS_TIMING.md) | Recorded Phoenix SDK status warnings, source-reviewed timestamp semantics and the physical commissioning worksheet |
+| [REVIEW_HISTORY.md](REVIEW_HISTORY.md) | Read-only saved review revisions, repair references, bounded pagination and exact links |
 | [REPORT_HISTORY.md](REPORT_HISTORY.md) | Immutable report selection and complete module trace navigation through bounded pages |
 | [GOOGLE_DRIVE.md](GOOGLE_DRIVE.md) | Dedicated laptop; opt-in deduplicated original-log sharing and home verification |
 | [UI_AND_OPERATIONS.md](UI_AND_OPERATIONS.md) | Screens, operator actions, diagnostics, storage/backup, setup |

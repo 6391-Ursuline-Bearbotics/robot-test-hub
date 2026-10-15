@@ -20,6 +20,7 @@
 | Human-approved healthy baselines | Prevent gradual faults from becoming normal automatically. |
 | Explicit revisioned UTC practice plans and selected cohorts | Assign comparable test/configuration context; edits regenerate reports without changing original evidence. |
 | Separate signal, run-catalog and clock revisions | New imports do not invalidate an unchanged signal mapping; results retain each revision independently. |
+| Read-only review history with exact revision pins | Stable append snapshots reach older records; embedded bundle evidence stays preserved and unpinned maintenance never resolves silently to latest. See [review history](REVIEW_HISTORY.md). |
 | Immutable report selection with bounded trace pages | Older results remain investigable while new results arrive; complete traces are reachable without accumulating them in the browser. |
 | Provisional tracking thresholds; REAL freshness required | Automatic reports cannot establish physical health from logging-cycle timestamps or invented sample freshness. |
 | Recorded Phoenix status warnings separate from physical freshness | SDK errors can precede connection debounce; receipt/transmit times and SDK validity are observations until hardware timing is independently qualified. See [source audit and bench worksheet](SWERVE_STATUS_TIMING.md). |
