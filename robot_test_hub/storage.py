@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class OwnershipError(RuntimeError):
@@ -119,6 +119,14 @@ def open_catalog(root: Path) -> sqlite3.Connection:
             for table in ("columnar_jobs","columnar_artifacts","summary_reports","summary_artifacts","summary_run_cache"):
                 if not db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
                     raise SchemaError("Catalog columnar schema is incomplete; preserve the data directory")
+            if version<=5:
+                from .rewind_service import install_schema as rewind_schema
+                rewind_schema(db)
+                db.execute("INSERT INTO schema_migrations VALUES (6,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+                db.execute("PRAGMA user_version=6")
+            for table in ("rewind_recordings","rewind_observations","rewind_camera_context","rewind_capture_requests"):
+                if not db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
+                    raise SchemaError("Catalog Rewind schema incomplete; preserve the data directory")
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")

@@ -152,6 +152,8 @@ def _integrity(db):
         required.update({"analyzer_jobs", "analysis_reports", "review_records"})
     if version >= 5:
         required.update({"columnar_jobs","columnar_artifacts","summary_reports","summary_artifacts","summary_run_cache"})
+    if version>=6:
+        required.update({"rewind_recordings","rewind_observations","rewind_camera_context","rewind_capture_requests"})
     if not required <= tables:
         raise BackupError("Catalog schema is incomplete")
     return version
@@ -199,6 +201,14 @@ def _references(db):
         if table in tables:
             for row in db.execute("SELECT a.* FROM "+table+" a JOIN "+parent+" p ON p.id=a."+key+" WHERE p.state='succeeded'"):
                 add(row["path"],row["sha256"],row["size_bytes"],kind="derived")
+    if "rewind_recordings" in tables:
+        for row in db.execute("SELECT * FROM rewind_recordings ORDER BY recording_id"):
+            metadata=json.loads(row["metadata_json"])
+            # metadata_json is the exact canonical UTF-8 published metadata contract.
+            encoded=row["metadata_json"].encode("utf-8")
+            add(row["relative_path"]+"/metadata.json",hashlib.sha256(encoded).hexdigest(),len(encoded),kind="derived")
+            for item in metadata["files"].values():
+                add(row["relative_path"]+"/"+item["name"],item["sha256"],item["size_bytes"],kind="raw")
     return [refs[key] for key in sorted(refs)]
 
 

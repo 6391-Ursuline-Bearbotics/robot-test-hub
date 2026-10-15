@@ -85,4 +85,4 @@ The log flow is ready for a limited practice pilot when automatic collection and
 
 Before relying on the hub as the only store of notebook/review history, configure and test [coherent backup and clean-directory restore](BACKUP.md). Shared originals and portable reports do not include the complete working catalog or notebook history. Keep original evidence; automatic source deletion remains off.
 
-Save completed checklists and real test results privately. Leave public checkboxes blank; this document is the procedure, not a completed hardware qualification. Camera commissioning can be scheduled separately after this flow works.
+Save completed checklists and real test results privately. Leave public checkboxes blank; this document is the procedure, not a completed hardware qualification. Camera commissioning can be scheduled separately after this flow works. The optional [direct LL4 Rewind collector](LIMELIGHT_REWIND.md) now has its own configuration and bench trial; it is not required for this log-first checklist.

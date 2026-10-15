@@ -8,7 +8,7 @@
 | Commission log collection and home access before cameras | User confirmed October 9. Camera, PoE and camera network configuration are deferred; use [log flow checklist](LOG_FLOW_COMMISSIONING.md). |
 | One dedicated DS laptop collects; Google Drive shares completed originals | User confirmed October 8. Active data stays local; home inspection needs one-way publication. |
 | Local-first Python service and browser UI | Fits existing Python analysis work; runs without cloud or internet. |
-| Files plus SQLite; optional derived Parquet later | Simple portable operation and reproducible original evidence. |
+| Files plus SQLite; opt-in Parquet and DuckDB derivatives | Main laptop performs detailed analysis; original evidence remains authoritative and writable databases stay local. |
 | Run identity independent of files | Existing recordings span enable/disable cycles; future rotation may split runs. |
 | Idle-only bounded resumable transfers | User priority: no bulk collection while operating; save work at interruptions. |
 | Explicit closed-segment manifest as preferred target | Stable size/identity avoids unreliable filename/growth heuristics. |
@@ -23,6 +23,7 @@
 | Notebook saves independently of robot | Late/offline observations are still valuable. |
 | Explicit saved-revision marker delivery with boot/hash pins | Separate contextual receipt; preserve original incident time, never automatically retarget after reboot or claim USB durability. Default off and loopback UI only. |
 | Continuous practice video with clip extraction | Late reports and pre-event context survive enable-trigger delays. |
+| Direct LL4 Rewind as a separate opt-in source | Laptop issues save/download HTTP requests directly; SC supplies only existing status. Preserve raw groups and weak-identity/timing limitations. See [LL4 setup](LIMELIGHT_REWIND.md). |
 | Available practice camera: Panasonic AW-HE40SWP | User supplied the exact model. Trial documented RTSP capture first; firmware/settings, connection and measured timing remain commissioning work. |
 | Explicit original-log downloads from incident references on loopback | User approved archived WPILOG delivery to the browser on this computer. Pins and original bytes are verified; no external uploads or broader network exposure. |
 | No automatic robot deletion initially | Backup and retention must be proven separately. |
@@ -38,6 +39,7 @@ These are implementation defaults, not claims that all features exist. Change a 
 | Actual SystemCore image, SFTP account/host key, USB mount/filesystem? | Real adapter and rotation deployment | Adapter interface, failure injection |
 | Which authoritative Alpha 7 status transport is accessible? | Fresh permission / generation mapping | Contract and synthetic heartbeat tests |
 | Typical log growth and idle connection throughput? | Rate/chunk defaults, retention sizing | Configurable ETA and benchmarking harness |
+| LL4 OS version, direct HTTP origin and recording-list size semantics? | Direct Rewind archive commissioning | Implemented bounded collector and synthetic protocol/failure tests |
 | Camera already available? USB/RTSP/other? | Recorder adapter and exposure/latency validation | Video manifest/alignment algorithms with generated footage |
 | Supported power device/bus/ID and component labels? | Electrical telemetry and physical baselines | Explicit missing-data behavior |
 | What backup destination and retention period? | Automatic replication/cleanup | Local archive, hashes, backup interface |

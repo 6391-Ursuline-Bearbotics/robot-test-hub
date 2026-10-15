@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
 import math
 import inspect
 from pathlib import Path
@@ -16,8 +17,10 @@ from .storage import DataRootOwner, open_catalog
 
 
 class CachedSource:
-    def __init__(self, source: Source):
+    def __init__(self, source: Source, bulk_lock=None, camera_network=None):
         self.source = source
+        self.bulk_lock = bulk_lock or threading.Lock()
+        self.camera_network=camera_network or threading.Event()
         self.lock = threading.Lock()
         self.latest = RobotStatus(None, 0, "unknown", -1)
         self.cancellation = None
@@ -69,23 +72,44 @@ class CachedSource:
 
     def __getattr__(self, name):
         if name == 'discover_closed':
-            return getattr(self.source, name)
+            method=getattr(self.source,name)
+            def guarded(cursor,limit,cancellation):
+                with self._bulk(cancellation):
+                    return method(cursor,limit,cancellation)
+            return guarded
         raise AttributeError(name)
 
+    def bulk_ready(self):
+        return not self.camera_network.is_set()
+
+    @contextmanager
+    def _bulk(self,cancellation=None):
+        if cancellation is None:cancellation=self.cancellation
+        while not self.bulk_lock.acquire(timeout=.02):
+            if cancellation is not None:cancellation.check()
+        try:
+            if cancellation is not None:cancellation.check()
+            yield
+        finally:
+            self.bulk_lock.release()
+
     def list_closed_files(self):
-        return self.source.list_closed_files()
+        with self._bulk():
+            return self.source.list_closed_files()
 
     def read(self, file_id, offset, length, *, permission_generation=None, cancellation=None):
         read = self.source.read
-        if 'cancellation' in inspect.signature(read).parameters:
-            return read(file_id, offset, length, permission_generation=permission_generation, cancellation=cancellation)
-        return read(file_id, offset, length)
+        with self._bulk(cancellation):
+            if 'cancellation' in inspect.signature(read).parameters:
+                return read(file_id, offset, length, permission_generation=permission_generation, cancellation=cancellation)
+            return read(file_id, offset, length)
 
 
 class HubService:
     def __init__(self, config: Config, source: Source, *, collector_factory=Collector,
                  video_config=None, recorder_factory=None, video_media_config=None, media_adapter_factory=None,
-                 marker_config=None, marker_status_factory=None, marker_transport_factory=None):
+                 marker_config=None, marker_status_factory=None, marker_transport_factory=None,
+                 rewind_config=None, rewind_transport_factory=None):
         from .marker_service import MarkerWorker, MarkerConfig
         if marker_config is not None and not isinstance(marker_config,MarkerConfig):
             raise ValueError("Explicit validated marker configuration required")
@@ -116,7 +140,9 @@ class HubService:
         if row is not None and row[0] == "1":
             self.paused.set()
         self.stop = threading.Event()
-        self.cached_source = CachedSource(source)
+        self.bulk_lock=threading.Lock()
+        self.camera_network=threading.Event()
+        self.cached_source = CachedSource(source,self.bulk_lock,self.camera_network)
         self.commands = queue.Queue()
         self.collector_factory = collector_factory
         self.cache = {"state": "starting", "reason": "Opening catalog and recovering checkpoints", "error": None,
@@ -143,6 +169,11 @@ class HubService:
         if marker_transport_factory is not None:marker_options['transport_factory']=marker_transport_factory
         try:
             self.markers=MarkerWorker(self,marker_config,**marker_options)
+            from .rewind_service import RewindWorker
+            rewind_options={}
+            if rewind_transport_factory is not None:rewind_options["transport_factory"]=rewind_transport_factory
+            self.rewind=RewindWorker(self,rewind_config,**rewind_options)
+            self.health["rewind"]={"state":"starting" if rewind_config else "disabled"}
         except BaseException:
             # Marker schema/startup failure precedes worker creation. Release archive ownership
             # so a repaired startup can open the same root rather than waiting for process exit.
@@ -196,6 +227,8 @@ class HubService:
             self.threads.append(threading.Thread(target=self._log_export_worker, name="hub-log-export"))
         if self.config.analytics_enabled:
             self.threads.append(threading.Thread(target=self._analytics_worker,name="hub-analytics"))
+        if self.rewind.config is not None:
+            self.threads.append(threading.Thread(target=self.rewind.run,args=(self.stop,),name="hub-rewind"))
         for thread in self.threads:
             thread.start()
 
@@ -204,9 +237,11 @@ class HubService:
         try:
             while not self.stop.is_set():
                 self.cached_source.update(self.source.status())
+                self.rewind.observe(self.cached_source.status())
                 self.stop.wait(self.config.status_interval)
         except Exception as exc:
             self.cached_source.update(RobotStatus(None, 0, "unknown", -1))
+            self.rewind.observe(self.cached_source.status())
             self._health("status", "failed", "status_worker_failed")
             self.diagnostics.record("status_worker_failed", "Status worker failed; collection blocked. Restart the hub after checking the source adapter", exception=exc)
         finally:
@@ -404,7 +439,7 @@ class HubService:
         capture = backup.get("last_capture_utc_ns")
         age_ns = time.time_ns() - int(capture) if capture is not None else None
         backup["capture_age_seconds"] = age_ns / 1e9 if age_ns is not None and age_ns >= 0 else None
-        result.update({"analytics":analytics,"log_export": log_export, "backup": backup, "schema_version": 1, "source_type": getattr(self.source,'source_type','unconfigured'), "workers": health,
+        result.update({"rewind":self.rewind.snapshot(),"analytics":analytics,"log_export": log_export, "backup": backup, "schema_version": 1, "source_type": getattr(self.source,'source_type','unconfigured'), "workers": health,
                        "paused_by_operator": self.paused.is_set(), "snapshot_age_seconds": max(0, snapshot_age), "source_status": {
                            "enabled": status.enabled, "transfer_allowed": status.transfer_allowed, "fresh": fresh, "age_seconds": age if math.isfinite(age) and age >= 0 else None}})
         if health["collector"]["state"] == "failed":

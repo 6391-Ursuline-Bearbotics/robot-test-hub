@@ -18,6 +18,7 @@ from .demo import DemoSource
 from .notebook import MAX_BODY, Notebook, NotebookError
 from .marker_delivery import MarkerError, strict_json as marker_json
 from .marker_service import load_marker_config
+from .rewind_service import load_rewind_config
 from .queue_api import status_view, transfer_page
 from . import run_api
 from .runs import install_schema as install_run_schema
@@ -173,6 +174,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                     return self.send(404,b'{}')
                 except (ValueError,OSError,sqlite3.Error):
                     return self.send(503,b'{"error_code":"summary_integrity_unavailable"}')
+            if self.path == "/api/v1/rewind":
+                return self.send(200,json.dumps(service.rewind.snapshot(),allow_nan=False).encode())
             if self.path == "/api/v1/log-export":
                 return self.send(200,json.dumps(service.snapshot()["log_export"],allow_nan=False).encode())
             if self.path == "/api/v1/backup":
@@ -576,12 +579,17 @@ def main() -> int:
     parser.add_argument('--nt-host',help='Explicit authoritative status endpoint; required with --source-config')
     parser.add_argument('--nt-port',type=int,help='Explicit authoritative NT port; required with --source-config')
     parser.add_argument('--wpilib-install',type=Path,help='Pinned Alpha 7 installation for native status reader')
+    parser.add_argument('--rewind-config',type=Path,help='Explicit private Limelight4 Rewind configuration; opts into run-end save requests')
     parser.add_argument('--video-config',type=Path,help='Private explicit video JSON; opts into independent recording')
     parser.add_argument('--marker-config',type=Path,help='Private explicit marker endpoint and boot-aware note delivery opt-in')
     parser.add_argument('--video-media-config',type=Path,help='Explicit pinned local tools for historical media derivatives')
     args = parser.parse_args()
     try:
         config = Config.load(args.config, port=args.port, data_dir=args.data_dir, idle_delay=args.idle_delay)
+        try:
+            rewind_config=load_rewind_config(args.rewind_config)
+        except ValueError:
+            parser.error('Invalid private Rewind configuration; check explicit endpoint, identity and bounds')
         marker_config=load_marker_config(args.marker_config) if args.marker_config is not None else None
         video_config=load_video_config(args.video_config) if args.video_config is not None else None
         video_media_config=load_media_config(args.video_media_config) if args.video_media_config is not None else None
@@ -610,7 +618,7 @@ def main() -> int:
             if args.nt_host is not None or args.nt_port is not None or args.wpilib_install is not None:
                 raise ValueError('NT options require --source-config; no endpoint is inferred')
             source = DemoSource()
-        service = HubService(config, source,video_config=video_config,video_media_config=video_media_config,marker_config=marker_config)
+        service = HubService(config, source,video_config=video_config,video_media_config=video_media_config,marker_config=marker_config,rewind_config=rewind_config)
         httpd = create_http_server(service, source, config.port)
         httpd.timeout = 0.2
         for name in ("SIGINT", "SIGTERM", "SIGBREAK"):

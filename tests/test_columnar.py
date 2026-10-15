@@ -379,7 +379,7 @@ class ColumnarTests(unittest.TestCase):
             self.db.execute("INSERT INTO settings VALUES('analytics-test','keep')")
             for table in ("columnar_artifacts","columnar_jobs","summary_artifacts","summary_reports","summary_run_cache"):
                 self.db.execute("DROP TABLE "+table)
-            self.db.execute("DELETE FROM schema_migrations WHERE version=5")
+            self.db.execute("DELETE FROM schema_migrations WHERE version>=5")
             self.db.execute("PRAGMA user_version=4")
         self.db.close()
         self.db=open_catalog(self.root);self.addCleanup(self.db.close)

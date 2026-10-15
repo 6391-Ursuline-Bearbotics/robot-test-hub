@@ -272,6 +272,11 @@ class Collector:
                 self.disabled_since = now
             remaining = self.idle_delay - (now - self.disabled_since)
             if remaining <= 0:
+                ready=getattr(self.source,"bulk_ready",None)
+                if ready is not None and not ready():
+                    self.state,self.reason="waiting","Limelight Rewind is using the shared network slot"
+                    self.throughput.reset()
+                    return False
                 return True
             self.state, self.reason = 'waiting', f'Idle window begins in {math.ceil(remaining)} s'
             return False
