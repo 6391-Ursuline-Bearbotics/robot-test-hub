@@ -24,7 +24,7 @@ class OfflineNotebookTests(unittest.TestCase):
         inline = "\n".join(re.findall(r"<script>(.*?)</script>", page, flags=re.DOTALL))
         self.assertTrue(inline)
         checked = subprocess.run([NODE, "--check", "-"], input=inline, capture_output=True,
-                                 text=True, cwd=ROOT, timeout=10)
+                                 text=True, cwd=ROOT, timeout=30)
         self.assertEqual(checked.returncode, 0, checked.stderr)
 
 

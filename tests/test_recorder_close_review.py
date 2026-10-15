@@ -55,3 +55,40 @@ class RecorderCloseIndependentReviewTest(unittest.TestCase):
                     adapter.stop()
                 self.assertFalse(adapter.process.stdout.closed)
                 self.assertFalse(adapter.process.stderr.closed)
+    def test_windows_einval_from_released_stdin_completes_cleanup(self):
+        import errno
+        from unittest.mock import patch
+        from robot_test_hub import recorder as recorder_module
+        stdin=self.Stream(lambda message:OSError(errno.EINVAL,message))
+        adapter=self.adapter(stdin)
+        with patch.object(recorder_module,'os',SimpleNamespace(name='nt')):
+            adapter.stop()
+        self.assertTrue(stdin.closed)
+        self.assertTrue(adapter.process.stdout.closed)
+        self.assertTrue(adapter.process.stderr.closed)
+
+    def test_posix_einval_is_not_suppressed_even_for_closed_stdin(self):
+        import errno
+        from unittest.mock import patch
+        from robot_test_hub import recorder as recorder_module
+        adapter=self.adapter(self.Stream(lambda message:OSError(errno.EINVAL,message)))
+        with patch.object(recorder_module,'os',SimpleNamespace(name='posix')):
+            with self.assertRaises(OSError) as raised:
+                adapter.stop()
+        self.assertEqual(raised.exception.errno,errno.EINVAL)
+        self.assertFalse(adapter.process.stdout.closed)
+
+    def test_windows_einval_open_stdin_read_pipe_and_other_errors_still_fail(self):
+        import errno
+        from unittest.mock import patch
+        from robot_test_hub import recorder as recorder_module
+        for target,release,code in (('stdin',False,errno.EINVAL),('stdout',True,errno.EINVAL),
+                                    ('stdin',True,errno.EIO),('stdin',True,errno.EACCES)):
+            with self.subTest(target=target,release=release,code=code):
+                stream=self.Stream(lambda message:OSError(code,message),release)
+                adapter=self.adapter(stream if target=='stdin' else self.Stream(),stream if target=='stdout' else None)
+                with patch.object(recorder_module,'os',SimpleNamespace(name='nt')):
+                    with self.assertRaises(OSError) as raised:
+                        adapter.stop()
+                self.assertEqual(raised.exception.errno,code)
+                self.assertFalse(adapter.process.stderr.closed)

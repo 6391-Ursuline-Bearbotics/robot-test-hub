@@ -5,6 +5,7 @@ import csv
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import hashlib
+import errno
 import json
 import math
 import os
@@ -390,12 +391,13 @@ class FFmpegAdapter:
                 if stream:
                     try:
                         stream.close()
-                    except BrokenPipeError:
-                        # The reaped child cannot receive buffered q bytes. A
-                        # close that already released stdin completed cleanup;
-                        # preserve the original capture failure. An open handle
-                        # or a read-pipe close failure still retains ownership.
-                        if stream is not self.process.stdin or not stream.closed:
+                    except OSError as exc:
+                        # Like Popen.communicate(), recognize Windows EINVAL
+                        # for a dead child's stdin as well as BrokenPipeError.
+                        # Only an already-released write handle is complete;
+                        # open handles and read-pipe/other close failures remain.
+                        expected_pipe_error=isinstance(exc,BrokenPipeError) or (os.name=='nt' and exc.errno==errno.EINVAL)
+                        if stream is not self.process.stdin or not stream.closed or not expected_pipe_error:
                             raise
         for stream in (self._progress_file,self.log):
             if stream:

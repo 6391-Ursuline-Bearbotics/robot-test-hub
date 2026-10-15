@@ -1,6 +1,8 @@
 """Deterministic protocol fixtures. These bytes are NOT encoded video or camera qualification."""
 from pathlib import Path
 import json
+import errno
+import os
 import subprocess
 import sys
 import time
@@ -613,8 +615,30 @@ class StreamingCaptureTests(unittest.TestCase):
                 release.set()
         self.wait_for(lambda:self.adapter.process.poll() is not None
             and self.adapter.capture_diagnostics()['readers_alive']==0)
-        self.assertEqual(self.recorder.stop()['error_code'],'recording_progress_invalid')
+        outcome=self.recorder.stop()
+        failures=[json.loads(path.read_text()) for path in self.recorder.folder.glob('failure-*.json')]
+        self.assertEqual(outcome['error_code'],'recording_progress_invalid',failures)
         self.assert_clean()
+
+    @unittest.skipUnless(os.name=='nt','Windows dead-child stdin EINVAL variant')
+    def test_exited_child_stdin_einval_close_preserves_capture_error(self):
+        self.start_child("import sys; print('frame=-1\\nprogress=continue',flush=True); sys.stdin.readline()")
+        self.wait_for_capture_failure()
+        original=self.adapter.process.stdin
+        remaining=[1]
+        class ClosedInvalidPipe:
+            @property
+            def closed(inner):return original.closed
+            def close(inner):
+                original.close()
+                if remaining[0]:
+                    remaining[0]-=1
+                    raise OSError(errno.EINVAL,'Terminated Windows stdin flush')
+        self.adapter.process.stdin=ClosedInvalidPipe()
+        try:
+            self.assertEqual(self.recorder.stop()['error_code'],'recording_progress_invalid')
+            self.assert_clean()
+        finally:self.adapter.process.stdin=original
 
     def test_exited_child_stdin_broken_pipe_close_preserves_capture_error(self):
         self.start_child("import sys; print('frame=-1\\nprogress=continue',flush=True); sys.stdin.readline()")
