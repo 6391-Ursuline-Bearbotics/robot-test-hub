@@ -2,6 +2,8 @@
 
 These scripts run the hub natively on a school Windows laptop from a full source checkout or extracted source release. They create a separate `.venv` in that installation and install the package with its pinned SFTP and analytics extras. Python and WPILib are prerequisites installed separately; this source package does not redistribute WPILib. Setup installs no Windows service, scheduled task, startup entry, robot deployment or hardware connection.
 
+For a versioned ZIP with a checked inventory and a separate synthetic upgrade/rollback exercise, see [source release assembly](RELEASE_ASSEMBLY.md). Keep source.zip and its manifest together until verification; the manifest is an integrity receipt, not a signature.
+
 ## Install once
 
 1. Install Python 3.10 or newer. Enable the Python `py` launcher, or locate the installed `python.exe`. School IT may need to approve the installation. Install the team's supported WPILib Alpha 7 separately when preparing live NT collection; preserve the installed Java tools.

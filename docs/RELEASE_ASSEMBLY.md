@@ -1,25 +1,54 @@
-# Reproducible full-source release and upgrade rehearsal
+# Reproducible source release and upgrade rehearsal
 
-Status: design handoff only, October 15, 2026. No release assembler or cross-release rehearsal command exists yet. This is the next locally testable T18 packaging task from the software-readiness audit; the existing Windows setup and sign-in workflow remain the operator entry point.
+Implemented locally, October 15, 2026. This is the T18 packaging component; school installation, real operating-system lifecycle and physical commissioning remain separate. See [current validation](VALIDATION_CURRENT.md) for executed evidence.
 
-## Intended operator result
+## What to send to school
 
-Produce one versioned source ZIP with a verified inventory and a clear school setup entry point. It contains the complete committed source, Windows scripts, bundled sample and tools/status_bridge; it contains no Git metadata, virtual environment, private settings, real logs/video or credentials. The school extracts the complete release and follows WINDOWS_SETUP.md. Initial dependency installation still needs an approved index/cache and installed Python/WPILib. Do not silently download or redistribute a toolchain.
+A release group contains source.zip and manifest.json in `robot-test-hub-<full-commit>`. The ZIP contains the complete committed source tree, Windows scripts, public sample and tools/status_bridge. It excludes Git metadata, environments, known private/generated paths and media except exact digest-locked public synthetic fixtures. This policy is not a general secret scanner: review source before committing it to the public repository.
 
-## Assembly contract
+Verify the group before forwarding both files through a trusted channel. The recipient extracts the complete source.zip into a new local folder and follows [WINDOWS_SETUP.md](WINDOWS_SETUP.md), then runs TestHub.cmd and TestHub.cmd -Analytics. Initial setup still needs installed Python, approved package access/cache and, for live NT, the separately installed WPILib tools. A wheel alone omits live source tooling.
 
-Build from an explicit locally resolved Git commit, defaulting to the current committed HEAD. Read committed blobs, never the working tree; preserve unrelated uncommitted work. Inventory every included relative path, size and SHA-256 plus the commit/tree identity and release format/tool version. Use deterministic ordering/ZIP metadata, omit volatile wall-clock data, and prove two assemblies of the same commit produce the same bytes. Include only repository source assets; preserve executable flags in the inventory where relevant. Validate Windows portability, case collisions, absolute/traversal paths and links before writing. Reject unsupported entries rather than following filesystem links. A sidecar digest/manifest is a local integrity receipt, not a cryptographic signature or proof of trusted authorship.
+The manifest records SHA-256 for the ZIP and each file, Git commit/tree identities, sizes, modes and format version. It detects changed bytes against that receipt. It is not a signature or proof of trusted authorship; someone replacing both files can replace the receipt too. Use a trusted source/channel. The release verifier validates structure without executing the released code; rehearsal explicitly executes the operator-selected trusted releases.
 
-Publish the ZIP and manifest atomically to an explicit local output directory outside the source/archive; preserve existing conflicting outputs. No automatic GitHub release, cloud upload, endpoint connection, OS task registration, setup installation or source deletion is authorized as an assembly side effect.
+## Maintainer commands
 
-## Offline verification and rehearsal
+From an existing hub installation with its dependencies available:
 
-A verifier checks the complete archive inventory, duplicate/extra/missing entries, exact hashes/sizes and resource bounds before extracting into a newly owned temporary workspace. Reject traversal, linked entries and ambiguous Windows names. Run an extracted release's existing isolated sample exercise with an explicitly supplied installed Python environment; optional analytics must be requested and its pinned dependency present. No hidden pip/Java/native dependency installation or alternate interpreter fallback.
+```powershell
+.\.venv\Scripts\python.exe -m robot_test_hub.release build `
+  --repo "C:\Source\robot-test-hub" --commit HEAD `
+  --output "C:\HubReleases"
+.\.venv\Scripts\python.exe -m robot_test_hub.release verify `
+  --release "C:\HubReleases\robot-test-hub-<full-commit>"
+.\.venv\Scripts\python.exe -m robot_test_hub.release extract `
+  --release "C:\HubReleases\robot-test-hub-<full-commit>" `
+  --destination "C:\SchoolApps\robot-test-hub-<full-commit>"
+```
 
-The upgrade/rollback rehearsal takes two explicit source releases and only disposable synthetic evidence. Exercise the older code against an owned synthetic archive, close it, create and verify the pre-upgrade backup, then exercise the newer code against that archive. Rollback restores the verified pre-upgrade snapshot into a fresh directory before reopening it with the older code; never assume older code can open a migrated database. Compare original bytes, note/review revisions, job/report references and source identities across the authorized boundaries. Record exact versions and distinguish source compatibility from database migration coverage. Include at least one actual supported schema transition in qualification; a same-schema version change does not prove migration rollback.
+Replace placeholders with real paths and commit identities. The output parent must already exist. Build needs local Git objects and never fetches missing objects. Verification and extraction need no Git. Commands print bounded JSON and return nonzero on failure. Extraction requires a nonexistent destination; it never merges into an installed tree.
 
-## Acceptance and boundaries
+Build reads committed blobs rather than the working tree, so dirty edits remain untouched and uncommitted changes are absent. Ordering and ZIP metadata are deterministic. Rebuilding an identical verified group returns existing; an empty, partial or conflicting existing group is preserved and rejected. Source/output ancestry and recognized archive destinations are rejected. Keep release output separate from all private archives.
 
-Use separate Sol implementation and independent adversarial review. Verify deterministic bytes, exact committed-state selection with a dirty checkout, complete live-source tooling, safe Windows extraction, tampering/resource failures and an extracted-release selftest outside the repository. A genuine cross-release rehearsal must prove both upgrade and clean-directory restore rollback, not only mock command arguments. Run relevant/full suites and check exact published CI. Preserve all real user archives/configuration and run no robot, camera, live transport or OS lifecycle actions.
+Publication reserves the final directory exclusively and publishes the ZIP before manifest.json. The manifest is the completion point; an interrupted group fails verification and remains for inspection. This is not a directory-wide atomic rename or a power-loss durability guarantee. Failed staging cleanup is reported. Failed extraction removes only its own unchanged file identities and empty owned directories; conflicts are retained rather than overwritten.
 
-This work improves release repeatability. School policy, actual sign-in/logoff/sleep behavior, real upgrade downtime, hardware load and independent backup durability still need commissioning. A Windows service or new cloud API is not required for the selected dedicated-user laptop workflow.
+Verification checks exact manifest shape, hashes, sizes, inventory, CRCs, ZIP metadata and missing/extra/duplicate entries before extraction. It rejects links, traversal, absolute paths, Windows reserved/ambiguous names and case/file-directory collisions. Limits: 5,000 files, 8 MiB per file, 64 MiB total source, 96 MiB ZIP and 2 MiB manifest. Unsupported content fails rather than being silently omitted. These bounds cover this source project, not arbitrary repositories.
+
+## Offline upgrade and rollback exercise
+
+Build two explicit local commits into separate verified release groups, then run:
+
+```powershell
+.\.venv\Scripts\python.exe -m robot_test_hub.release_rehearsal `
+  --older "C:\HubReleases\robot-test-hub-<older-full-commit>" `
+  --newer "C:\HubReleases\robot-test-hub-<newer-full-commit>" `
+  --python "C:\Source\robot-test-hub\.venv\Scripts\python.exe" `
+  --analytics --json
+```
+
+This accepts no active archive, live profile or endpoint. It verifies/extracts both releases into a fresh temporary workspace, then uses the explicit installed interpreter with -I. Imports are checked against the selected extracted source. No pip/Java/native installation or interpreter fallback occurs. Analytics is optional; when requested, its pinned installed dependency must actually work.
+
+The older code imports the controller's bundled public synthetic WPILOG, generates two reports and saves invented note/review records, then closes the archive and creates a verified pre-upgrade backup. The newer code opens/migrates that disposable archive and checks exact original, note, review, job and report receipts before adding new revisions and an explicitly unsupported job. Rollback restores the pre-upgrade backup into a fresh directory before the older code reopens it. The newer isolated sample exercise runs afterward when available. Older releases without that exercise expose unavailable status; requested analytics cannot be silently skipped.
+
+Reports distinguish a version change from an actual schema migration and include exact commits, before/after/restored schema, stage outcomes and cleanup. A failed stage blocks dependent stages; incomplete cleanup cannot return success. Child deadlines/output are bounded and owned processes are reaped. Network/child-process guards cover the known exercise path; this is not an operating-system sandbox for untrusted Python source.
+
+The supported qualification pair is c1b3261e3d48ad5cb029cca939ebeaf88cc4f4d0 (schema 7) to f9bc2fca3b082b5f997af75709444ef6bbf509c1 (schema 8). Historical integration tests explicitly skip when those local Git objects are absent; child-boundary/adversarial cases still run. Arbitrary historical releases may have incompatible APIs and fail honestly. School sign-in/sleep/logoff, live upgrade downtime, real backup media and physical robot load still require the [commissioning checklist](LOG_FLOW_COMMISSIONING.md). Stop the real hub and take a verified backup before any actual upgrade; changing source folders alone does not undo a migration.

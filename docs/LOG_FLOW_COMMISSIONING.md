@@ -18,7 +18,7 @@ The first configuration details to collect are the laptop/archive location, robo
 
 ## Prepare the laptop
 
-- [ ] Clone or update robot-test-hub. Use a full checkout: the live status reader needs the Java tool in tools/status_bridge.
+- [ ] Clone robot-test-hub or obtain a [verified complete-source release](RELEASE_ASSEMBLY.md). Keep the complete extracted tree: the live status reader needs tools/status_bridge. A wheel alone is insufficient.
 - [ ] Install Python 3.10+ and the pinned WPILib 2027 Alpha 7 installation with its Java 25 runtime.
 - [ ] Create the hub's Python virtual environment and install transport and analytics dependencies from the repository root:
 

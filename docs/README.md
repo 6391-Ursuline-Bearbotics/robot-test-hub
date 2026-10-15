@@ -10,7 +10,7 @@ The robot records locally whenever its program runs. After it is disabled long e
 
 | Document | Read when implementing |
 | --- | --- |
-| [RELEASE_ASSEMBLY.md](RELEASE_ASSEMBLY.md) | Planned reproducible source release and offline cross-release upgrade/rollback rehearsal |
+| [RELEASE_ASSEMBLY.md](RELEASE_ASSEMBLY.md) | Reproducible committed-source release, verification and disposable cross-release upgrade/rollback rehearsal |
 | [SOFTWARE_READINESS.md](SOFTWARE_READINESS.md) | Requirement audit, concrete remaining software and separate lab dependencies |
 | [RUN_NOTES.md](RUN_NOTES.md) | Complete selected-run note candidates, stable saved revisions, bounded pages and refresh semantics |
 | [OFFLINE_EXERCISE.md](OFFLINE_EXERCISE.md) | Isolated synthetic sample-log installation exercise, commands and limits |

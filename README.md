@@ -11,6 +11,7 @@ Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the 
 ## Start here
 
 - [Windows setup and daily Start / Check / Open / Stop shortcuts](docs/WINDOWS_SETUP.md)
+- [Verified complete-source ZIP and offline upgrade/rollback rehearsal](docs/RELEASE_ASSEMBLY.md)
 - [Offline installation exercise with a bundled synthetic log](docs/OFFLINE_EXERCISE.md)
 - [Software readiness audit and remaining work](docs/SOFTWARE_READINESS.md)
 - [Complete saved note candidates for a selected run](docs/RUN_NOTES.md)
@@ -114,7 +115,7 @@ The demo intentionally has no credentials or robot address. `.logdata` artifacts
 
 ## Prototype limitations
 
-Read the [implementation gap table](docs/IMPLEMENTATION.md#prototype-gap-table) before using this as a production system. The [opt-in live adapter](docs/LIVE_TRANSFER.md) passes local SSH/SFTP and Alpha 7 NT tests; it requires explicitly configured robot access. Physical USB, cancellation and robot load remain unqualified. Notebook access is loopback only; phone pairing remains unfinished. [Robot note delivery](docs/NOTE_MARKERS.md) is explicit/default-off and locally qualified; it preserves original incident times and does not claim USB durability. Season-scale indexing, video alignment/camera commissioning, independent backup qualification, reproducible release assembly, school startup/upgrade qualification and physical commissioning remain open tasks.
+Read the [implementation gap table](docs/IMPLEMENTATION.md#prototype-gap-table) before using this as a production system. The [opt-in live adapter](docs/LIVE_TRANSFER.md) passes local SSH/SFTP and Alpha 7 NT tests; it requires explicitly configured robot access. Physical USB, cancellation and robot load remain unqualified. Notebook access is loopback only; phone pairing remains unfinished. [Robot note delivery](docs/NOTE_MARKERS.md) is explicit/default-off and locally qualified; it preserves original incident times and does not claim USB durability. Season-scale indexing, video alignment/camera commissioning, independent backup qualification, school startup/upgrade qualification and physical commissioning remain open tasks.
 
 ## Data handling
 
