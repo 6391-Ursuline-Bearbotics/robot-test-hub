@@ -234,3 +234,27 @@ exit $LASTEXITCODE
                     self.assertEqual(self.fixture.calls()[-1]['args'][1:3], ['robot_test_hub.launcher', 'check'])
                 else:
                     self.assertEqual(self.fixture.record.read_bytes(), before)
+
+    def test_builtin_service_identities_refused_before_plan_or_scheduler_lookup(self):
+        controller = self.fixture.checkout / 'scripts/windows/ConfigureStartup.ps1'
+        original = controller.read_text(encoding='utf-8-sig')
+        identity = '[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value'
+        self.assertEqual(original.count(identity), 1)
+        before = self.fixture.record.read_bytes()
+        try:
+            for sid in ('S-1-5-18', 'S-1-5-19', 'S-1-5-20'):
+                # Substitute the read-only identity expression in the copied
+                # controller only; the actual Windows identity never changes.
+                controller.write_text(original.replace(identity, "'" + sid + "'"), encoding='utf-8')
+                for action in ('Plan', 'Install', 'Status', 'Remove'):
+                    with self.subTest(sid=sid, action=action):
+                        result = self.run_controller(action)
+                        self.assertNotEqual(result.returncode, 0)
+                        guidance = ' '.join(result.stderr.lower().split())
+                        self.assertIn('intended windows user account', guidance)
+                        self.assertIn('built-in service accounts are unsupported', guidance)
+                        self.assertNotIn('<Task', result.stdout)
+                        self.assertEqual(self.calls(), [])
+                        self.assertEqual(self.fixture.record.read_bytes(), before)
+        finally:
+            controller.write_text(original, encoding='utf-8')

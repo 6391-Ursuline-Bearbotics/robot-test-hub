@@ -156,6 +156,9 @@ function Assert-HubManagedTask {
 
 try {
     $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    if ($sid -in @('S-1-5-18', 'S-1-5-19', 'S-1-5-20')) {
+        throw 'Use the intended Windows user account to configure sign-in startup; built-in service accounts are unsupported.'
+    }
     $taskName = 'RobotTestHub-Startup-' + $sid
     $powerShell = Join-Path ([Environment]::GetFolderPath('System')) 'WindowsPowerShell\v1.0\powershell.exe'
     $checkout = Get-HubAbsolutePath (Join-Path $PSScriptRoot '..\..')

@@ -146,8 +146,12 @@ exit $LASTEXITCODE
                 with self.subTest(state=state, action=action):
                     result = self.call(action, replace=True, HUB_STARTUP_STATE=state)
                     self.assertNotEqual(result.returncode, 0)
-                    self.assertIn("StopHub.cmd", result.stderr)
-                    self.assertIn("wait for the task to exit", result.stderr)
+                    # Windows PowerShell formats errors to the host width.
+                    # Match human guidance across line wrapping while retaining
+                    # exact comparisons for machine argv and path fields.
+                    guidance = " ".join(result.stderr.split())
+                    self.assertIn("StopHub.cmd", guidance)
+                    self.assertIn("wait for the task to exit", guidance)
                     self.assertFalse(self.mutations.exists())
                     self.assertFalse(self.fixture.record.exists())
 
