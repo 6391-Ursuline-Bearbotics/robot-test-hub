@@ -15,6 +15,7 @@ Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the 
 - [Offline installation exercise with a bundled synthetic log](docs/OFFLINE_EXERCISE.md)
 - [Software readiness audit and remaining work](docs/SOFTWARE_READINESS.md)
 - [Complete saved note candidates for a selected run](docs/RUN_NOTES.md)
+- [Executable private analyzer regression cases](docs/REGRESSION_CASES.md)
 - [Portable full-snapshot practice/event explorer](docs/SUMMARY_EXPLORER.md)
 - [Optional startup when the dedicated Windows user signs in](docs/WINDOWS_STARTUP.md)
 - [Log flow commissioning checklist for the school](docs/LOG_FLOW_COMMISSIONING.md)

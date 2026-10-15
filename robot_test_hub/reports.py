@@ -71,6 +71,110 @@ def analyzers():
             Analyzer(swerve_analyzer((PROFILE,)).declaration,_swerve), phoenix_status_analyzer()]
 
 
+ROW_SELECTION = 'source_order_required_schemas_lifecycle_held_state_phoenix_sdk_observations_and_run_cycles'
+DERIVED_CONTEXT_FIELDS = ('row_limit_reached', 'source_nonadvancing_cycles',
+    'recorded_configuration_sha256', 'recorded_build_sha256', 'build_context_basis',
+    'swerve_source_hazards')
+
+
+class SelectionLimit(ValueError):
+    pass
+
+
+def select_rows(run, jobs, manifests, datasets, *, max_rows=MAX_ROWS, plan=None, max_bytes=None):
+    """Pure automatic-reports-5 selector; datasets follow the supplied job order."""
+    # Derived evidence checks are part of the final job identity. Runner
+    # reuses immutable results only after the bounded source scan completes.
+    context = {}
+    normalized_bytes = 2
+    rows, cycles, overflow = [], {}, False
+    nonadvancing=[]
+    hazards=[];scanned=0;logged_builds=set();logged_configs=set();config_missing=False
+    lo, hi = int(run['start_monotonic_ns']), int(run['end_monotonic_ns'])
+    ranges=[]
+    for job in jobs:
+        manifest=manifests[job['id']]
+        if manifest.get('unsupported_types'):hazards.append('unsupported_source_types_present')
+        first,last=int(manifest['first_cycle_timestamp_ns']),int(manifest['last_cycle_timestamp_ns'])
+        a,b=max(lo,first),min(hi,last)
+        if a<=b:
+            if any(max(a,c)<=min(b,d) for c,d in ranges):hazards.append('overlapping_source_cycle_intervals')
+            ranges.append((a,b))
+    for job, dataset in zip(jobs, datasets):
+        previous_cycle=None
+        for row in dataset:
+            scanned+=1
+            if scanned>max_rows*5:overflow=True;break
+            if row.get('kind') not in ('cycle','observation','sample','control'):
+                continue
+            timestamp = row.get('timestamp_ns', row.get('cycle_timestamp_ns'))
+            stamp = int(timestamp) if timestamp is not None else None
+            # Inspect the complete bounded source order, including records
+            # after the requested run; a later regression must stay visible.
+            if row['kind']=='cycle':
+                if previous_cycle is not None and stamp<=previous_cycle:
+                    nonadvancing.append({'source_sha256':job['artifact_sha256'],
+                        'record_index':row.get('record_index'),'timestamp_ns':str(stamp),
+                        'previous_timestamp_ns':str(previous_cycle)})
+                previous_cycle=stamp
+            if stamp is not None and stamp>hi:continue
+            before=stamp is None or stamp<lo
+            if row['kind'] in ('cycle','sample') and before:continue
+            if row['kind']=='observation':
+                relevant=(row.get('field') in set(ROBOT_FIELDS.values())|CONNECTION_FIELDS|PHOENIX_FIELDS or row.get('type')=='structschema')
+                if not relevant and (before or row.get('validity')=='valid'):continue
+            if row['kind'] == 'cycle':
+                aliases = {k:v.get('value') for k,v in row.get('aliases',{}).items()}
+                if stamp in cycles:
+                    hazards.append('duplicate_source_cycle_timestamp')
+                    if cycles[stamp] != aliases:
+                        overflow = True  # Conflicting overlap is not assessable.
+                    continue
+                cycles[stamp] = aliases
+                refs=row.get('aliases',{})
+                config=refs.get('configuration_sha256',{})
+                if config.get('validity')=='valid' and isinstance(config.get('value'),str):logged_configs.add(config['value'])
+                else:config_missing=True
+                build=refs.get('source_sha256',{})
+                if build.get('validity')=='valid' and isinstance(build.get('value'),str):logged_builds.add(build['value'])
+                runtime=refs.get('runtime_mode',{})
+                if runtime.get('validity')!='valid' or runtime.get('value')!=run['runtime_mode']:
+                    hazards.append('recorded_runtime_mode_unknown_or_changed')
+                known=refs.get('state_known',{})
+                if known.get('validity')=='valid' and known.get('value') is True:
+                    authoritative=refs.get('status_enabled',{})
+                    ordinary=refs.get('enabled',{})
+                    if (ordinary.get('validity')=='valid' and authoritative.get('validity')=='valid'
+                            and ordinary.get('value')!=authoritative.get('value')):hazards.append('enabled_status_disagreement')
+                    row={**row,'aliases':{**refs,'enabled':authoritative}}
+            if len(rows) >= max_rows:
+                overflow = True
+                break
+            selected = {**row, 'source_sha256':job['artifact_sha256'],'before_run':before}
+            if max_bytes is not None:
+                normalized_bytes += len(canonical(selected).encode('utf-8')) + 1
+                if normalized_bytes > max_bytes:
+                    raise SelectionLimit('selected_input_resource_limit')
+            rows.append(selected)
+        if overflow:
+            break
+    # Keep source lifecycle/observation order; presentation sorting must not
+    # turn overlapping or nonadvancing control evidence into healthy samples.
+    if overflow:
+        context['row_limit_reached'] = True
+    if nonadvancing:
+        context['source_nonadvancing_cycles']=nonadvancing
+    context['recorded_configuration_sha256']=sorted(logged_configs)
+    context['recorded_build_sha256']=sorted(logged_builds)
+    context['build_context_basis']='recorded_alias_and_human_plan' if logged_builds else 'human_declared_build_unverified'
+    if plan:
+        if config_missing or not logged_configs:hazards.append('recorded_configuration_hash_unavailable')
+        elif logged_configs!={plan['config_hash']}:hazards.append('recorded_configuration_hash_mismatch_or_changed')
+        if logged_builds and logged_builds!={plan['build_hash']}:hazards.append('recorded_build_hash_mismatch_or_changed')
+    context['swerve_source_hazards']=sorted(set(hazards))
+    return rows, context
+
+
 def generate(root, db, document, *, max_rows=MAX_ROWS):
     """Read one run at a time. Never infer hardware origin from transfer transport.
 
@@ -98,7 +202,7 @@ def generate(root, db, document, *, max_rows=MAX_ROWS):
         context['mapping_revision']=mappings[0] if len(mappings)==1 else 'mixed-unqualified'
         context['max_rows'] = max_rows
         context['import_job_ids'] = run['segment_ids']
-        context['row_selection'] = 'source_order_required_schemas_lifecycle_held_state_phoenix_sdk_observations_and_run_cycles'
+        context['row_selection'] = ROW_SELECTION
         selected,plan=resolve_plan(run,snapshot);context.update(selected)
         hashes = tuple(sorted({j['artifact_sha256'] for j in jobs}))
         source_types = {manifests[j['id']]['source_type'] for j in jobs}
@@ -110,88 +214,9 @@ def generate(root, db, document, *, max_rows=MAX_ROWS):
         context['swerve_mapping_version']=ROBOT_MAPPING_VERSION
         context['swerve_freshness_policy']='ideal_simulation_cycle' if plan and plan['ideal_simulation_cycle_policy'] and source_type=='simulation' else 'physical_acquisition_time_unknown'
         context['dataset_hashes'] = sorted(j['dataset_sha256'] for j in jobs)
-        # Derived evidence checks are part of the final job identity. Runner
-        # reuses immutable results only after the bounded source scan completes.
-        rows, cycles, overflow = [], {}, False
-        nonadvancing=[]
-        hazards=[];scanned=0;logged_builds=set();logged_configs=set();config_missing=False
-        lo, hi = int(run['start_monotonic_ns']), int(run['end_monotonic_ns'])
-        ranges=[]
-        for job in jobs:
-            manifest=manifests[job['id']]
-            if manifest.get('unsupported_types'):hazards.append('unsupported_source_types_present')
-            first,last=int(manifest['first_cycle_timestamp_ns']),int(manifest['last_cycle_timestamp_ns'])
-            a,b=max(lo,first),min(hi,last)
-            if a<=b:
-                if any(max(a,c)<=min(b,d) for c,d in ranges):hazards.append('overlapping_source_cycle_intervals')
-                ranges.append((a,b))
-        for job in jobs:
-            previous_cycle=None
-            for row in importer.iter_dataset(job['id']):
-                scanned+=1
-                if scanned>max_rows*5:overflow=True;break
-                if row.get('kind') not in ('cycle','observation','sample','control'):
-                    continue
-                timestamp = row.get('timestamp_ns', row.get('cycle_timestamp_ns'))
-                stamp = int(timestamp) if timestamp is not None else None
-                # Inspect the complete bounded source order, including records
-                # after the requested run; a later regression must stay visible.
-                if row['kind']=='cycle':
-                    if previous_cycle is not None and stamp<=previous_cycle:
-                        nonadvancing.append({'source_sha256':job['artifact_sha256'],
-                            'record_index':row.get('record_index'),'timestamp_ns':str(stamp),
-                            'previous_timestamp_ns':str(previous_cycle)})
-                    previous_cycle=stamp
-                if stamp is not None and stamp>hi:continue
-                before=stamp is None or stamp<lo
-                if row['kind'] in ('cycle','sample') and before:continue
-                if row['kind']=='observation':
-                    relevant=(row.get('field') in set(ROBOT_FIELDS.values())|CONNECTION_FIELDS|PHOENIX_FIELDS or row.get('type')=='structschema')
-                    if not relevant and (before or row.get('validity')=='valid'):continue
-                if row['kind'] == 'cycle':
-                    aliases = {k:v.get('value') for k,v in row.get('aliases',{}).items()}
-                    if stamp in cycles:
-                        hazards.append('duplicate_source_cycle_timestamp')
-                        if cycles[stamp] != aliases:
-                            overflow = True  # Conflicting overlap is not assessable.
-                        continue
-                    cycles[stamp] = aliases
-                    refs=row.get('aliases',{})
-                    config=refs.get('configuration_sha256',{})
-                    if config.get('validity')=='valid' and isinstance(config.get('value'),str):logged_configs.add(config['value'])
-                    else:config_missing=True
-                    build=refs.get('source_sha256',{})
-                    if build.get('validity')=='valid' and isinstance(build.get('value'),str):logged_builds.add(build['value'])
-                    runtime=refs.get('runtime_mode',{})
-                    if runtime.get('validity')!='valid' or runtime.get('value')!=run['runtime_mode']:
-                        hazards.append('recorded_runtime_mode_unknown_or_changed')
-                    known=refs.get('state_known',{})
-                    if known.get('validity')=='valid' and known.get('value') is True:
-                        authoritative=refs.get('status_enabled',{})
-                        ordinary=refs.get('enabled',{})
-                        if (ordinary.get('validity')=='valid' and authoritative.get('validity')=='valid'
-                                and ordinary.get('value')!=authoritative.get('value')):hazards.append('enabled_status_disagreement')
-                        row={**row,'aliases':{**refs,'enabled':authoritative}}
-                if len(rows) >= max_rows:
-                    overflow = True
-                    break
-                rows.append({**row, 'source_sha256':job['artifact_sha256'],'before_run':before})
-            if overflow:
-                break
-        # Keep source lifecycle/observation order; presentation sorting must not
-        # turn overlapping or nonadvancing control evidence into healthy samples.
-        if overflow:
-            context['row_limit_reached'] = True
-        if nonadvancing:
-            context['source_nonadvancing_cycles']=nonadvancing
-        context['recorded_configuration_sha256']=sorted(logged_configs)
-        context['recorded_build_sha256']=sorted(logged_builds)
-        context['build_context_basis']='recorded_alias_and_human_plan' if logged_builds else 'human_declared_build_unverified'
-        if plan:
-            if config_missing or not logged_configs:hazards.append('recorded_configuration_hash_unavailable')
-            elif logged_configs!={plan['config_hash']}:hazards.append('recorded_configuration_hash_mismatch_or_changed')
-            if logged_builds and logged_builds!={plan['build_hash']}:hazards.append('recorded_build_hash_mismatch_or_changed')
-        context['swerve_source_hazards']=sorted(set(hazards))
+        rows, derived = select_rows(run, jobs, manifests,
+            (importer.iter_dataset(j['id']) for j in jobs), max_rows=max_rows, plan=plan)
+        context.update(derived)
         evidence = Evidence(profiles[0] if len(profiles)==1 else 'mixed-unqualified', hashes, tuple(rows), context,
             context['mapping_revision'], '+'.join(sorted({j['extractor_version'] for j in jobs})), source_type)
         reports.append(runner.report(analyzers(), evidence,
