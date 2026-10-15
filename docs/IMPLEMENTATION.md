@@ -37,7 +37,7 @@ Useful release A: T01–T07 and T09–T12 (collection, time search, hub notebook
 | Gate | Fresh disabled permission, boot/generation, persisted pause, bounded cancellation | Real network cancellation/load measurements; T11–T12 |
 | Queue / ETA | Paged discovery, fairness/priority, backoff, independent verification, historical paused estimates | Real link profiles and commissioning defaults |
 | Import | Qualified Alpha 7 reader, immutable raw/derived archive, automatic supported-log indexing and exact-attempt durable local retries | Other version profiles and season-scale qualification |
-| UI | Per-recording processing receipts and attention, transfer queue, diagnostics, run search, offline notebook with explicit pinned robot delivery and separate receipt pages, recording/swerve reports and bounded plots, immutable report history and trace windows, review/maintenance/analysis-plan forms, incident footage/log workflow and bounded saved review revisions/repair references | Phone pairing, season-scale lookup measurements and shared seeking |
+| UI | Per-recording processing receipts and attention, transfer queue, diagnostics, run search with complete snapshot-pinned note pages, offline notebook with explicit pinned robot delivery and separate receipt pages, recording/swerve reports and bounded plots, immutable report history and trace windows, review/maintenance/analysis-plan forms, incident footage/log workflow and bounded saved review revisions/repair references | Phone pairing, season-scale lookup measurements and shared seeking |
 | Robot | T09 identity/status, T10 experimental rotation, explicit SIM/REAL recording selection and opt-in passive marker inputs | USB/load qualification and physical marker/transfer bench run; T08–T12 |
 | Analysis | Automatic recording/swerve/recorded Phoenix SDK status reports, explicit session plans and cohort selection, bounded evidence plots with retained-report/trace navigation, immutable human approval and maintenance-aware comparison | REAL acquisition freshness, other subsystem analyzers and physical thresholds; T14–T15 |
 | Video | Reviewed recording/alignment cores, independent workers, redacted APIs/browser, two-cue calibration, explicit interval and saved note/run candidates, verified incident MP4 preservation/playback/downloads, timing sidecars and pinned original WPILOG downloads; generated-media qualification passes | Archive startup/metadata scale, live cue detection, shared telemetry/video seeking, actual AdvantageScope use, video backup and physical timing qualification; T16–T17 |
@@ -97,7 +97,7 @@ Acceptance: opens in the matching official reader/AdvantageScope; independent ex
 
 ## T05 — Versioned log importer
 
-Status: **implemented as a manual local importer; Alpha 7 profile qualified** (October 3, 2026). Depends: T04. Read ANALYSIS and CONTRACTS.
+Status: **manual and automatic supported-log import implemented, including exact-attempt durable local retries; Alpha 7 profile qualified** (updated October 15, 2026). Depends: T04. Read ANALYSIS and CONTRACTS.
 
 Evidence: strict portable extraction agrees with the pinned official reader on all 362 physical records in the four genuine synthetic recordings. Twelve extractor and twelve importer tests pass, covering complete short tails, corrupt/truncated data, timestamp units, entry reuse, nested structs/arrays, explicit unsupported fields, disconnected/missing samples, checksum-vs-format separation, immutable archive conflicts, idempotency, and interrupted publication. See [importer contract and commands](IMPORTER.md). Automatic service ingestion and run/UI integration are now implemented; older profiles and real recordings remain unqualified.
 
@@ -120,6 +120,8 @@ Status: **implemented; backend and browser checks passed**. Thirteen backend tes
 Work: immediate marker, seconds-ago/exact interval entry, durable server store, revisions, idempotent event IDs, local timestamps and clock-quality fields, tags, and hub-only historical notes. Future robot delivery uses a separate outbox; do not fabricate acknowledgments.
 
 Acceptance: delayed/repeated requests preserve original event time and create one revision; conflicting retries rejected; note edits retained; unknown run/clock allowed; text safely displayed; action usable without typing. UI says saved in hub, not logged on robot.
+
+Run investigations now expose every saved note candidate through [bounded snapshot pages](RUN_NOTES.md), preserving exact revisions across later edits/imports and explicitly separating unavailable clocks from empty matches. Parent browser checks reached 120 notes, then verified explicit refresh to 121 after an edit/addition.
 
 ## T08 — Offline notebook and optional robot marker bridge
 
@@ -225,7 +227,7 @@ Native Windows source setup, explicit private profiles and Start/Check/Open/Stop
 
 Optional current-user sign-in startup supplies XML preview, offline readiness-gated installation, managed status and inactive-only replacement/removal. Native in-memory Task Scheduler interpretation and intercepted lifecycle tests pass. It starts no task during installation and has no failure-restart policy. See [WINDOWS_STARTUP.md](WINDOWS_STARTUP.md).
 
-Actual task installation/sign-in, school policy, Windows service hosting, measured practice pilot and real upgrade/rollback remain unfinished.
+Actual task installation/sign-in, school policy, Windows service hosting, measured practice pilot and real upgrade/rollback remain unfinished. The next locally testable release task is [reproducible full-source assembly and an isolated cross-release rehearsal](RELEASE_ASSEMBLY.md); this remains a design handoff, not an implemented release command.
 
 The [offline sample-log exercise](OFFLINE_EXERCISE.md) is implemented with TestHub.cmd and python -m robot_test_hub.selftest. It exercises gated resumable collection, import/search, exact saved reports, delayed notes, verified backup/restore and optional pinned analytics inside a fresh temporary workspace. Actual Windows wrapper and extracted-wheel runs pass outside the checkout. This prepares installation; it does not qualify a live endpoint or the school laptop.
 

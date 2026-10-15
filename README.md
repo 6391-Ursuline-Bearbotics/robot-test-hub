@@ -11,6 +11,10 @@ Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the 
 ## Start here
 
 - [Windows setup and daily Start / Check / Open / Stop shortcuts](docs/WINDOWS_SETUP.md)
+- [Offline installation exercise with a bundled synthetic log](docs/OFFLINE_EXERCISE.md)
+- [Software readiness audit and remaining work](docs/SOFTWARE_READINESS.md)
+- [Complete saved note candidates for a selected run](docs/RUN_NOTES.md)
+- [Portable full-snapshot practice/event explorer](docs/SUMMARY_EXPLORER.md)
 - [Optional startup when the dedicated Windows user signs in](docs/WINDOWS_STARTUP.md)
 - [Log flow commissioning checklist for the school](docs/LOG_FLOW_COMMISSIONING.md)
 - [Per-recording processing and import attention](docs/PROCESSING_STATUS.md)
@@ -36,7 +40,7 @@ Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the 
 - [Automatic swerve reports and explicit practice plans](docs/AUTOMATIC_SWERVE.md)
 - [Saved review revisions and repair-chain navigation](docs/REVIEW_HISTORY.md)
 - [Retained report history and complete trace navigation](docs/REPORT_HISTORY.md)
-- [Reviewed October 7 checkpoint](docs/VALIDATION_CURRENT.md)
+- [Current reviewed software checkpoint](docs/VALIDATION_CURRENT.md)
 
 ## Run the local demo
 
@@ -110,7 +114,7 @@ The demo intentionally has no credentials or robot address. `.logdata` artifacts
 
 ## Prototype limitations
 
-Read the [implementation gap table](docs/IMPLEMENTATION.md#prototype-gap-table) before using this as a production system. The [opt-in live adapter](docs/LIVE_TRANSFER.md) passes local SSH/SFTP and Alpha 7 NT tests; it requires explicitly configured robot access. Physical USB, cancellation and robot load remain unqualified. Notebook access is loopback only; phone pairing remains unfinished. [Robot note delivery](docs/NOTE_MARKERS.md) is explicit/default-off and locally qualified; it preserves original incident times and does not claim USB durability. Season-scale indexing, video alignment/camera commissioning, independent backup qualification, autostart packaging and physical commissioning remain open tasks.
+Read the [implementation gap table](docs/IMPLEMENTATION.md#prototype-gap-table) before using this as a production system. The [opt-in live adapter](docs/LIVE_TRANSFER.md) passes local SSH/SFTP and Alpha 7 NT tests; it requires explicitly configured robot access. Physical USB, cancellation and robot load remain unqualified. Notebook access is loopback only; phone pairing remains unfinished. [Robot note delivery](docs/NOTE_MARKERS.md) is explicit/default-off and locally qualified; it preserves original incident times and does not claim USB durability. Season-scale indexing, video alignment/camera commissioning, independent backup qualification, reproducible release assembly, school startup/upgrade qualification and physical commissioning remain open tasks.
 
 ## Data handling
 

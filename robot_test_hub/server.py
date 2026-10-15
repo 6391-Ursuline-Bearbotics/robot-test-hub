@@ -184,14 +184,22 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 except sqlite3.Error:
                     return self.send(503,b'{"error_code":"review_storage_unavailable"}')
             if urlsplit(self.path).path.startswith(('/api/v1/runs','/api/v1/time/')):
+                from .run_notes import RunNotesError
+                notes_route=urlsplit(self.path).path.endswith('/annotations')
+                if service.stop.is_set() or service.closed:
+                    code='run_notes_unavailable' if notes_route else 'catalog_unavailable'
+                    return self.send(503,json.dumps({'schema_version':1,'error_code':code}).encode())
                 try:
                     url=urlsplit(self.path)
-                    query=parse_qs(url.query,keep_blank_values=True,max_num_fields=8)
-                    if any(len(v)!=1 for v in query.values()):
+                    query=parse_qs(url.query,keep_blank_values=True,max_num_fields=2 if notes_route else 8)
+                    if url.fragment or any(len(v)!=1 for v in query.values()):
                         raise ValueError('Repeated query field')
                     result=run_api.get(service.root,url.path,{k:v[0] for k,v in query.items()},notebook)
                     return self.send(200,json.dumps(result,allow_nan=False).encode())
+                except RunNotesError as exc:
+                    return self.send(exc.status,json.dumps({'schema_version':1,'error_code':exc.code}).encode())
                 except (ValueError,TypeError,OverflowError) as exc:
+                    if notes_route:return self.send(400,b'{"schema_version":1,"error_code":"invalid_run_notes_query"}')
                     return self.send(400,json.dumps({'schema_version':1,'error_code':'invalid_time_query','error':str(exc)}).encode())
                 except KeyError:
                     return self.send(404,b'{"error_code":"run_not_found"}')

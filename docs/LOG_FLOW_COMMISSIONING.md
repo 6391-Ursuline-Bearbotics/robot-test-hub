@@ -84,6 +84,8 @@ Use separately scoped trials for controlled robot reboot and reader-process fail
 - [ ] Keep the active database and Parquet on the school laptop. Do not point a second running hub at its working archive or sync a writable database.
 - [ ] If Drive and driving will run concurrently, repeat the load trial with synchronization enabled. Until that passes, pause Drive during driving and resume it after practice.
 
+- [ ] Inspect a known run with saved notebook observations. Check intended time, uncertainty and revision; use Next/Previous for all [saved candidates](RUN_NOTES.md). Verify Refresh includes a newly added observation while the saved page snapshot stays stable.
+
 ## Ready for routine practice
 
 The log flow is ready for a limited practice pilot when automatic collection and interruption recovery pass, originals verify and open, time search and summaries are understandable, measured DS/robot load is acceptable, and the school-to-home round trip succeeds. Record unresolved limits and the end-of-practice catch-up procedure.

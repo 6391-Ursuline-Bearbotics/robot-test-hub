@@ -1,6 +1,6 @@
 # Full design · version 0.1
 
-Design baseline: October 1, 2026, America/Chicago. Status: proposed system with a transfer prototype. The user's requested outcome is a system the team can set up before the season and use with minimal effort throughout physical robot testing.
+Design baseline: October 1, 2026, America/Chicago. This document preserves the full target design; implemented software and remaining qualification are tracked in [IMPLEMENTATION.md](IMPLEMENTATION.md) and [SOFTWARE_READINESS.md](SOFTWARE_READINESS.md). The user's requested outcome is a system the team can set up before the season and use with minimal effort throughout physical robot testing.
 
 ## Intended experience
 
@@ -10,6 +10,9 @@ The robot records locally whenever its program runs. After it is disabled long e
 
 | Document | Read when implementing |
 | --- | --- |
+| [RELEASE_ASSEMBLY.md](RELEASE_ASSEMBLY.md) | Planned reproducible source release and offline cross-release upgrade/rollback rehearsal |
+| [SOFTWARE_READINESS.md](SOFTWARE_READINESS.md) | Requirement audit, concrete remaining software and separate lab dependencies |
+| [RUN_NOTES.md](RUN_NOTES.md) | Complete selected-run note candidates, stable saved revisions, bounded pages and refresh semantics |
 | [OFFLINE_EXERCISE.md](OFFLINE_EXERCISE.md) | Isolated synthetic sample-log installation exercise, commands and limits |
 | [WINDOWS_STARTUP.md](WINDOWS_STARTUP.md) | Opt-in current-user sign-in task, preview, status, removal and commissioning limits |
 | [WINDOWS_SETUP.md](WINDOWS_SETUP.md) | Native school-laptop setup, saved private profiles, daily launch/check/open/stop and upgrade limits |
