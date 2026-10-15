@@ -227,6 +227,8 @@ Optional current-user sign-in startup supplies XML preview, offline readiness-ga
 
 Actual task installation/sign-in, school policy, Windows service hosting, measured practice pilot and real upgrade/rollback remain unfinished.
 
+Next locally testable packaging task: the [offline sample-log exercise](OFFLINE_EXERCISE.md). This is a design handoff only; no selftest module or TestHub.cmd exists yet.
+
 Work: run a full practice workflow, observe driver burden/false alarms, tune defaults, document startup/end-of-practice procedure, package a supported autostart service with explicit stop/upgrade/rollback, and produce a release checklist.
 
 Acceptance: collector recovers without manual file selection, time search/notes/video/report agree, coverage failures obvious, no driver workflow obstruction, resource limits measured, rollback/restore tested. Do not require every advanced analyzer for this pilot.
