@@ -22,6 +22,22 @@ Setup uses `py -3` discovery when no interpreter is supplied. It checks Python 3
 
 The `.cmd` files invoke Windows PowerShell with an execution-policy override for that process only. They do not alter the machine policy. A centrally enforced school policy can still block them; ask IT to approve the scripts. An already-approved PowerShell session can call `SetupHub.ps1` directly.
 
+## Exercise the local tools before robot setup
+
+After setup, run the separate offline sample exercise before creating a live profile:
+
+```powershell
+.\scripts\windows\TestHub.cmd
+.\scripts\windows\TestHub.cmd -Json
+.\scripts\windows\TestHub.cmd -Analytics
+```
+
+`TestHub` uses this source installation's existing `.venv` and runs `python -m robot_test_hub.selftest` from the complete source root. It needs no launch profile or `LOCALAPPDATA` and accepts no profile or interpreter override. It does not start the hub, open your working archive, discover a robot endpoint, launch a browser, install packages or use the native status reader. The [offline exercise](OFFLINE_EXERCISE.md) uses a bundled public synthetic WPILOG in its own disposable workspace to exercise local transfer recovery, importing, searchable runs, reports, notes and backup/restore.
+
+The default exercise uses the Python standard library. `-Analytics` explicitly exercises the pinned DuckDB/Parquet and summary path installed by setup's analytics extra; a missing or mismatched dependency fails that requested stage. `-Json` requests the structured result and can be combined with `-Analytics`. Exit zero means all requested exercise stages and temporary-workspace cleanup succeeded. A failed stage or cleanup returns a nonzero exit code; the wrapper preserves that code and never falls back to a different source or installs a dependency.
+
+`CheckHub` remains the separate static readiness check for an existing private profile: it opens no archive and contacts no robot. `TestHub` proves only the isolated synthetic local data path. Neither result qualifies real robot access, storage durability, school-laptop contention, clock accuracy, cameras or cloud synchronization. `-Json` and `-Analytics` belong only to `TestHub`; other setup/launch actions reject them.
+
 ## Save one private live profile
 
 The default profile is `%LOCALAPPDATA%\RobotTestHub\config\launch.json`. Setup does not create or overwrite it. First create the private hub/source settings using the [log commissioning guide](LOG_FLOW_COMMISSIONING.md), including the actual pinned SFTP host identity and credential references. Keep passwords out of commands and this repository.
@@ -62,7 +78,7 @@ From the source root:
 
 `OpenHub` opens the configured loopback browser address; it does not start the hub or prove it is running. `StopHub` asks the matching local instance to stop gracefully; it does not kill processes. Wait for the running console to finish its worker cleanup before upgrading or moving the archive. A missing runtime record reports that the hub is not running; stale or mismatched identity reports an error.
 
-Every wrapper accepts a private profile, including paths containing spaces:
+StartHub, CheckHub, OpenHub and StopHub accept a private profile, including paths containing spaces:
 
 ```powershell
 .\scripts\windows\CheckHub.cmd -Profile "D:\Private Robot Hub\config\launch.json"

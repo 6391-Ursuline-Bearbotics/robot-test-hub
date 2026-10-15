@@ -8,6 +8,7 @@ htmlcov/
 data/
 *.wpilog
 !tests/fixtures/synthetic/*.wpilog
+!robot_test_hub/sample_data/alpha7-main.wpilog
 build/
 dist/
 *.hoot

@@ -227,7 +227,7 @@ Optional current-user sign-in startup supplies XML preview, offline readiness-ga
 
 Actual task installation/sign-in, school policy, Windows service hosting, measured practice pilot and real upgrade/rollback remain unfinished.
 
-Next locally testable packaging task: the [offline sample-log exercise](OFFLINE_EXERCISE.md). This is a design handoff only; no selftest module or TestHub.cmd exists yet.
+The [offline sample-log exercise](OFFLINE_EXERCISE.md) is implemented with TestHub.cmd and python -m robot_test_hub.selftest. It exercises gated resumable collection, import/search, exact saved reports, delayed notes, verified backup/restore and optional pinned analytics inside a fresh temporary workspace. Actual Windows wrapper and extracted-wheel runs pass outside the checkout. This prepares installation; it does not qualify a live endpoint or the school laptop.
 
 Work: run a full practice workflow, observe driver burden/false alarms, tune defaults, document startup/end-of-practice procedure, package a supported autostart service with explicit stop/upgrade/rollback, and produce a release checklist.
 

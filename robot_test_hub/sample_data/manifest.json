@@ -1,0 +1,17 @@
+{
+  "cycle_timestamp_ns": [
+    "1000000000",
+    "1020000123",
+    "1040000000",
+    "1060000000",
+    "1080000000",
+    "1500000000",
+    "1520000000"
+  ],
+  "file": "alpha7-main.wpilog",
+  "physical_records": 143,
+  "schema_version": 1,
+  "sha256": "df79f80165f2a4577913d86a503e11069fa89037ae6ee2931d8dcbe7480cb3d5",
+  "size_bytes": 4530,
+  "source_type": "SYNTHETIC"
+}

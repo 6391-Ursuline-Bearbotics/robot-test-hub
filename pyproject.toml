@@ -17,7 +17,7 @@ sftp = ["paramiko==4.0.0"]
 robot-test-hub = "robot_test_hub.server:main"
 
 [tool.setuptools.package-data]
-robot_test_hub = ["static/*.html", "static/*.css", "static/*.js"]
+robot_test_hub = ["static/*.html", "static/*.css", "static/*.js", "sample_data/*.wpilog", "sample_data/*.json"]
 
 [tool.setuptools.packages.find]
 include = ["robot_test_hub*"]

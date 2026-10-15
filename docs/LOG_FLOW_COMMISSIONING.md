@@ -27,6 +27,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[sftp,analytics]"
 ~~~
 
+- [ ] Run .\scripts\windows\TestHub.cmd and, with the analytics extra installed, .\scripts\windows\TestHub.cmd -Analytics. The [offline sample exercise](OFFLINE_EXERCISE.md) uses invented data in a fresh temporary workspace; resolve failures before connecting hardware. It does not read a live profile or validate SSH, NT, Java or Drive.
 - [ ] Set a private local working archive outside Google Drive. Keep source settings and credentials out of Git.
 - [ ] Create the source configuration with confirmed endpoints, robot identity, known-hosts file, collector key, and log root using [Live transfer setup](LIVE_TRANSFER.md#configure-the-computer).
 - [ ] Create the hub configuration using [Analytics setup](COLUMNAR_ANALYTICS.md#enable-on-the-dedicated-laptop). Enable analytics and, when the Drive folder is ready, original-log export and summary sharing. Start with one analysis thread and the 512 MB DuckDB setting.

@@ -1,4 +1,12 @@
-# Reviewed local checkpoint — October 14, 2026
+# Reviewed local checkpoint — October 15, 2026
+
+Latest increment: the [offline installation exercise](OFFLINE_EXERCISE.md). After implementation and independent review files were frozen, the complete local Windows/Python 3.10.7 suite ran **908 tests in 195.392 seconds: 887 passed, 21 optional native/symlink skips**. Twelve author, five independent and seven Windows wrapper cases are new. Review caught and closed missing restored-transfer-original verification and premature restored-catalog owner release on failed close. Corrupted interior timestamps, both restored original copies, exact report receipts and note revisions now fail; failed primary/restored closes retain ownership. Network/native/service/process-denied tests verify isolated workspace use and no surviving threads.
+
+Actual Python CLI core and analytics modes passed. The real CMD/PowerShell wrapper passed human, Json and Json+Analytics modes from an unrelated directory without usable Java, LOCALAPPDATA or live profile; the final reviewed Json+Analytics command also passed. An offline-built wheel, extracted outside the checkout and imported with isolated Python, passed core and analytics using installed dependencies. Its bundled sample and manifest were present and tests/tools absent. The known public synthetic runtime WPILOG has a narrow Git ignore exception; private logs remain ignored.
+
+This result qualifies the isolated local data path, not a live endpoint or school readiness. Both robot repositories remained unchanged; no real robot/camera, active user archive, Drive destination, task registration or deployment was used. Physical log-first commissioning and the optional LL4 trial remain outstanding. Cross-platform CI for this new increment must be checked on its published revision; the previous verified four-job CI checkpoint is recorded below.
+
+## Previous reviewed local checkpoint — October 14, 2026
 
 Latest increment: [explicit exact-attempt local import retries](IMPORT_RETRY.md), catalog schema 8. After all implementation and review files were frozen, the complete local Windows/Python 3.10.7 suite ran **884 tests in 174.603 seconds: 863 passed, 21 optional native/symlink skips**. Twelve author retry cases, thirteen independent retry cases, three actual loopback HTTP cases, six read-only projection cases and two actual-script UI cases cover request deduplication, stale pins, crash/publication recovery, queue isolation, strict receipts, local request guards, schema migration and coherent pending/running backup restore. Existing collector, analytics, review, media and Windows setup/startup regressions remain passing.
 

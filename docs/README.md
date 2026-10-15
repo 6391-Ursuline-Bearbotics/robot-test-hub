@@ -10,7 +10,7 @@ The robot records locally whenever its program runs. After it is disabled long e
 
 | Document | Read when implementing |
 | --- | --- |
-| [OFFLINE_EXERCISE.md](OFFLINE_EXERCISE.md) | Planned isolated sample-log exercise and implementation handoff; not yet available |
+| [OFFLINE_EXERCISE.md](OFFLINE_EXERCISE.md) | Isolated synthetic sample-log installation exercise, commands and limits |
 | [WINDOWS_STARTUP.md](WINDOWS_STARTUP.md) | Opt-in current-user sign-in task, preview, status, removal and commissioning limits |
 | [WINDOWS_SETUP.md](WINDOWS_SETUP.md) | Native school-laptop setup, saved private profiles, daily launch/check/open/stop and upgrade limits |
 | [LIMELIGHT_REWIND.md](LIMELIGHT_REWIND.md) | Direct LL4 run-end capture and idle-only HTTP archive, setup and qualification |

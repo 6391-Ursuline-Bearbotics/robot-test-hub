@@ -1,10 +1,12 @@
 # Native Windows setup and profile-based launch. No scheduled task is installed.
 [CmdletBinding()]
 param(
-    [ValidateSet('Setup', 'Run', 'Check', 'Stop', 'Open')]
+    [ValidateSet('Setup', 'Run', 'Check', 'Stop', 'Open', 'Test')]
     [string]$Action = 'Setup',
     [string]$PythonPath,
-    [string]$Profile
+    [string]$Profile,
+    [switch]$Json,
+    [switch]$Analytics
 )
 $ErrorActionPreference = 'Stop'
 $env:PYTHONUTF8 = '1'
@@ -23,6 +25,30 @@ try {
     $checkout = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
     if (-not (Test-Path -LiteralPath (Join-Path $checkout 'pyproject.toml') -PathType Leaf)) {
         throw 'Extract the complete source release before running this script.'
+    }
+    if ($Action -ne 'Test' -and ($PSBoundParameters.ContainsKey('Json') -or $PSBoundParameters.ContainsKey('Analytics'))) {
+        throw '-Json and -Analytics are supported only by TestHub.cmd (Action Test).'
+    }
+    if ($Action -eq 'Test') {
+        if ($PSBoundParameters.ContainsKey('Profile') -or $PSBoundParameters.ContainsKey('PythonPath')) {
+            throw 'The offline test accepts no profile or interpreter override. Run SetupHub.cmd first, then TestHub.cmd.'
+        }
+        # Exit this branch before resolving any profile or LOCALAPPDATA. The
+        # isolated exercise owns its temporary archive; no hub is launched.
+        $testPython = Join-Path $checkout '.venv\Scripts\python.exe'
+        if (-not (Test-Path -LiteralPath $testPython -PathType Leaf)) {
+            throw 'Run SetupHub.cmd first to create this installation''s Python environment.'
+        }
+        $testArguments = @('-m', 'robot_test_hub.selftest')
+        if ($Json) { $testArguments += '--json' }
+        if ($Analytics) { $testArguments += '--analytics' }
+        Push-Location -LiteralPath $checkout
+        try {
+            Invoke-HubPython -Executable $testPython -Arguments $testArguments
+        } finally {
+            Pop-Location
+        }
+        exit 0
     }
     if ([string]::IsNullOrWhiteSpace($Profile)) {
         if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {

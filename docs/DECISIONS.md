@@ -4,6 +4,7 @@
 
 | Decision | Reason / consequence |
 | --- | --- |
+| Separate offline installation exercise | TestHub uses a bundled digest-locked synthetic sample and fresh temporary archive. CheckHub retains static live-readiness checks; neither replaces physical commissioning. |
 | Public repo `6391-Ursuline-Bearbotics/robot-test-hub` | User explicitly selected name and public visibility. Data remains private/local. |
 | Commission log collection and home access before cameras | User confirmed October 9. Camera, PoE and camera network configuration are deferred; use [log flow checklist](LOG_FLOW_COMMISSIONING.md). |
 | One dedicated DS laptop collects; Google Drive shares completed originals | User confirmed October 8. Active data stays local; home inspection needs one-way publication. |
