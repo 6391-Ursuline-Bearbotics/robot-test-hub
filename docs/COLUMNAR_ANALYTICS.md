@@ -4,7 +4,7 @@ Implemented October 8, 2026. One dedicated driver-station laptop performs detail
 
 ## Enable on the dedicated laptop
 
-Stop the hub before upgrading. Keep its existing local data directory; upgrading migrates the catalog from version 4 to 5 without replacing originals or review history. Install the pinned optional dependency in the hub's existing Python environment:
+Stop the hub before upgrading. Keep its existing local data directory; startup applies supported catalog migrations without replacing originals or review history. The portable explorer increment retains catalog schema 8. Install the pinned optional dependency in the hub's existing Python environment:
 
 ~~~powershell
 python -m pip install -e ".[sftp,analytics]"
@@ -51,7 +51,7 @@ Reports contain:
 - Recorded drive/turn motor currents: time-weighted mean and peak over eligible interval starts, with eligible durations.
 - Conservative repeated-test comparisons: per-position min/max/mean **run RMSE**, independent-run counts and comparison exclusions. This is descriptive comparison, not a pooled sample-level RMSE, approved baseline, or hardware-health verdict.
 
-HTML shows the newest 200 runs. CSV/JSON retain every current run, up to the explicit 10,000-run report limit. Exceeding that or a 64 MiB report-file limit fails visibly rather than silently truncating the machine-readable results. Snapshot files are immutable; a previously completed report remains available while later work retries. Reports reflect the run/review catalog at their capture time, not a continuously live view.
+New reports include the [offline snapshot explorer](SUMMARY_EXPLORER.md): filter by exact robot, source, runtime, test and UTC interval, with 20 run cards per page and every saved run reachable. Selected descriptive cohorts and whole-snapshot recordings have separate bounded pages. CSV/JSON retain every current run, up to the explicit 10,000-run report limit. Exceeding that or a 64 MiB report-file limit fails visibly rather than silently truncating the machine-readable results. Snapshot files are immutable; a previously completed report remains available while later work retries. Presentation version summary-2 creates a new report while reusing unchanged summary-1 numeric cache entries. Previously published reports keep their original presentation. Reports reflect the run/review catalog at their capture time, not a continuously live view.
 
 ## Comparability and honest missing data
 

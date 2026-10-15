@@ -244,7 +244,7 @@ class ColumnarTests(unittest.TestCase):
         with self.assertRaises(KeyError):report_file(self.root,report["id"],"../../catalog.sqlite3")
         summary=json.loads(report_file(self.root,report["id"],"summary.json"))
         summary["runs"][0]["run"]["robot_id"]="<script>alert(1)</script>"
-        self.assertNotIn("<script>",render_report(summary));self.assertIn("&lt;script&gt;",render_report(summary))
+        self.assertNotIn("<script>alert(1)</script>",render_report(summary));self.assertIn(r"\u003cscript\u003ealert(1)\u003c/script\u003e",render_report(summary))
         path=self.root/"analytics/reports"/report["id"]/"report.html";path.write_bytes(b"corrupt")
         with self.assertRaises(ColumnarError):report_file(self.root,report["id"],"report.html")
 

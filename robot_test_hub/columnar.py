@@ -20,7 +20,7 @@ from .wpilog import PROFILE
 
 DUCKDB_VERSION = "1.5.6"
 VERSION = "columnar-1"
-SUMMARY_VERSION = "summary-1"
+SUMMARY_VERSION = "summary-2"
 
 
 class ColumnarError(ValueError):

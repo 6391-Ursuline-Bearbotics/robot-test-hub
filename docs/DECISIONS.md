@@ -4,6 +4,7 @@
 
 | Decision | Reason / consequence |
 | --- | --- |
+| Portable full-snapshot summary explorer | Saved HTML embeds existing summary evidence and fixed CSP-hashed code, with exact UTC candidates and bounded pages. Filters preserve cohort boundaries; presentation upgrades reuse numeric caches and retain old report bytes. |
 | Separate offline installation exercise | TestHub uses a bundled digest-locked synthetic sample and fresh temporary archive. CheckHub retains static live-readiness checks; neither replaces physical commissioning. |
 | Public repo `6391-Ursuline-Bearbotics/robot-test-hub` | User explicitly selected name and public visibility. Data remains private/local. |
 | Commission log collection and home access before cameras | User confirmed October 9. Camera, PoE and camera network configuration are deferred; use [log flow checklist](LOG_FLOW_COMMISSIONING.md). |

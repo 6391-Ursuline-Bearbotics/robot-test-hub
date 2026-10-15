@@ -18,6 +18,7 @@ The robot records locally whenever its program runs. After it is disabled long e
 | [IMPORT_RETRY.md](IMPORT_RETRY.md) | Exact-attempt local retry requests, durable receipts and worker recovery |
 | [PROCESSING_STATUS.md](PROCESSING_STATUS.md) | Per-recording download/import/index/report receipts and import attention |
 | [LOG_FLOW_COMMISSIONING.md](LOG_FLOW_COMMISSIONING.md) | School prerequisites and log-only laptop, robot, recovery, analysis, and home-access commissioning |
+| [SUMMARY_EXPLORER.md](SUMMARY_EXPLORER.md) | Offline full-snapshot run filters, exact UTC candidates, bounded pages and selected descriptive comparisons |
 | [COLUMNAR_ANALYTICS.md](COLUMNAR_ANALYTICS.md) | Main-laptop Parquet conversion, cached DuckDB queries, portable summaries and Drive setup |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Processes, boundaries, storage, deployment, operating workflow |
 | [CONTRACTS.md](CONTRACTS.md) | Source protocol, persistent entities, versioning, APIs, timestamps |

@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import csv
-from datetime import datetime,timezone
-import html
 import io
 import json
+import math
 from pathlib import Path
 import tempfile
 import time
@@ -18,9 +17,12 @@ from .importer import Importer
 from .runs import RunCatalog
 from .swerve import _config,MODULE_POSITIONS
 from .wpilog import PROFILE
+from .portable_summary import render_report
 
 MAX_RUNS=10000
-MAX_HTML_RUNS=200
+# Presentation changes must not invalidate unchanged per-run numeric queries.
+STATISTICS_VERSION="summary-1"
+MAX_HTML_RUNS=20
 FILES=("summary.json","summary.csv","report.html","manifest.json")
 
 
@@ -119,7 +121,7 @@ class Summarizer:
         self.verified_reports=set()
 
     def _run_statistics(self,run,jobs,policy):
-        key=identity([SUMMARY_VERSION,{k:run[k] for k in ("run_id","start_monotonic_ns","end_monotonic_ns","segment_ids")},
+        key=identity([STATISTICS_VERSION,{k:run[k] for k in ("run_id","start_monotonic_ns","end_monotonic_ns","segment_ids")},
                       [job["id"] for job in jobs],policy])
         cached=self.db.execute("SELECT document_json FROM summary_run_cache WHERE id=?",(key,)).fetchone()
         if cached:
@@ -255,27 +257,12 @@ class Summarizer:
             outputs.append({"run":run,"source_type":source_type,"context":context,"cohort_id":cohort,
                             "comparison_unavailable":sorted(set(reasons)),"source_sha256":sorted({m["source_sha256"] for m in manifests}),
                             "statistics":stats})
-        cohorts={}
-        for output in outputs:
-            key=output["cohort_id"]
-            if key is not None:
-                cohorts.setdefault(key,[]).append(output)
-        comparisons=[]
-        for key,group in sorted(cohorts.items()):
-            for index,position in enumerate(MODULE_POSITIONS):
-                values=[item["statistics"]["tracking"][index]["drive_rmse_mps"] for item in group
-                        if len(item["statistics"]["tracking"])==4 and item["statistics"]["tracking"][index]["drive_rmse_mps"] is not None]
-                comparisons.append({"cohort_id":key,"test_id":group[0]["context"]["test_id"],"module_position":position,
-                                    "independent_run_count":len({item["run"]["run_id"] for item in group}),
-                                    "runs_with_recorded_metric":len(values),"minimum_recorded_rmse_mps":min(values) if values else None,
-                                    "maximum_recorded_rmse_mps":max(values) if values else None,
-                                    "mean_recorded_run_rmse_mps":sum(values)/len(values) if values else None,
-                                    "health_verdict":"not_evaluated","baseline_approved":False})
+        comparisons=aggregate_cohorts(outputs)
         created=self.db.execute("SELECT created_utc_ns FROM summary_reports WHERE id=?",(report_id,)).fetchone()[0]
         summary={"schema_version":1,"id":report_id,"created_utc_ns":str(created),"inputs":inputs,
                  "source_scope":"all_current_catalog_runs","recordings":recordings,"runs":outputs,"cohorts":comparisons,
                  "physical_acquisition_time_qualified":False,"hardware_thresholds_qualified":False,
-                 "html_run_limit":MAX_HTML_RUNS,"full_summary_run_count":len(outputs)}
+                 "html_run_limit":MAX_HTML_RUNS,"html_pagination":True,"full_summary_run_count":len(outputs)}
         staging=_path(self.root,"analytics/staging")
         staging.mkdir(parents=True,exist_ok=True)
         with tempfile.TemporaryDirectory(dir=staging) as temp_name:
@@ -307,6 +294,47 @@ class Summarizer:
         return dict(self.db.execute("SELECT * FROM summary_reports WHERE id=?",(report_id,)).fetchone()),queried,cached
 
 
+def aggregate_cohorts(outputs):
+    """Descriptive per-position comparisons of distinct, already-qualified runs.
+
+    Missing/ambiguous module entries and invalid metrics contribute no value;
+    neither duplicated output rows nor shuffled modules can change identity.
+    """
+    cohorts={}
+    for output in outputs:
+        key=output.get('cohort_id')
+        run_id=output.get('run',{}).get('run_id')
+        if type(key) is str and key and type(run_id) is str and run_id:
+            cohorts.setdefault(key,{}).setdefault(run_id,[]).append(output)
+    comparisons=[]
+    for key,runs in sorted(cohorts.items()):
+        first=next(iter(runs.values()))[0]
+        for position in MODULE_POSITIONS:
+            values=[]
+            for candidates in runs.values():
+                metrics=[]
+                for candidate in candidates:
+                    matches=[module for module in candidate.get('statistics',{}).get('tracking',[])
+                             if module.get('module_position')==position]
+                    if len(matches)!=1:break
+                    value=matches[0].get('drive_rmse_mps')
+                    try:
+                        if type(value) not in (int,float) or not math.isfinite(value):break
+                        metrics.append(float(value))
+                    except (OverflowError,ValueError):break
+                else:
+                    if len(set(metrics))==1:values.append(metrics[0])
+            scale=max((abs(value) for value in values),default=0) or 1
+            mean=scale*(math.fsum(value/scale for value in values)/len(values)) if values else None
+            comparisons.append(dict(cohort_id=key,test_id=first.get('context',{}).get('test_id'),module_position=position,
+                independent_run_count=len(runs),runs_with_recorded_metric=len(values),
+                minimum_recorded_rmse_mps=min(values) if values else None,
+                maximum_recorded_rmse_mps=max(values) if values else None,
+                mean_recorded_run_rmse_mps=mean,
+                health_verdict='not_evaluated',baseline_approved=False))
+    return comparisons
+
+
 def summary_csv(summary):
     buffer=io.StringIO(newline="")
     writer=csv.writer(buffer)
@@ -335,49 +363,3 @@ def _csv_cell(value):
     if isinstance(value,str) and value.lstrip().startswith(("=","+","-","@")):
         return "'"+value
     return value
-
-
-def _text(value):
-    return html.escape(str(value)) if value is not None else "Unavailable"
-
-
-def _value(value):
-    return _text(round(value,4)) if type(value) in (float,int) else "Unavailable"
-
-
-def _chart(modules,field,title):
-    values=[m for m in modules if m.get(field) is not None]
-    if not values:
-        return "<p>No eligible recorded values for this chart.</p>"
-    maximum=max(abs(m[field]) for m in values) or 1
-    bars=[]
-    for i,module in enumerate(values):
-        width=round(330*abs(module[field])/maximum,2)
-        y=30+i*40
-        bars.append('<text x="0" y="'+str(y+16)+'">'+_text(module["module_position"])+'</text><rect x="125" y="'+str(y)+'" width="'+str(width)+'" height="24" fill="#65b3de"/><text x="470" y="'+str(y+16)+'">'+_value(module[field])+'</text>')
-    return '<svg viewBox="0 0 580 '+str(40*len(values)+45)+'" role="img" aria-label="'+_text(title)+'"><title>'+_text(title)+'</title>'+''.join(bars)+'</svg>'
-
-
-def render_report(summary):
-    created=datetime.fromtimestamp(int(summary["created_utc_ns"])/1e9,timezone.utc).isoformat()
-    def ordering(output):
-        intervals=output["run"].get("utc_intervals",[])
-        return (int(intervals[0]["utc_start_ns"]) if intervals else -1,output["run"]["run_id"])
-    outputs=sorted(summary["runs"],key=ordering,reverse=True)[:MAX_HTML_RUNS]
-    sections=[]
-    for output in outputs:
-        run=output["run"];stats=output["statistics"]
-        intervals=run.get("utc_intervals",[])
-        when=datetime.fromtimestamp(int(intervals[0]["utc_start_ns"])/1e9,timezone.utc).isoformat() if intervals else "Wall-clock time unavailable"
-        tracking="".join("<tr><td>"+_text(m["module_position"])+"</td><td>"+_value(m["drive_rmse_mps"])+"</td><td>"+_value(m["steering_rmse_rad"])+"</td><td>"+_value(m["eligible_seconds"])+"</td><td>"+_value(m["coverage_fraction"])+"</td></tr>" for m in stats["tracking"])
-        currents="".join("<tr><td>"+_text(m["module_position"])+"</td><td>"+side+"</td><td>"+_value(m["mean_amps"])+"</td><td>"+_value(m["peak_amps"])+"</td><td>"+_value(m["eligible_seconds"])+"</td></tr>" for side in ("drive","turn") for m in stats["currents"][side])
-        quality=stats["quality"]
-        invalid=sum(row["invalid_or_unsupported_count"] for row in quality["record_counts"])
-        sources="".join('<li><code>'+_text(sha)+'</code></li>' for sha in output["source_sha256"])
-        sections.append('<section><h2>'+_text(when)+' · '+_text(run["robot_id"])+'</h2><p>'+_text(output["source_type"])+' · '+_text(run["runtime_mode"])+' · '+_text(run["completeness"])+'</p><p>Recording quality: '+str(quality["cycle_count"])+' cycles; '+str(invalid)+' invalid/unsupported records; '+str(quality["long_gap_count"])+' long gaps.</p><p>Comparison: '+_text(output["cohort_id"] or ", ".join(output["comparison_unavailable"]))+'</p><h3>Recorded swerve tracking</h3>'+_chart(stats["tracking"],"drive_rmse_mps","Recorded drive RMSE in meters per second")+'<table><thead><tr><th>Module</th><th>Drive RMSE (m/s)</th><th>Steering RMSE (rad)</th><th>Eligible seconds</th><th>Coverage fraction</th></tr></thead><tbody>'+tracking+'</tbody></table><h3>Recorded motor current</h3><table><thead><tr><th>Module</th><th>Motor</th><th>Mean A</th><th>Peak A</th><th>Eligible seconds</th></tr></thead><tbody>'+currents+'</tbody></table><details><summary>Evidence</summary><p>Run '+_text(run["run_id"])+'</p><ul>'+sources+'</ul></details></section>')
-    cohorts="".join("<tr><td>"+_text(c["test_id"])+" · "+_text(c["cohort_id"][:12])+"</td><td>"+_text(c["module_position"])+"</td><td>"+str(c["independent_run_count"])+"</td><td>"+_value(c["mean_recorded_run_rmse_mps"])+"</td><td>"+_value(c["minimum_recorded_rmse_mps"])+"</td><td>"+_value(c["maximum_recorded_rmse_mps"])+"</td></tr>" for c in summary["cohorts"])
-    recording_rows="".join("<tr><td>"+_text(r["source_sha256"][:12])+"</td><td>"+_text(r["source_type"])+
-        "</td><td>"+str(r["record_count"])+"</td><td>"+
-        str(sum(item["invalid_or_unsupported_count"] for item in r["record_quality"]))+"</td></tr>" for r in summary.get("recordings",[]))
-    recording_table="<h2>Whole recording quality</h2><p>Includes disabled time; run tracking and current metrics below use enabled intervals.</p><table><thead><tr><th>Original identity</th><th>Import source</th><th>Extracted rows</th><th>Invalid / unsupported rows</th></tr></thead><tbody>"+recording_rows+"</tbody></table>"
-    return """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><title>6391 Practice Summary</title><style>body{font-family:system-ui,sans-serif;background:#101820;color:#e8eef4;max-width:1100px;margin:auto;padding:24px}section{background:#17232e;padding:22px;margin:22px 0;border-radius:12px}p,li{line-height:1.5;overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:8px;border-bottom:1px solid #405060}svg{max-width:620px;width:100%;fill:#e8eef4}code{overflow-wrap:anywhere}a{color:#f2cf83}.notice{padding:16px;border:1px solid #c9a14c}h1{font-size:30px}@media(max-width:650px){body{padding:12px}section{padding:12px}table{font-size:12px}}</style></head><body><h1>Team 6391 practice summary</h1><p>Captured """+_text(created)+"""</p><p class="notice">These statistics describe recorded signals. Physical acquisition timing and hardware thresholds are unqualified; no healthy baseline or repair diagnosis is inferred.</p><p>"""+str(len(summary["runs"]))+' runs in this snapshot. Showing the newest '+str(len(outputs))+' runs below; CSV and JSON contain the complete snapshot.</p><p><a download href="summary.csv">Download CSV</a> · <a download href="summary.json">Download JSON</a> · <a href="manifest.json">Evidence manifest</a></p>'+recording_table+'<h2>Comparable practice / event cohorts</h2><p>Grouping requires a complete anchored run, explicit practice context and component assignments, and matching recorded build/configuration. Unknown context stays separate.</p><table><thead><tr><th>Test</th><th>Module</th><th>Runs</th><th>Mean drive RMSE (m/s)</th><th>Minimum (m/s)</th><th>Maximum (m/s)</th></tr></thead><tbody>'+cohorts+'</tbody></table>'+''.join(sections)+'</body></html>'

@@ -80,7 +80,7 @@ Use separately scoped trials for controlled robot reboot and reader-process fail
 - [ ] Resume Drive synchronization after the transfer trial. Confirm the hub publishes an original plus its JSON identity sidecar, logs.csv, and the optional report folder.
 - [ ] Check Drive for desktop reports synchronization complete. The hub's copied status only confirms local folder publication.
 - [ ] At home, download one WPILOG and its matching JSON sidecar. Verify size/hash using [Home workflow](GOOGLE_DRIVE.md#home-workflow), then open it in AdvantageScope.
-- [ ] Download a complete report folder and open report.html locally. Confirm its CSV/JSON links work. Home viewing does not require DuckDB or another analysis worker.
+- [ ] Download a complete report folder and open report.html locally. Confirm its CSV/JSON links work. In a newly generated [explorer report](SUMMARY_EXPLORER.md), select a known test/UTC interval, inspect its uncertainty, reach an older run through pagination, and verify whole-recording counts retain their snapshot scope. Home viewing does not require DuckDB or another analysis worker.
 - [ ] Keep the active database and Parquet on the school laptop. Do not point a second running hub at its working archive or sync a writable database.
 - [ ] If Drive and driving will run concurrently, repeat the load trial with synchronization enabled. Until that passes, pause Drive during driving and resume it after practice.
 

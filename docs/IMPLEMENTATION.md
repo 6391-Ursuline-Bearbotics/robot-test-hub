@@ -265,7 +265,9 @@ Synthetic validation is recorded in GOOGLE_DRIVE and VALIDATION_CURRENT. Actual 
 
 Status: **implemented locally; school-laptop and physical/cloud qualification outstanding** (October 8, 2026). See [COLUMNAR_ANALYTICS.md](COLUMNAR_ANALYTICS.md). Optional pinned DuckDB, immutable lossless Parquet, exact integer timestamps/typed high-rate values, source-order swerve normalization, durable conversion retry, bounded native resources/interruption, cached per-run queries, recording-quality/tracking/current reports and conservative comparable-test cohorts are implemented. Loopback report downloads verify small allowlisted artifacts. Opt-in Drive publication includes standalone HTML/CSV/JSON only; coherent backup includes registered derivatives. Existing robot integration, transfer gate and legacy health qualification are preserved. No robot changes in this increment.
 
-Remaining: real-log commissioning, school DS load/disk measurements, actual Drive round trip, historical profiles, full index/legacy-analyzer migration, event query UI and separately approved retention. Performance measurements separate synthetic native query time from end-to-end import time; physical freshness and thresholds are never inferred from recorded-value statistics.
+The [portable snapshot explorer](SUMMARY_EXPLORER.md) now reaches every saved run through bounded pages and exact identity/UTC filters, with selected descriptive cohort statistics and separately scoped recording quality. It requires no server or analytics worker at home; the native run-statistics cache is preserved across presentation upgrades. This is exploration of saved summary snapshots, not an arbitrary high-frequency event-query interface.
+
+Remaining: real-log commissioning, school DS load/disk measurements, actual Drive round trip, historical profiles, full index/legacy-analyzer migration, high-frequency event query UI and separately approved retention. Performance measurements separate synthetic native query time from end-to-end import time; physical freshness and thresholds are never inferred from recorded-value statistics.
 
 ## T23 — Direct Limelight 4 Rewind archive
 
