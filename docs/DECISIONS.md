@@ -7,6 +7,7 @@
 | Public repo `6391-Ursuline-Bearbotics/robot-test-hub` | User explicitly selected name and public visibility. Data remains private/local. |
 | Commission log collection and home access before cameras | User confirmed October 9. Camera, PoE and camera network configuration are deferred; use [log flow checklist](LOG_FLOW_COMMISSIONING.md). |
 | One dedicated DS laptop collects; Google Drive shares completed originals | User confirmed October 8. Active data stays local; home inspection needs one-way publication. |
+| Full-source Windows install with saved private profiles | Setup creates a per-install environment; daily wrappers select the source root and never infer a live endpoint or fall back to demo. Authenticated local Stop requests worker cleanup without killing processes. |
 | Local-first Python service and browser UI | Fits existing Python analysis work; runs without cloud or internet. |
 | Files plus SQLite; opt-in Parquet and DuckDB derivatives | Main laptop performs detailed analysis; original evidence remains authoritative and writable databases stay local. |
 | Run identity independent of files | Existing recordings span enable/disable cycles; future rotation may split runs. |

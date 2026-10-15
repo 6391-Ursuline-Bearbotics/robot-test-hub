@@ -2,6 +2,8 @@
 
 Start with one dedicated driver-station laptop collecting robot logs, producing summaries, and sharing originals and reports through Google Drive. Camera recording, PoE equipment, camera IP addressing, and video alignment are deferred.
 
+For repeatable Windows setup, use [the saved-profile launcher](WINDOWS_SETUP.md). It replaces the daily long live command with CheckHub, StartHub, OpenHub and StopHub. The manual commands below remain useful for commissioning and troubleshooting; do not mix their invocation-relative JSON path convention with profile-relative paths.
+
 ## What the school needs to provide
 
 - [ ] Identify the dedicated Windows x86-64 DS laptop and an operator for the first bench session.
@@ -30,7 +32,7 @@ python -m venv .venv
 - [ ] Create the hub configuration using [Analytics setup](COLUMNAR_ANALYTICS.md#enable-on-the-dedicated-laptop). Enable analytics and, when the Drive folder is ready, original-log export and summary sharing. Start with one analysis thread and the 512 MB DuckDB setting.
 - [ ] Run the [offline readiness check](LIVE_TRANSFER.md#check-setup-before-connecting) with the same source, NT, hub-config, and toolchain arguments intended for live operation. Resolve each failed prerequisite before connecting.
 - [ ] Confirm Windows date/time and time zone are correct. Check that run history reports known versus unavailable wall-clock mappings honestly.
-- [ ] Save a repeatable launch command or shortcut with the confirmed settings. Autostart/service installation remains a later packaging task.
+- [ ] Save the confirmed settings in the [private Windows launch profile](WINDOWS_SETUP.md), then run CheckHub and use StartHub/OpenHub/StopHub for daily operation. Autostart/service installation remains a later packaging task.
 
 Do not supply video-config, video-media-config, or marker-config for the first trial. Camera recording and robot note delivery are separate opt-ins; local notebook notes can still be used.
 

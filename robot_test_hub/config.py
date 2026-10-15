@@ -81,7 +81,7 @@ class Config:
             raise ConfigError("eta_minimum must be no greater than eta_window")
 
     @classmethod
-    def load(cls, path: Path | None = None, **overrides) -> Config:
+    def load(cls, path: Path | None = None, *, resolve_paths: bool = False, **overrides) -> Config:
         values = {}
         if path is not None:
             try:
@@ -94,6 +94,13 @@ class Config:
                 raise ConfigError("Configuration must include schema_version: 1")
             if values.keys() - cls.__dataclass_fields__.keys():
                 raise ConfigError("Unknown configuration fields; supported fields: " + ", ".join(cls.__dataclass_fields__))
+        # Opt in for launch profiles; preserve existing CLI invocation-relative
+        # semantics unless requested. Explicit CLI paths retain their meaning.
+        if resolve_paths and path is not None:
+            for key in ("data_dir", "backup_destination", "log_export_destination"):
+                value = values.get(key)
+                if isinstance(value, str) and value.strip():
+                    values[key] = str((path.resolve().parent / value).resolve())
         values.update({key: value for key, value in overrides.items() if value is not None})
         return cls(**values)
 

@@ -10,6 +10,7 @@ Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the 
 
 ## Start here
 
+- [Windows setup and daily Start / Check / Open / Stop shortcuts](docs/WINDOWS_SETUP.md)
 - [Log flow commissioning checklist for the school](docs/LOG_FLOW_COMMISSIONING.md)
 - [Optional direct Limelight 4 Rewind collection](docs/LIMELIGHT_REWIND.md)
 - [Full design and document map](docs/README.md)
@@ -55,7 +56,7 @@ Use a new `--data-dir` for a fresh demonstration. An OS-held ownership lock reje
 
 ## Configuration and diagnostics
 
-CLI options remain supported. Optional JSON configuration must specify `schema_version: 1`; CLI options override corresponding file values. Paths resolve relative to the invocation directory. Save private configuration under ignored `data/`, for example `data/hub-config.json`:
+CLI options remain supported. Optional JSON configuration must specify `schema_version: 1`; CLI options override corresponding file values. Direct CLI paths resolve relative to the invocation directory. The Windows launch-profile workflow opts into resolving JSON archive/export/backup paths relative to the hub configuration file, so shortcuts work independently of their starting directory. Save private configuration under ignored `data/`, for example `data/hub-config.json`:
 
 ```json
 {

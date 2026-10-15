@@ -25,6 +25,7 @@ from .runs import install_schema as install_run_schema
 from .review import ReviewStore
 from .service import HubService
 from .storage import OwnershipError, SchemaError
+from .application_control import ApplicationControl, ControlError
 from .recorder import RecordingError
 from .recorder_service import load_video_config
 from .video_investigation import VideoInvestigation, InvestigationError, strict_json
@@ -32,7 +33,7 @@ from .video_media import load_media_config, MediaError
 from .incident_logs import IncidentLogs, LogError, byte_range
 
 
-def create_http_server(service: HubService, source: DemoSource, port: int) -> ThreadingHTTPServer:
+def create_http_server(service: HubService, source: DemoSource, port: int, *, application_control=None) -> ThreadingHTTPServer:
     page = (Path(__file__).parent / "static/index.html").read_bytes()
     notebook_page = (Path(__file__).parent / "static/notebook.html").read_bytes()
     notebook = Notebook(service.root / "catalog.sqlite3")
@@ -66,7 +67,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
 
         def allowed_host(self):
             bound_port = self.server.server_address[1]
-            return self.headers.get("Host") in (f"127.0.0.1:{bound_port}", f"localhost:{bound_port}")
+            return len(self.headers.get_all("Host", [])) == 1 and self.headers.get("Host") in (f"127.0.0.1:{bound_port}", f"localhost:{bound_port}")
 
         def reject_unread(self, status, body):
             # Bounded drain gives ordinary rejected POSTs a reliable HTTP error
@@ -79,7 +80,18 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                 pass
             return self.send(status,body)
 
+        def application_request(self, method):
+            self.close_connection = True
+            if not self.allowed_host():
+                return self.send(403, b'{}')
+            if application_control is None:
+                return self.send(404, b'{}')
+            status, result = application_control.request(method, self.path, self.headers)
+            return self.send(status, json.dumps(result, allow_nan=False).encode())
+
         def do_GET(self):
+            if urlsplit(self.path).path.startswith('/api/v1/application'):
+                return self.application_request('GET')
             if not self.allowed_host():
                 return self.send(403, b'{}')
             if urlsplit(self.path).path.startswith('/api/v1/markers'):
@@ -310,6 +322,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
                 self.send(503, b'{"schema_version":1,"error_code":"notebook_storage_failed","error":"Note was not confirmed saved; retry the same event/revision"}')
 
         def do_POST(self):
+            if urlsplit(self.path).path.startswith('/api/v1/application'):
+                return self.application_request('POST')
             origin = self.headers.get("Origin")
             if (not self.allowed_host() or self.headers.get("X-Hub-Request") != "1"
                     or (origin and (urlsplit(origin).netloc != self.headers.get("Host") or urlsplit(origin).scheme != "http"))
@@ -569,7 +583,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int) -> Th
     return httpd
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, help="Versioned JSON configuration; CLI options override its values")
     parser.add_argument("--port", type=int)
@@ -583,9 +597,11 @@ def main() -> int:
     parser.add_argument('--video-config',type=Path,help='Private explicit video JSON; opts into independent recording')
     parser.add_argument('--marker-config',type=Path,help='Private explicit marker endpoint and boot-aware note delivery opt-in')
     parser.add_argument('--video-media-config',type=Path,help='Explicit pinned local tools for historical media derivatives')
-    args = parser.parse_args()
+    parser.add_argument('--resolve-config-paths', action='store_true', help='Resolve JSON archive/destination paths against its configuration file')
+    parser.add_argument('--launch-control', type=Path, help='Private launcher runtime credential; enables authenticated graceful stop')
+    args = parser.parse_args(argv)
     try:
-        config = Config.load(args.config, port=args.port, data_dir=args.data_dir, idle_delay=args.idle_delay)
+        config = Config.load(args.config, resolve_paths=args.resolve_config_paths, port=args.port, data_dir=args.data_dir, idle_delay=args.idle_delay)
         try:
             rewind_config=load_rewind_config(args.rewind_config)
         except ValueError:
@@ -606,7 +622,10 @@ def main() -> int:
     httpd = None
     shutdown = threading.Event()
     old_handlers = {}
+    application_control = ApplicationControl(args.launch_control, shutdown) if args.launch_control else None
     try:
+        if application_control is not None:
+            application_control.check_available()
         if args.source_config is not None:
             from .live import configure
             explicit_idle=args.idle_delay is not None
@@ -619,7 +638,7 @@ def main() -> int:
                 raise ValueError('NT options require --source-config; no endpoint is inferred')
             source = DemoSource()
         service = HubService(config, source,video_config=video_config,video_media_config=video_media_config,marker_config=marker_config,rewind_config=rewind_config)
-        httpd = create_http_server(service, source, config.port)
+        httpd = create_http_server(service, source, config.port, application_control=application_control)
         httpd.timeout = 0.2
         for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
             if hasattr(signal, name):
@@ -628,6 +647,8 @@ def main() -> int:
         if hasattr(source,'start'):
             source.start()
         service.start()
+        if application_control is not None:
+            application_control.publish(httpd.server_address[1])
         label=('DEMO TRANSFER — synthetic bytes; explicit marker connection enabled' if marker_config is not None
                else 'DEMO ONLY — synthetic bytes, no robot connection') if isinstance(source,DemoSource) else 'LIVE READER — physical performance unqualified'
         print(f"{label}: http://127.0.0.1:{config.port}", flush=True)
@@ -637,7 +658,7 @@ def main() -> int:
         while not shutdown.is_set():
             httpd.handle_request()
         return 0
-    except (OwnershipError, SchemaError) as exc:
+    except (OwnershipError, SchemaError, ControlError) as exc:
         print(f"Hub startup failed: {exc}", file=sys.stderr, flush=True)
         return 2
     except OSError:
@@ -647,12 +668,16 @@ def main() -> int:
         print('Hub source startup failed: check explicit source/NT settings, pinned sftp extra and Alpha 7 native installation',file=sys.stderr,flush=True)
         return 2
     finally:
-        if service is not None and not service.close():
+        fully_closed = service is None or service.close()
+        if not fully_closed:
             print("Shutdown pending: outstanding adapter I/O; ownership retained. See diagnostics.", file=sys.stderr, flush=True)
         if httpd is not None:
             httpd.server_close()
         if source is not None and service is None and hasattr(source,'close'):
             source.close()
+        if application_control is not None and fully_closed and application_control.payload is not None:
+            if not application_control.remove():
+                print("Private runtime record retained; inspect it after the hub process exits before restarting.", file=sys.stderr, flush=True)
         for number, handler in old_handlers.items():
             signal.signal(number, handler)
 

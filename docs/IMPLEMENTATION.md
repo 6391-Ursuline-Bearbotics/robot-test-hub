@@ -43,7 +43,7 @@ Useful release A: T01–T07 and T09–T12 (collection, time search, hub notebook
 | Video | Reviewed recording/alignment cores, independent workers, redacted APIs/browser, two-cue calibration, explicit interval and saved note/run candidates, verified incident MP4 preservation/playback/downloads, timing sidecars and pinned original WPILOG downloads; generated-media qualification passes | Archive startup/metadata scale, live cue detection, shared telemetry/video seeking, actual AdvantageScope use, video backup and physical timing qualification; T16–T17 |
 | LL4 Rewind | Opt-in direct HTTP run-end save requests, idle-only byte-preserving group archive, shared network scheduling, status and coherent backups | Real firmware/profile, playback, clock/run alignment and video sharing qualification; T23 |
 | Home log access | Opt-in deduplicated completed-original export; identity sidecars, filename index, home verification and status | School/home round trip and cloud upload confirmation; notes/reports/video sharing separate |
-| Packaging | Foreground CLI, pinned timezone dependency, Windows/Linux CI | Autostart, upgrade/rollback and restore qualification; T18–T19 |
+| Packaging | Native Windows source setup, saved explicit private profiles, offline readiness, foreground Start/Open and authenticated graceful Stop; Windows/Linux CI | Autostart/service, school installation, upgrade/rollback and integrated practice qualification; T18–T19 |
 
 Status polling, transfers, local verification and indexing use independent workers. Tests and browser checks establish local behavior; real transport, sensor freshness, recording load, camera alignment and independent backup require their own evidence. No hardware deployment or operation has been performed.
 
@@ -219,7 +219,7 @@ Acceptance: V16 generated PTS fixtures and measured camera test; drift/gaps not 
 
 ## T18 — Integrated practice pilot and release packaging
 
-Status: **planned**. Depends: T12, T15, T17; T19 before relying on archive durability. Read all operational/validation docs.
+Status: **partially implemented locally** (October 14, 2026). Native Windows source setup and profile-based Start/Check/Open/Stop are implemented; profile readiness does not open the archive or contact endpoints. Exact-instance authenticated stop retains runtime ownership until workers close. Independent review and a synthetic foreground subprocess exercise failure/cleanup and duplicate-start behavior. See [WINDOWS_SETUP.md](WINDOWS_SETUP.md). Autostart/service, school install, measured practice pilot and real upgrade/rollback remain unfinished. Depends: T12, T15, T17; T19 before relying on archive durability. Read all operational/validation docs.
 
 Work: run a full practice workflow, observe driver burden/false alarms, tune defaults, document startup/end-of-practice procedure, package a supported autostart service with explicit stop/upgrade/rollback, and produce a release checklist.
 
