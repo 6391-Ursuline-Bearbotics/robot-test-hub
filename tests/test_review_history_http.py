@@ -1,4 +1,5 @@
 """Actual loopback routes with append-only review data; no robot/source traffic."""
+from contextlib import closing
 import hashlib
 import http.client
 import json
@@ -23,7 +24,7 @@ class ReviewHistoryHttpTests(unittest.TestCase):
         self.source = DemoSource()
         self.service = HubService(Config(data_dir=str(self.root)), self.source)
         self.addCleanup(self.service.close)
-        with sqlite3.connect(self.root / 'catalog.sqlite3') as db:
+        with closing(sqlite3.connect(self.root / 'catalog.sqlite3')) as db, db:
             store = ReviewStore(db)
             for number in range(105):
                 store.record_maintenance(self.record('repair-' + str(number)))
@@ -54,7 +55,7 @@ class ReviewHistoryHttpTests(unittest.TestCase):
         status, first = self.get(kind='maintenance', limit='20')
         self.assertEqual(status, 200)
         records = list(first['records'])
-        with sqlite3.connect(self.root / 'catalog.sqlite3') as db:
+        with closing(sqlite3.connect(self.root / 'catalog.sqlite3')) as db, db:
             ReviewStore(db).record_maintenance(self.record('repair-0', revision=2, expected_revision=1))
         page = first
         while page['next_cursor']:
@@ -90,7 +91,7 @@ class ReviewHistoryHttpTests(unittest.TestCase):
 
     def test_schema_change_invalidates_cursor_and_reads_leave_originals_unchanged(self):
         status, first = self.get(kind='maintenance', limit='2')
-        with sqlite3.connect(self.root / 'catalog.sqlite3') as db:
+        with closing(sqlite3.connect(self.root / 'catalog.sqlite3')) as db, db:
             db.execute('CREATE TABLE schema_change_fixture(id INTEGER)')
         status, error = self.get(kind='maintenance', cursor=first['next_cursor'])
         self.assertEqual((status, error['error_code']), (409, 'review_history_changed'))
