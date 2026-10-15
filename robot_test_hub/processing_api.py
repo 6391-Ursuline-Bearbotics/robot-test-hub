@@ -3,10 +3,10 @@
 Pagination is live SHA/identity keyset membership, not an immutable archive
 snapshot. Refresh from the first page to see inserts before a saved cursor.
 Verification is a stored receipt, never a fresh disk or hardware health check.
-Report metadata scans stop at 32 MiB aggregate stored JSON or 5 million SQLite
-VM steps; core projections have a separate 50 million step budget. Optional
-report limits preserve other stages with an explicit unavailable/null count.
-A maintained SHA-to-report reverse index is still needed for season scale.
+Report references use maintained scalar metadata; GET never parses or hashes
+report bodies. Incomplete discovery or failed jobs leave totals unknown while
+known exact references remain reachable. Core projections have a bounded SQL
+work budget; catalog maintenance belongs to the background writer.
 """
 from contextlib import closing
 import base64
@@ -18,11 +18,11 @@ import sqlite3
 from urllib.parse import urlencode
 
 from .wpilog import EXTRACTOR_VERSION, MAPPING_REVISION, PROFILE
+from .report_lookup import REFERENCES_SQL, coverage, validate_schema
 
 PREFIX = '/api/v1/processing'
 MAX_JSON_BYTES = 64 * 1024 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
-MAX_REPORT_SCAN_BYTES = 32 * 1024 * 1024
 SECTIONS = ('transfers', 'imports', 'runs', 'reports')
 SUCCESS = ('succeeded', 'succeeded_with_unsupported')
 IMPORT_STATES = (*SUCCESS, 'pending', 'running', 'unsupported', 'invalid', 'failed', 'checksum_mismatch')
@@ -99,8 +99,7 @@ def _base(indexer, revision):
                      error_code='indexer_failed' if state == 'failed' else None))
 
 
-# Every JSON expansion stays inside SQLite; only bounded scalar projections
-# cross the Python interface. Immutable report documents are hashed in chunks.
+# Run/manifest JSON expansions stay inside SQLite; reports use maintained scalars.
 COMMON = """
 WITH originals AS (
  SELECT sha256 AS sha FROM files UNION SELECT sha256 FROM import_artifacts
@@ -130,9 +129,7 @@ WITH originals AS (
  FROM current_doc c,json_each(c.document,'$.runs') r,json_each(r.value,'$.segment_ids') s
  JOIN import_jobs j ON j.id=s.value WHERE j.state IN ('succeeded','succeeded_with_unsupported')
 ), report_refs AS (
- SELECT DISTINCT h.value AS sha,a.report_id,
- json_extract(a.result_json,'$.run_id') AS run_id FROM (SELECT report_id,result_json FROM analysis_reports WHERE :reports_available=1) a,
- json_each(a.result_json,'$.checks') c,json_each(c.value,'$.provenance.source_hashes') h
+ SELECT * FROM ("""+REFERENCES_SQL+""") WHERE :lookup_available=1
 ), stats AS (
  SELECT o.sha,
  (SELECT COUNT(*) FROM fm f WHERE f.sha256=o.sha) AS transfer_count,
@@ -185,31 +182,10 @@ def _catalog(db):
 
 
 def _reports_status(db):
-    total=db.execute('SELECT COALESCE(SUM(length(CAST(result_json AS BLOB))),0) FROM analysis_reports').fetchone()[0]
-    if total>MAX_REPORT_SCAN_BYTES:
-        return False,'report_metadata_scan_limit'
-    if db.execute('SELECT 1 FROM analysis_reports WHERE length(CAST(result_json AS BLOB)) NOT BETWEEN 1 AND ? LIMIT 1',(MAX_JSON_BYTES,)).fetchone():
-        return False,'report_metadata_unavailable'
-    bad = db.execute("SELECT 1 FROM analysis_reports WHERE CASE WHEN json_valid(result_json) THEN "
-        "json_type(result_json,'$.checks') IS NOT 'array' OR json_type(result_json,'$.run_id') IS NOT 'text' OR length(json_extract(result_json,'$.run_id')) NOT BETWEEN 1 AND 128 OR json_extract(result_json,'$.run_id') GLOB '*[^A-Za-z0-9_-]*' OR json_extract(result_json,'$.report_id') IS NOT report_id ELSE 1 END LIMIT 1").fetchone()
-    if bad:
-        return False,'report_metadata_unavailable'
-    bad_check=db.execute("SELECT 1 FROM analysis_reports a,json_each(a.result_json,'$.checks') c WHERE CASE WHEN c.type='object' THEN json_type(c.value,'$.provenance') IS NOT 'object' OR json_type(c.value,'$.provenance.source_hashes') IS NOT 'array' ELSE 1 END LIMIT 1").fetchone()
-    if bad_check:
-        return False,'report_metadata_unavailable'
-    bad_hash=db.execute("SELECT 1 FROM analysis_reports a,json_each(a.result_json,'$.checks') c,json_each(c.value,'$.provenance.source_hashes') h WHERE h.type!='text' OR length(h.value)!=64 OR h.value GLOB '*[^a-f0-9]*' LIMIT 1").fetchone()
-    if bad_hash:
-        return False,'report_metadata_unavailable'
-    # Validate the objects that define report membership, without walking each
-    # high-rate trace sample. Trace payloads are neither interpreted nor loaded.
-    duplicates=db.execute("SELECT 1 FROM analysis_reports a,json_each(a.result_json) t GROUP BY a.report_id,t.key HAVING COUNT(*)>1 LIMIT 1").fetchone()
-    if not duplicates:
-        duplicates=db.execute("SELECT 1 FROM analysis_reports a,json_each(a.result_json,'$.checks') c,json_each(c.value) t GROUP BY a.report_id,c.key,t.key HAVING COUNT(*)>1 LIMIT 1").fetchone()
-    if not duplicates:
-        duplicates=db.execute("SELECT 1 FROM analysis_reports a,json_each(a.result_json,'$.checks') c,json_each(c.value,'$.provenance') t GROUP BY a.report_id,c.key,t.key HAVING COUNT(*)>1 LIMIT 1").fetchone()
-    if duplicates:
-        return False,'report_metadata_unavailable'
-    return True,None
+    validate_schema(db)
+    status=coverage(db)
+    reason=None if status['complete'] else 'report_lookup_failed' if status['state']=='failed' else 'report_lookup_pending'
+    return status['complete'],reason,status
 
 
 def _summary(db, row, reports_available=True, report_reason=None):
@@ -246,15 +222,12 @@ def _summary(db, row, reports_available=True, report_reason=None):
         imports=dict(state=imports,current_profile=PROFILE,extractor_version=EXTRACTOR_VERSION,mapping_revision=MAPPING_REVISION,
             expected_profiles=row['expected_profiles'],current_jobs=row['current_count'],total_jobs=row['import_count']),
         indexing=dict(state=indexing,run_count=row['run_count'],current_toolchain_run_count=row['current_run_count']),
-        reports=dict(state=('available' if row['report_count'] else 'absent' if applicable else 'not_applicable') if reports_available else 'unavailable',count=row['report_count'] if reports_available else None,reason=report_reason),
+        reports=dict(state=('available' if row['report_count'] else 'absent' if applicable else 'not_applicable') if reports_available else 'partial' if row['report_count'] else 'unavailable',count=row['report_count'] if reports_available else None,known_count=row['report_count'],reason=report_reason),
         attention=bool(row['attention']),attention_reasons=reasons,detail_url=PREFIX+'/'+sha)
 
 
 def _section(db, sha, section, limit, after, params):
     params = dict(params, sha=sha, limit=limit+1, after=after)
-    if section=='reports' and not params['reports_available']:
-        return dict(sha256=sha,section=section,availability='unavailable',reason=params['report_reason'],
-                    items=[],total=None,returned=0,limit=limit,next_cursor=None)
     if section == 'transfers':
         where='FROM fm WHERE sha256=:sha'
         sql='SELECT CASE WHEN length(id)<=128 THEN id END AS id,CASE WHEN length(state)<=32 THEN state END AS state,size,offset,CASE WHEN length(verification_state)<=32 THEN verification_state END AS verification_state,CASE WHEN length(verified_digest)<=64 THEN verified_digest END AS verified_digest,CASE WHEN length(format)<=32 THEN format END AS format,CASE WHEN length(profile)<=256 THEN profile END AS profile '+where+' AND id>:after ORDER BY id LIMIT :limit'
@@ -266,7 +239,7 @@ def _section(db, sha, section, limit, after, params):
         sql='SELECT CASE WHEN length(run_id)<=128 THEN run_id END AS id,current_toolchain '+where+' AND run_id>:after ORDER BY run_id LIMIT :limit'
     else:
         where='FROM report_refs WHERE sha=:sha'
-        sql='SELECT CASE WHEN length(report_id)<=128 THEN report_id END AS id,CASE WHEN length(run_id)<=128 THEN run_id END AS run_id '+where+' AND report_id>:after ORDER BY report_id LIMIT :limit'
+        sql='SELECT CASE WHEN length(report_id)<=128 THEN report_id END AS id,CASE WHEN length(run_id)<=128 THEN run_id END AS run_id,sha256 '+where+' AND report_id>:after ORDER BY report_id LIMIT :limit'
     if section=='reports':
         # Materialize lightweight hash/run/report identities once, then page and
         # count that projection; do not reparse full trace documents per query.
@@ -297,14 +270,14 @@ def _section(db, sha, section, limit, after, params):
             items.append(dict(run_id=identity,url='/api/v1/runs/'+identity,current_toolchain=bool(row['current_toolchain'])))
         else:
             run=_id(row['run_id'])
-            length=db.execute('SELECT length(CAST(result_json AS BLOB)) FROM analysis_reports WHERE report_id=?',(identity,)).fetchone()[0]
-            digest=hashlib.sha256()
-            for offset in range(0,length,65536):
-                digest.update(db.execute('SELECT substr(CAST(result_json AS BLOB),?,65536) FROM analysis_reports WHERE report_id=?',(offset+1,identity)).fetchone()[0])
-            items.append(dict(report_id=identity,run_id=run,url='/api/v1/runs/'+run+'/reports/'+identity,sha256=digest.hexdigest()))
+            digest=row['sha256']
+            if type(digest) is not str or not re.fullmatch('[a-f0-9]{64}',digest):
+                raise ValueError('evidence')
+            items.append(dict(report_id=identity,run_id=run,url='/api/v1/runs/'+run+'/reports/'+identity,sha256=digest))
     scope=sha+':'+section
     cursor=_cursor(scope,rows[limit-1]['id']) if len(rows)>limit else None
-    return dict(sha256=sha,section=section,availability='available',reason=None,items=items,total=total,returned=len(items),limit=limit,next_cursor=cursor)
+    partial=section=='reports' and not params['reports_available']
+    return dict(sha256=sha,section=section,availability=('partial' if total else 'unavailable') if partial else 'available',reason=params['report_reason'] if partial else None,items=items,total=None if partial else total,known_total=total,returned=len(items),limit=limit,next_cursor=cursor)
 
 
 def _get(root,path,query,indexer):
@@ -334,7 +307,7 @@ def _get(root,path,query,indexer):
         db.row_factory=sqlite3.Row
         db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
         # Fail visibly if a growing/corrupt catalog exceeds this read request's
-        # SQL work budget. No schema reverse-index is added by this projection.
+        # SQL work budget. This projection never repairs lookup state.
         budget=[5000]
         def within_budget():
             budget[0]-=1
@@ -343,13 +316,13 @@ def _get(root,path,query,indexer):
         revision=_catalog(db)
         budget[0]=500
         try:
-            reports_available,report_reason=_reports_status(db)
+            reports_available,report_reason,lookup_status=_reports_status(db)
         except sqlite3.Error:
-            reports_available,report_reason=False,'report_metadata_work_limit'
+            reports_available,report_reason,lookup_status=False,'report_metadata_work_limit',None
         budget[0]=5000
-        params=dict(PARAMS,reports_available=int(reports_available),report_reason=report_reason)
+        params=dict(PARAMS,reports_available=int(reports_available),report_reason=report_reason,lookup_available=int(lookup_status is not None))
         base=_base(indexer,revision)
-        base.update(report_availability='available' if reports_available else 'unavailable',report_reason=report_reason)
+        base.update(report_availability='available' if reports_available else 'partial',report_reason=report_reason,report_lookup=lookup_status)
         counts=db.execute(COMMON+'SELECT COUNT(*) AS recordings,COALESCE(SUM(attention),0) AS attention FROM flow',params).fetchone()
         base['counts']=dict(counts)
         if listing:
@@ -365,7 +338,7 @@ def _get(root,path,query,indexer):
         if section is None:
             sections={name:dict(total=row[field],url=PREFIX+'/'+sha+'?'+urlencode(dict(section=name)))
                 for name,field in (('transfers','transfer_count'),('imports','import_count'),('runs','run_count'),('reports','report_count'))}
-            sections['reports'].update(availability='available' if reports_available else 'unavailable',reason=report_reason,total=row['report_count'] if reports_available else None)
+            sections['reports'].update(availability='available' if reports_available else 'partial' if row['report_count'] else 'unavailable',reason=report_reason,total=row['report_count'] if reports_available else None,known_total=row['report_count'])
             return dict(base,recording=_summary(db,row,reports_available,report_reason),sections=sections)
         result=_section(db,sha,section,limit,after,params)
         if section=='runs':

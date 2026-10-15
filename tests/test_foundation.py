@@ -157,7 +157,7 @@ class StorageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             db = sqlite3.connect(root / "catalog.sqlite3")
-            db.execute("PRAGMA user_version=99")
+            db.execute(f"PRAGMA user_version={SCHEMA_VERSION + 1}")
             db.close()
             original = (root / "catalog.sqlite3").read_bytes()
             with self.assertRaisesRegex(SchemaError, "newer"):
@@ -202,7 +202,7 @@ class StorageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             db = sqlite3.connect(root / "catalog.sqlite3")
-            db.execute("PRAGMA user_version=99")
+            db.execute(f"PRAGMA user_version={SCHEMA_VERSION + 1}")
             db.close()
             with self.assertRaises(SchemaError):
                 Collector(root, SmallSource())

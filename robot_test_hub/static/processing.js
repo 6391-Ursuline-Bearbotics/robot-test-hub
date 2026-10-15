@@ -70,9 +70,12 @@
   }
   function validatePage(data, value, references = false) {
     if (!Array.isArray(data.items) || data.items.length > LIMIT || data.returned !== data.items.length || data.limit !== LIMIT) throw Error('Recording progress page exceeds supported bounds.');
-    const reportsUnavailable = references && value.section === 'reports' && data.availability === 'unavailable';
-    if (reportsUnavailable) {
-      if (data.total !== null || data.items.length !== 0 || data.returned !== 0 || data.next_cursor !== null) throw Error('Invalid unavailable report-reference page.');
+    const reportsIncomplete = references && value.section === 'reports' && ['partial', 'unavailable'].includes(data.availability);
+    if (reportsIncomplete) {
+      if (data.total !== null) throw Error('Invalid incomplete report-reference page.');
+      if (data.availability === 'partial') {
+        if (count(data.known_total) < data.items.length) throw Error('Invalid known report-reference count.');
+      } else if (data.items.length !== 0 || data.returned !== 0 || data.next_cursor !== null) throw Error('Invalid unavailable report-reference page.');
     } else count(data.total);
     pageCursor(data.next_cursor);
     if (references && (data.sha256 !== value.sha || data.section !== value.section)) throw Error('The hub returned references for a different recording.');
@@ -82,7 +85,8 @@
     if (!item || typeof item.sha256 !== 'string' || !SHA.test(item.sha256) || (expectedSha && item.sha256 !== expectedSha) ||
         !item.original || !item.imports || !item.indexing || !item.reports || !Array.isArray(item.source_types) || item.source_types.length > 32) throw Error('Invalid recording progress metadata.');
     count(item.indexing.run_count);
-    if (item.reports.count !== null || item.reports.state !== 'unavailable') count(item.reports.count);
+    if (item.reports.count !== null || !['partial', 'unavailable'].includes(item.reports.state)) count(item.reports.count);
+    if (item.reports.state === 'partial') count(item.reports.known_count);
     return item;
   }
   function sourceLabel(item) {
@@ -110,7 +114,8 @@
     return item.indexing.state === 'no_runs' ? 'No runs found in imported data' : 'No searchable runs yet';
   }
   function reportLabel(item) {
-    if (item.reports.state === 'unavailable') return 'Report references unavailable';
+    if (item.reports.state === 'partial') return item.reports.known_count + ' known saved report(s); ' + (item.reports.reason === 'report_lookup_failed' ? 'lookup needs attention' : 'lookup incomplete');
+    if (item.reports.state === 'unavailable') return 'Report references unavailable; ' + (item.reports.reason === 'report_lookup_failed' ? 'lookup needs attention' : 'lookup incomplete');
     if (item.reports.state === 'not_applicable') return 'Not applicable to this data';
     return item.reports.count ? item.reports.count + ' saved report(s)' : 'No saved reports yet';
   }
@@ -166,13 +171,15 @@
   }
   function renderReferences(data, value) {
     const parent = node('processing-references'); parent.replaceChildren();
+    if (value.section === 'reports' && data.reason === 'report_lookup_failed') add(parent, 'p', 'Some saved report metadata could not be indexed. Lookup needs maintainer attention; this does not invalidate original recordings.');
     if (value.section === 'reports' && data.availability === 'unavailable') {
       add(parent, 'p', 'Report references unavailable for this recording. No report count is claimed. Original verification, import and searchable-run status remain separate.');
-      add(parent, 'p', 'Use Run history to inspect retained analysis. This bounded processing view cannot currently resolve all report references; future catalog maintenance is needed for complete navigation.');
+      add(parent, 'p', 'Use Run history to inspect retained analysis. Background catalog maintenance has not established complete report coverage. Check the indexer if this persists.');
       const link = add(parent, 'a', 'Open Run history'); link.href = '/runs';
       node('processing-reference-status').textContent = 'Saved report-reference availability is unknown for this original. Other reference sections remain available.';
       return;
     }
+    if (value.section === 'reports' && data.availability === 'partial') add(parent, 'p', 'Report lookup is incomplete. These known references remain available; the full report count is unknown.');
     for (const item of data.items) {
       if (!item || typeof item !== 'object') throw Error('Invalid saved recording reference.');
       const entry = add(parent, 'article'); entry.className = 'processing-reference';
@@ -197,7 +204,7 @@
       technical(entry, 'Saved identity, version and state', item);
     }
     if (!data.items.length) add(parent, 'p', 'No saved references of this type in this page. This is not a successful processing or health result.');
-    node('processing-reference-status').textContent = sections[value.section] + ': ' + data.returned + ' shown of ' + data.total + ' for the selected original.';
+    node('processing-reference-status').textContent = sections[value.section] + ': ' + data.returned + ' shown of ' + (data.availability === 'partial' ? data.known_total + ' known references; full total unknown' : data.total) + ' for the selected original.';
   }
   async function load() {
     if (stopping) { unavailable('The local hub is stopping.'); return; }

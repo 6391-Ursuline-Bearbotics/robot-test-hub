@@ -17,7 +17,7 @@ from robot_test_hub.rewind import RewindConfig,RewindHttpTransport
 from robot_test_hub.rewind_service import load_rewind_config,RewindWorker
 from robot_test_hub.server import create_http_server
 from robot_test_hub.service import HubService,CachedSource
-from robot_test_hub.storage import open_catalog,DataRootOwner,OwnershipError
+from robot_test_hub.storage import open_catalog,DataRootOwner,OwnershipError,SCHEMA_VERSION
 from test_foundation import SmallSource,wait_for
 
 
@@ -179,7 +179,7 @@ class RewindServiceTests(unittest.TestCase):
         with db:
             for name in ("rewind_capture_requests","rewind_recordings","rewind_observations","rewind_camera_context"):
                 db.execute("DROP TABLE "+name)
-            db.execute("DELETE FROM schema_migrations WHERE version=6")
+            db.execute("DELETE FROM schema_migrations WHERE version>=6")
             db.execute("PRAGMA user_version=5")
         db.close()
         def fail(db):
@@ -192,7 +192,7 @@ class RewindServiceTests(unittest.TestCase):
             self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0],5)
             self.assertFalse(db.execute("SELECT name FROM sqlite_master WHERE name='accidental_partial'").fetchone())
         with closing(open_catalog(self.root)) as db:
-            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0],6)
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0],SCHEMA_VERSION)
 
 
 if __name__=="__main__":unittest.main()

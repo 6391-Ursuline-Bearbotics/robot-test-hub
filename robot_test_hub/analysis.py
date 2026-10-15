@@ -156,7 +156,8 @@ class Runner:
                        'analyzer_version': analyzer.declaration.version, 'provenance': input_ref,
                        'configuration': configuration, 'declaration': declaration})
         output = json.loads(canonical(output))
-        with self.db:
+        from .report_lookup import atomic
+        with atomic(self.db):
             self.db.execute('INSERT OR IGNORE INTO analyzer_jobs VALUES (?,?,?,?,?,?,?,?,?,?)',
                 (job_id, VERSION, analyzer.declaration.analyzer_id, analyzer.declaration.version,
                  canonical(declaration), canonical(input_ref), canonical(configuration), output['outcome'],
@@ -172,8 +173,13 @@ class Runner:
                'checks': checks, 'evaluated_checks': sum(c['outcome'] in ('finding','evaluated_no_finding') for c in checks),
                'unavailable_checks': sum(c['outcome'] in ('insufficient_data','unsupported','failed') for c in checks),
                'finding_count': sum(len(c['findings']) for c in checks), 'overall_health': 'not_assessed'}
-        with self.db:
+        from .report_lookup import atomic, has_schema, index_report
+        with atomic(self.db):
             self.db.execute('INSERT OR IGNORE INTO analysis_reports VALUES (?,?,?,?)', (report_id, canonical({'source_hashes': evidence.source_hashes, 'context': evidence.context}), canonical(doc), str(time.time_ns())))
+            if has_schema(self.db):
+                # INSERT OR IGNORE may retain an older stored document. Lookup
+                # reads that row; it never indexes the speculative fresh value.
+                index_report(self.db,report_id)
         return doc
 
 

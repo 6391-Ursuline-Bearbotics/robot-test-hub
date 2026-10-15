@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from robot_test_hub.importer import ArchiveConflict, Importer, install_schema
-from robot_test_hub.storage import open_catalog
+from robot_test_hub.storage import open_catalog, SCHEMA_VERSION
 from robot_test_hub.wpilog import PROFILE
 from test_wpilog import FIXTURES, log_bytes, start, wire_record
 
@@ -152,17 +152,17 @@ class ImporterTests(unittest.TestCase):
     def test_schema_install_obeys_transaction_and_preserves_catalog_version(self):
         db = sqlite3.connect(":memory:")
         self.addCleanup(db.close)
-        db.execute("PRAGMA user_version=9")
+        db.execute(f"PRAGMA user_version={SCHEMA_VERSION + 1}")
         db.execute("BEGIN")
         install_schema(db)
         self.assertTrue(db.in_transaction)
         db.rollback()
         self.assertEqual(db.execute("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'import_%'").fetchone()[0], 0)
-        self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 9)
+        self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION + 1)
         with db:
             install_schema(db)
             install_schema(db)
-        self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 9)
+        self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION + 1)
 
     def test_catalog_path_escape_is_rejected(self):
         job = self.import_fixture()

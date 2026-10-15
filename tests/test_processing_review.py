@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from robot_test_hub import processing_api as api
+from robot_test_hub import report_lookup as lookup
 from robot_test_hub.storage import open_catalog
 
 
@@ -55,6 +56,7 @@ class ProcessingIndependentReviewTest(unittest.TestCase):
         raw=json.dumps(document)
         self.db.execute('INSERT INTO analysis_reports VALUES(?,?,?,?)',(identity,'{}',raw,'100'))
         self.db.commit()
+        lookup.index_report(self.db,identity)
         return raw
 
     def get(self, sha=None, **query):
@@ -257,16 +259,31 @@ class ProcessingIndependentReviewTest(unittest.TestCase):
         runs=self.get(self.sha,section='runs')
         self.assertEqual(runs['items'][0]['run_id'],'run-fixture')
 
-    def test_report_scan_budget_preserves_other_stages_and_returns_unknown_not_zero(self):
+    def test_partial_lookup_keeps_known_refs_reachable_with_unknown_total(self):
         self.artifact()
         self.job('job-fixture')
         self.catalog([{'run_id':'run-fixture','segment_ids':['job-fixture']}],[['job-fixture','fingerprint']])
-        # Invalid JSON proves the disabled report CTE is not expanded after
-        # the aggregate byte budget refuses report parsing.
-        self.db.execute('INSERT INTO analysis_reports VALUES(?,?,?,?)',('report-too-large','{}','not JSON and contains private text','100'))
+        raw=self.report('ready-report',[self.sha])
+        pending={'report_id':'pending-report','run_id':'run-fixture','checks':[{'provenance':{'source_hashes':[self.sha]}}]}
+        self.db.execute('INSERT INTO analysis_reports VALUES(?,?,?,?)',('pending-report','{}',json.dumps(pending),'101'))
         self.db.commit()
-        with patch.object(api,'MAX_REPORT_SCAN_BYTES',1):
-            self.assert_reports_unknown('report_metadata_scan_limit')
+        item=self.get(self.sha)['recording']
+        self.assertEqual(item['original']['state'],'verified')
+        self.assertEqual(item['imports']['state'],'succeeded')
+        self.assertEqual(item['indexing']['run_count'],1)
+        self.assertEqual(item['reports']['state'],'partial')
+        self.assertIsNone(item['reports']['count'])
+        self.assertEqual(item['reports']['known_count'],1)
+        refs=self.get(self.sha,section='reports')
+        self.assertEqual(refs['availability'],'partial')
+        self.assertIsNone(refs['total'])
+        self.assertEqual(refs['known_total'],1)
+        self.assertEqual(refs['items'][0]['report_id'],'ready-report')
+        self.assertEqual(refs['items'][0]['sha256'],hashlib.sha256(raw.encode()).hexdigest())
+        lookup.index_report(self.db,'pending-report')
+        complete=self.get(self.sha)['recording']['reports']
+        self.assertEqual(complete['state'],'available')
+        self.assertEqual(complete['count'],2)
 
     def test_report_sql_interruption_preserves_other_stage_facts(self):
         self.artifact()

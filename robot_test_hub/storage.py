@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 class OwnershipError(RuntimeError):
@@ -127,6 +127,19 @@ def open_catalog(root: Path) -> sqlite3.Connection:
             for table in ("rewind_recordings","rewind_observations","rewind_camera_context","rewind_capture_requests"):
                 if not db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
                     raise SchemaError("Catalog Rewind schema incomplete; preserve the data directory")
+            # Discovery/backfill belongs to the bounded indexing worker. Schema
+            # migration installs only lookup contracts and their singleton state;
+            # it must never parse retained report bodies on archive startup.
+            from .report_lookup import install_schema as lookup_schema, validate_schema as validate_lookup
+            if version <= 6:
+                lookup_schema(db)
+            try:
+                validate_lookup(db)
+            except (ValueError, sqlite3.DatabaseError):
+                raise SchemaError("Catalog report lookup schema is incomplete or modified; preserve the data directory") from None
+            if version <= 6:
+                db.execute("INSERT INTO schema_migrations VALUES (7,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+                db.execute("PRAGMA user_version=7")
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")

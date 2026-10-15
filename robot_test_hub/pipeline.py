@@ -14,6 +14,9 @@ class Pipeline:
         self.last_signature=None
 
     def tick(self):
+        from .report_lookup import has_schema, step
+        if has_schema(self.db):
+            step(self.db)
         candidates=self.db.execute("""SELECT f.id,f.sha256,m.metadata_json
             FROM files f JOIN verification_jobs v ON v.file_id=f.id
             JOIN manifest_items m ON m.file_id=f.id

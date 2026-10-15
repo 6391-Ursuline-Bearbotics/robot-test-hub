@@ -13,6 +13,7 @@ The robot records locally whenever its program runs. After it is disabled long e
 | [WINDOWS_STARTUP.md](WINDOWS_STARTUP.md) | Opt-in current-user sign-in task, preview, status, removal and commissioning limits |
 | [WINDOWS_SETUP.md](WINDOWS_SETUP.md) | Native school-laptop setup, saved private profiles, daily launch/check/open/stop and upgrade limits |
 | [LIMELIGHT_REWIND.md](LIMELIGHT_REWIND.md) | Direct LL4 run-end capture and idle-only HTTP archive, setup and qualification |
+| [REPORT_LOOKUP.md](REPORT_LOOKUP.md) | Schema-7 maintained report provenance, resumable backfill, partial counts and backup contract |
 | [PROCESSING_STATUS.md](PROCESSING_STATUS.md) | Per-recording download/import/index/report receipts and import attention |
 | [LOG_FLOW_COMMISSIONING.md](LOG_FLOW_COMMISSIONING.md) | School prerequisites and log-only laptop, robot, recovery, analysis, and home-access commissioning |
 | [COLUMNAR_ANALYTICS.md](COLUMNAR_ANALYTICS.md) | Main-laptop Parquet conversion, cached DuckDB queries, portable summaries and Drive setup |

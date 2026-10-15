@@ -156,6 +156,14 @@ def _integrity(db):
         required.update({"rewind_recordings","rewind_observations","rewind_camera_context","rewind_capture_requests"})
     if not required <= tables:
         raise BackupError("Catalog schema is incomplete")
+    if version >= 7:
+        # Lookup rows, pending failures and the discovery fence live entirely in
+        # this coherent SQLite image. Verification neither repairs nor backfills.
+        from .report_lookup import validate_schema as validate_lookup
+        try:
+            validate_lookup(db)
+        except (ValueError, sqlite3.DatabaseError):
+            raise BackupError("Catalog report lookup schema is incomplete or modified") from None
     return version
 
 

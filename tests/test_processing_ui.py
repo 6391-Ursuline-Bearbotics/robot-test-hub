@@ -22,13 +22,13 @@ const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resol
 const sha = number => number.toString(16).padStart(64, '0');
 function browser(hash = '') {
   const elements = new Map(), listeners = {}, location = {hash}, calls = [];
-  const control = {pending: [], defer: false, fail: null, mismatch: false, reportsUnavailable: false, badRunCount: false, now: 10000};
+  const control = {pending: [], defer: false, fail: null, mismatch: false, reportsUnavailable: false, reportsPartial: false, badRunCount: false, now: 10000};
   const element = id => { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); };
   const recording = number => ({sha256: sha(number), label: 'ignored private filename', source_types: number === 0 ? ['synthetic_demo'] : number === 1 ? ['MANUAL_LOCAL', 'TRANSFER_CHECKSUM_MISMATCH'] : number === 2 ? ['VERIFIED_TRANSFER'] : ['<img src=x onerror=attack()>'],
     original: {state: number % 3 ? 'verified' : 'expected', transfer_count: 1, artifact_count: 0},
     imports: {state: number === 0 ? 'not_applicable' : number === 1 ? 'failed' : number === 2 ? 'checksum_mismatch' : 'succeeded', current_profile: 'alpha7', extractor_version: 2, mapping_revision: 'm1', current_jobs: 1, total_jobs: 2},
     indexing: {state: number === 0 ? 'not_applicable' : number === 1 ? 'searchable_previous_import' : 'searchable', run_count: control.badRunCount ? null : number ? 1 : 0},
-    reports: {state: number === 0 ? 'not_applicable' : number === 1 ? 'unavailable' : 'available', count: number === 1 ? null : number > 1 ? 1 : 0}});
+    reports: control.reportsPartial ? {state: 'partial', count: null, known_count: 25} : {state: number === 0 ? 'not_applicable' : number === 1 ? 'unavailable' : 'available', count: number === 1 ? null : number > 1 ? 1 : 0}});
   function reply(url) {
     const parsed = new URL(url, 'http://127.0.0.1'), q = parsed.searchParams, section = q.get('section');
     const common = {schema_version: 1, read_only: true, hardware_qualified: false, catalog_revision: 'catalog1', indexer: {state: 'running', error_code: null}};
@@ -49,7 +49,7 @@ function browser(hash = '') {
       if (section === 'imports') return {id: 'attempt-' + n, profile: 'alpha7', state: 'failed', error_code: 'invalid_recording', extractor_version: 2, mapping_revision: 'm1', supported_current_toolchain: false, private_path: 'DO_NOT_RENDER_PRIVATE_PATH'};
       return {id: 'transfer-' + n, state: 'complete', verification_state: 'verified', verified: true, format: 'not_wpilog'};
     });
-    return {...common, catalog_revision: control.mismatch ? 'changed-catalog' : common.catalog_revision, sha256: selected, section, items, total: 25, returned: items.length, limit: 20, next_cursor: offset ? null : 'c20'};
+    return {...common, catalog_revision: control.mismatch ? 'changed-catalog' : common.catalog_revision, sha256: selected, section, items, availability: section === 'reports' && control.reportsPartial ? 'partial' : 'available', known_total: 25, total: section === 'reports' && control.reportsPartial ? null : 25, returned: items.length, limit: 20, next_cursor: offset ? null : 'c20'};
   }
   const fetch = async (url, options) => {
     calls.push({url, options});
@@ -129,6 +129,14 @@ const allNodes = node => [node, ...node.children.flatMap(allNodes)];
   assert.equal(partial.element('processing-reference-next').disabled, true);
   partial.change('processing-section', 'runs'); await settle();
   assert.equal(partial.element('processing-references').children.length, 20, 'other reference sections remain usable');
+  const known = browser('#processing?view=all&sha=' + sha(1) + '&section=reports'); known.control.reportsPartial = true; await settle();
+  assert.match(known.element('processing-record-summary').textContent, /25 known saved report/);
+  assert.match(known.element('processing-references').textContent, /full report count is unknown/);
+  assert.equal(allNodes(known.element('processing-references')).filter(node => node.tagName === 'a').length, 20);
+  assert.match(known.element('processing-reference-status').textContent, /known references; full total unknown/);
+  assert.equal(known.element('processing-reference-next').disabled, false);
+  known.click('processing-reference-next'); await settle();
+  assert.equal(allNodes(known.element('processing-references')).filter(node => node.tagName === 'a').length, 5);
   const invalid = browser(); invalid.control.badRunCount = true; await settle();
   assert.equal(invalid.element('processing-recordings').children.length, 0, 'null counts remain invalid for other stages');
   assert.match(invalid.element('processing-status').textContent, /Invalid recording progress count/);

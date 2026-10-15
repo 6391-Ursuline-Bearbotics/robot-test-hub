@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from robot_test_hub import processing_api as api
 from robot_test_hub.storage import open_catalog
+from robot_test_hub import report_lookup
 from robot_test_hub.wpilog import PROFILE, EXTRACTOR_VERSION, MAPPING_REVISION
 
 
@@ -53,6 +54,7 @@ class ProcessingApiTests(unittest.TestCase):
         doc=dict(report_id=identity,run_id=run,checks=[dict(provenance=dict(source_hashes=[sha]),coverage=dict(trace=trace or []))])
         raw=json.dumps(doc)
         self.db.execute('INSERT INTO analysis_reports VALUES(?,?,?,?)',(identity,'{}',raw,'1'));self.db.commit()
+        report_lookup.index_report(self.db,identity)
         return hashlib.sha256(raw.encode()).hexdigest()
 
     def get(self,sha=None,**query):
@@ -199,26 +201,43 @@ class ProcessingApiTests(unittest.TestCase):
         self.db.execute('UPDATE manifest_items SET metadata_json=?',('x'*40000,));self.db.commit()
         self.assertTrue(self.detail()['attention'])
         self.report(trace=['private'*1000])
-        with patch.object(api,'MAX_JSON_BYTES',100):
-            value=self.get()['items'][0]
-            self.assertEqual(value['reports']['state'],'unavailable')
-            self.assertIsNone(value['reports']['count'])
-            self.assertEqual(value['original']['state'],'verified')
+        self.db.execute("UPDATE analysis_reports SET result_json=result_json");self.db.commit()
+        report_lookup.step(self.db,max_bytes=100)
+        value=self.get()['items'][0]
+        self.assertEqual(value['reports']['state'],'unavailable')
+        self.assertIsNone(value['reports']['count'])
+        self.assertEqual(value['original']['state'],'verified')
 
-    def test_report_scan_budget_preserves_core_flow_and_empty_is_not_absence(self):
+    def test_incomplete_lookup_preserves_known_refs_without_claiming_full_count(self):
         self.job();self.report(trace=['x'*1000])
-        with patch.object(api,'MAX_REPORT_SCAN_BYTES',100):
+        self.db.execute("INSERT INTO analysis_reports VALUES('bad','{}','invalid','1')");self.db.commit()
+        for failed in (False,True):
+            if failed:report_lookup.step(self.db)
             item=self.detail()
             self.assertEqual(item['imports']['state'],'succeeded')
-            self.assertEqual(item['reports']['state'],'unavailable')
+            self.assertEqual(item['reports']['state'],'partial')
             self.assertIsNone(item['reports']['count'])
+            self.assertEqual(item['reports']['known_count'],1)
             detail=self.get(self.sha())
             self.assertIsNone(detail['sections']['reports']['total'])
             page=self.get(self.sha(),section='reports')
-            self.assertEqual(page['availability'],'unavailable')
+            self.assertEqual(page['availability'],'partial')
             self.assertIsNone(page['total'])
-            self.assertEqual(page['items'],[])
-            self.assertEqual(page['reason'],'report_metadata_scan_limit')
+            self.assertEqual(page['known_total'],1)
+            self.assertEqual(page['items'][0]['report_id'],'report-1')
+            self.assertEqual(page['reason'],'report_lookup_failed' if failed else 'report_lookup_pending')
+
+    def test_large_aggregate_reports_remain_reachable_without_get_body_reads(self):
+        self.job()
+        for i in range(5):self.report(identity='large-'+str(i),trace=['x'*(7*1024*1024)])
+        statements=[];connect=sqlite3.connect
+        def traced(*args,**kwargs):
+            db=connect(*args,**kwargs);db.set_trace_callback(statements.append);return db
+        with patch('robot_test_hub.processing_api.sqlite3.connect',side_effect=traced):
+            page=self.get(self.sha(),section='reports')
+        self.assertEqual(page['total'],5)
+        self.assertEqual(len(page['items']),5)
+        self.assertFalse(any('result_json' in sql.lower() for sql in statements))
 
     def test_indexer_failure_stopped_and_restart_are_distinct_from_collection(self):
         self.job()
