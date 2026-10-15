@@ -10,6 +10,7 @@ The robot records locally whenever its program runs. After it is disabled long e
 
 | Document | Read when implementing |
 | --- | --- |
+| [WINDOWS_STARTUP.md](WINDOWS_STARTUP.md) | Opt-in current-user sign-in task, preview, status, removal and commissioning limits |
 | [WINDOWS_SETUP.md](WINDOWS_SETUP.md) | Native school-laptop setup, saved private profiles, daily launch/check/open/stop and upgrade limits |
 | [LIMELIGHT_REWIND.md](LIMELIGHT_REWIND.md) | Direct LL4 run-end capture and idle-only HTTP archive, setup and qualification |
 | [LOG_FLOW_COMMISSIONING.md](LOG_FLOW_COMMISSIONING.md) | School prerequisites and log-only laptop, robot, recovery, analysis, and home-access commissioning |

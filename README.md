@@ -11,6 +11,7 @@ Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the 
 ## Start here
 
 - [Windows setup and daily Start / Check / Open / Stop shortcuts](docs/WINDOWS_SETUP.md)
+- [Optional startup when the dedicated Windows user signs in](docs/WINDOWS_STARTUP.md)
 - [Log flow commissioning checklist for the school](docs/LOG_FLOW_COMMISSIONING.md)
 - [Optional direct Limelight 4 Rewind collection](docs/LIMELIGHT_REWIND.md)
 - [Full design and document map](docs/README.md)

@@ -32,7 +32,7 @@ python -m venv .venv
 - [ ] Create the hub configuration using [Analytics setup](COLUMNAR_ANALYTICS.md#enable-on-the-dedicated-laptop). Enable analytics and, when the Drive folder is ready, original-log export and summary sharing. Start with one analysis thread and the 512 MB DuckDB setting.
 - [ ] Run the [offline readiness check](LIVE_TRANSFER.md#check-setup-before-connecting) with the same source, NT, hub-config, and toolchain arguments intended for live operation. Resolve each failed prerequisite before connecting.
 - [ ] Confirm Windows date/time and time zone are correct. Check that run history reports known versus unavailable wall-clock mappings honestly.
-- [ ] Save the confirmed settings in the [private Windows launch profile](WINDOWS_SETUP.md), then run CheckHub and use StartHub/OpenHub/StopHub for daily operation. Autostart/service installation remains a later packaging task.
+- [ ] Save the confirmed settings in the [private Windows launch profile](WINDOWS_SETUP.md), then run CheckHub and use StartHub/OpenHub/StopHub for daily operation. Keep startup manual for the first bench trial. Optional [current-user sign-in startup](WINDOWS_STARTUP.md) has a separate qualification step below; Windows service hosting remains unfinished.
 
 Do not supply video-config, video-media-config, or marker-config for the first trial. Camera recording and robot note delivery are separate opt-ins; local notebook notes can still be used.
 
@@ -88,3 +88,14 @@ The log flow is ready for a limited practice pilot when automatic collection and
 Before relying on the hub as the only store of notebook/review history, configure and test [coherent backup and clean-directory restore](BACKUP.md). Shared originals and portable reports do not include the complete working catalog or notebook history. Keep original evidence; automatic source deletion remains off.
 
 Save completed checklists and real test results privately. Leave public checkboxes blank; this document is the procedure, not a completed hardware qualification. Camera commissioning can be scheduled separately after this flow works. The optional [direct LL4 Rewind collector](LIMELIGHT_REWIND.md) now has its own configuration and bench trial; it is not required for this log-first checklist.
+
+
+## Optional sign-in startup after manual collection passes
+
+- [ ] Preview the current-user task with StartupHub.cmd and verify its private profile and source folder. Run CheckHub with the same profile.
+- [ ] Through the school's authorized laptop setup procedure, explicitly install the task. Ordinary SetupHub does not register it. Confirm account policy permits the least-privileged interactive task without a stored password or elevation.
+- [ ] At a planned sign-out/sign-in, verify the hub appears after the configured 30-second trigger delay. Check StartupHub Status, the browser's actual source identity and the current archive; Task Scheduler Running alone is not hub readiness.
+- [ ] Confirm ordinary unknown/stale/enabled status still prevents bulk transfers. This startup trial does not replace the measured transfer/robot-load bench checks.
+- [ ] Request StopHub and verify the scheduled process finishes and stays stopped for this sign-in. There is no restart-on-failure policy.
+- [ ] With the task inactive, test Remove and a later sign-in with no hub startup. Use the documented explicit Install -Replace after a source-folder update; verify the next planned sign-in selects the new folder.
+- [ ] Preserve the school-account results privately. No actual Windows task registration, sign-in or removal was exercised by the repository's local tests.
