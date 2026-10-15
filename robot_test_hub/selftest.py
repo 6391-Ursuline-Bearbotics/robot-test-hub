@@ -43,7 +43,11 @@ def _sample():
     manifest=json.loads(encoded)
     expected=dict(schema_version=1,source_type='SYNTHETIC',file='alpha7-main.wpilog',size_bytes=SAMPLE_SIZE,
                   sha256=SAMPLE_SHA256,physical_records=143,cycle_timestamp_ns=list(CYCLE_TIMESTAMPS))
-    _require(manifest==expected and encoded==(json.dumps(expected,sort_keys=True,indent=2)+'\n').encode('utf-8'))
+    # Git may check out this text resource with CRLF on Windows. Only its
+    # line-ending representation is flexible; manifest values and raw log bytes
+    # remain exact. No normalization is applied to the original WPILOG.
+    canonical=(json.dumps(expected,sort_keys=True,indent=2)+'\n').encode('utf-8')
+    _require(manifest==expected and encoded.replace(b'\r\n',b'\n')==canonical)
     with folder.joinpath('alpha7-main.wpilog').open('rb') as stream:data=stream.read(SAMPLE_SIZE+1)
     _require(len(data)==SAMPLE_SIZE and hashlib.sha256(data).hexdigest()==SAMPLE_SHA256)
     return data
