@@ -74,11 +74,17 @@ The wrappers pass paths as arguments without evaluating their contents as PowerS
 
 ## Runtime record and interrupted shutdown
 
-The launcher creates a private launch.runtime.json beside the profile only after the server binds and its workers start. It contains a random local control credential; do not share it, sync it to Drive, or put it in Git. Keep its parent directory private to the laptop account on a local filesystem supporting hard links (normally NTFS). Ordinary server launches without launcher control expose no application stop endpoint.
+The launcher creates a private launch.runtime.json beside the profile only after the server binds and its workers start. It contains a random local control credential; do not share it, sync it to Drive, or put it in Git. Keep its parent directory private to the laptop account on a local filesystem supporting hard links and advisory locks (normally NTFS). Ordinary server launches without launcher control expose no application stop endpoint.
 
-Stop verifies both the recorded instance identity and PID before requesting shutdown. The server removes only its own unchanged record after all service workers close. It retains archive ownership and the record while adapter cleanup remains outstanding. An unreachable port is not proof that the old hub has exited, so the launcher does not automatically delete a stale record or kill its recorded PID.
+Schema 2 adds a stable sibling launch.runtime.json.lease file. The hub acquires its OS lock before opening the source or archive and holds it through startup, operation and pending worker cleanup. A second start cannot change the active owner's runtime or lease contents. The lease file normally remains after shutdown: never delete or replace it to unlock a running hub. The OS releases its lock on process exit.
 
-After a crash or forced shutdown, the record may remain and a new start will refuse to overwrite it. First establish that the prior hub process has exited; rebooting the laptop is an unambiguous way to establish this. Preserve/rename that runtime file privately before restarting. Do not remove the archive's .owner.lock file. This conservative manual crash-recovery step and autostart are remaining packaging work.
+Stop verifies both the recorded instance identity and PID before requesting shutdown; it never kills an OS process. Clean shutdown removes the hub's own unchanged runtime and releases its lease only after every service worker closes. Incomplete cleanup retains the service, archive owner and application lease for the remaining process lifetime, including if a helper thread refers only to its source.
+
+After a crash, the next start acquires the released OS lease and automatically reclaims a strictly validated schema-2 runtime. It then opens the original archive and recovers its committed checkpoints and operator pause. Neither an unreachable port nor a PID is used as proof that an owner exited.
+
+Legacy schema-1 records from the first launcher release, unknown schemas, malformed/changed records, and linked files are preserved for inspection. Stop still accepts a valid legacy record when its hub is running. For a legacy or ambiguous leftover, first establish that the old process exited (rebooting the laptop is one way), then preserve/rename the runtime file privately before restarting. Do not remove the archive's .owner.lock or the stable application lease. Automatic startup/service installation remains unfinished.
+
+This is a cooperative local-process ownership protocol in an account-private directory. It does not defend against a different process with that account's write access deliberately replacing lock files. Local crash tests do not establish filesystem/power-loss durability on school hardware.
 
 ## Upgrade and rollback
 

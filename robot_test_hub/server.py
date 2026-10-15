@@ -33,6 +33,12 @@ from .video_media import load_media_config, MediaError
 from .incident_logs import IncidentLogs, LogError, byte_range
 
 
+# main normally runs once in a foreground process. Keep an incomplete shutdown
+# strongly rooted until that process exits: a native helper can own only its
+# source, so service->control references alone are not a lifetime guarantee.
+_pending_shutdown_services = []
+
+
 def create_http_server(service: HubService, source: DemoSource, port: int, *, application_control=None) -> ThreadingHTTPServer:
     page = (Path(__file__).parent / "static/index.html").read_bytes()
     notebook_page = (Path(__file__).parent / "static/notebook.html").read_bytes()
@@ -638,6 +644,9 @@ def main(argv=None) -> int:
                 raise ValueError('NT options require --source-config; no endpoint is inferred')
             source = DemoSource()
         service = HubService(config, source,video_config=video_config,video_media_config=video_media_config,marker_config=marker_config,rewind_config=rewind_config)
+        # A pending worker retains its service and therefore this OS lease even
+        # after main returns. Release only once every service worker has closed.
+        service.application_control_owner = application_control
         httpd = create_http_server(service, source, config.port, application_control=application_control)
         httpd.timeout = 0.2
         for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
@@ -670,14 +679,18 @@ def main(argv=None) -> int:
     finally:
         fully_closed = service is None or service.close()
         if not fully_closed:
+            _pending_shutdown_services.append(service)
             print("Shutdown pending: outstanding adapter I/O; ownership retained. See diagnostics.", file=sys.stderr, flush=True)
         if httpd is not None:
             httpd.server_close()
         if source is not None and service is None and hasattr(source,'close'):
             source.close()
-        if application_control is not None and fully_closed and application_control.payload is not None:
-            if not application_control.remove():
-                print("Private runtime record retained; inspect it after the hub process exits before restarting.", file=sys.stderr, flush=True)
+        if application_control is not None and fully_closed:
+            try:
+                if application_control.payload is not None and not application_control.remove():
+                    print("Private runtime record retained; inspect it after the hub process exits before restarting.", file=sys.stderr, flush=True)
+            finally:
+                application_control.close()
         for number, handler in old_handlers.items():
             signal.signal(number, handler)
 

@@ -26,6 +26,7 @@ class ApplicationControlIndependentReviewTest(unittest.TestCase):
         self.path = self.base / 'private.runtime.json'
         self.event = threading.Event()
         self.control = ApplicationControl(self.path, self.event)
+        self.addCleanup(self.control.close)
 
     def headers(self, extra=(), *, auth=True):
         headers = Message()
@@ -40,6 +41,7 @@ class ApplicationControlIndependentReviewTest(unittest.TestCase):
         self.control.publish(6391)
         original = self.path.read_bytes()
         other = ApplicationControl(self.path, threading.Event())
+        self.addCleanup(other.close)
         with self.assertRaises(ControlError):
             other.publish(6392)
         self.assertFalse(other.remove())
@@ -125,12 +127,16 @@ class ApplicationControlIndependentReviewTest(unittest.TestCase):
              patch.object(server.signal, 'signal', return_value=None), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             result = server.main(['--data-dir', str(self.base / 'archive'), '--launch-control', str(self.path)])
+        if getattr(service, 'application_control_owner', None) is not None:
+            self.addCleanup(service.application_control_owner.close)
+            self.addCleanup(lambda: server._pending_shutdown_services.remove(service) if service in server._pending_shutdown_services else None)
         return result, service, httpd
 
     def test_bind_failure_closes_service_and_publishes_nothing(self):
         result, service, _ = self.lifecycle(bind_error=True)
         self.assertEqual(result, 2)
         service.close.assert_called_once()
+        self.assertFalse(service.application_control_owner.lease_held)
         self.assertFalse(self.path.exists())
 
     def test_worker_start_failure_closes_bound_server_and_no_runtime(self):
@@ -138,12 +144,18 @@ class ApplicationControlIndependentReviewTest(unittest.TestCase):
         self.assertEqual(result, 2)
         httpd.server_close.assert_called_once()
         service.close.assert_called_once()
+        self.assertFalse(service.application_control_owner.lease_held)
         self.assertFalse(self.path.exists())
 
     def test_outstanding_worker_retains_runtime(self):
         result, service, httpd = self.lifecycle(closes=False)
         self.assertEqual(result, 0)
         self.assertTrue(self.path.exists())
+        self.assertTrue(service.application_control_owner.lease_held)
+        contender = ApplicationControl(self.path, threading.Event())
+        self.addCleanup(contender.close)
+        with self.assertRaises(ControlError):
+            contender.check_available()
         httpd.server_close.assert_called_once()
 
     def test_clean_shutdown_removes_only_own_runtime(self):

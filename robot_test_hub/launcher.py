@@ -248,7 +248,7 @@ def _runtime(path):
     try:
         value = _json(runtime_path(path))
         if (value.keys() != {'schema_version', 'port', 'pid', 'token', 'instance_id'}
-                or type(value['schema_version']) is not int or value['schema_version'] != 1
+                or type(value['schema_version']) is not int or value['schema_version'] not in (1, 2)
                 or type(value['port']) is not int or not 1 <= value['port'] <= 65535
                 or type(value['pid']) is not int or not 0 < value['pid'] < 2**32
                 or not isinstance(value['token'], str) or not re.fullmatch('[a-f0-9]{64}', value['token'])
