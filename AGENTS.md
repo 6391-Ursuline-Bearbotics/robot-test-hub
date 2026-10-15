@@ -25,6 +25,8 @@ Robot-side changes belong in the robot repository and require its own AGENTS.md 
 
 Do not restart AdvantageKit to rotate files. Implement rotation only under the receiver contract and tests in `docs/ROBOT_INTEGRATION.md`. Verify alpha APIs against exact installed sources rather than stable documentation snippets.
 
+Read-only catalog routes must not construct stores that install schemas. Open SQLite with URI read-only mode and query_only when appropriate, and close every connection explicitly. A SQLite connection context commits or rolls back a transaction; it does not close the connection. In fixtures that mutate data, combine an outer contextlib.closing connection with an inner transaction context so Windows cleanup never depends on garbage collection.
+
 ## Validation and delivery
 
 Run `python -m unittest discover -s tests -v` after collector changes. Add behavior tests for failure recovery, timing, unit conversion, idempotency, and source gating. Use a monotonic fake clock rather than long sleeps. UI changes need a browser check; hardware claims need measurements on hardware. Report these separately.

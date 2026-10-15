@@ -24,6 +24,7 @@ from . import run_api
 from .runs import install_schema as install_run_schema
 from .review import ReviewStore
 from . import review_history
+from . import processing_api
 from .service import HubService
 from .storage import OwnershipError, SchemaError
 from .application_control import ApplicationControl, ControlError
@@ -69,7 +70,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
             self.end_headers()
             try:
                 self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
 
         def allowed_host(self):
@@ -113,7 +114,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.send(200, page, "text/html; charset=utf-8")
             if self.path == "/notebook":
                 return self.send(200, notebook_page, "text/html; charset=utf-8")
-            if self.path in ('/notebook.js','/notebook-sw.js','/review-history.js'):
+            if self.path in ('/notebook.js','/notebook-sw.js','/review-history.js','/processing.js'):
                 return self.send(200,(Path(__file__).parent/'static'/self.path[1:]).read_bytes(),'application/javascript; charset=utf-8')
             if self.path == '/runs':
                 return self.send(200,(Path(__file__).parent/'static/runs.html').read_bytes(),'text/html; charset=utf-8')
@@ -144,6 +145,24 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                     return self.send(200,json.dumps(result,allow_nan=False).encode())
                 except (ValueError,TypeError,OverflowError):
                     return self.send(400,b'{"schema_version":1,"error_code":"invalid_video_query"}')
+            if (urlsplit(self.path).path == '/api/v1/processing'
+                    or urlsplit(self.path).path.startswith('/api/v1/processing/')):
+                if service.stop.is_set() or service.closed:
+                    return self.send(503, b'{"schema_version":1,"error_code":"processing_unavailable"}')
+                try:
+                    url = urlsplit(self.path)
+                    query = parse_qs(url.query, keep_blank_values=True, max_num_fields=4)
+                    if url.fragment or any(len(values) != 1 for values in query.values()):
+                        raise ValueError('invalid_processing_query')
+                    with service.cache_lock:
+                        indexer = dict(service.health.get('indexer', {}))
+                    result = processing_api.get(service.root, url.path,
+                        {key: values[0] for key, values in query.items()}, indexer=indexer)
+                    return self.send(200, json.dumps(result, allow_nan=False).encode())
+                except processing_api.ProcessingError as exc:
+                    return self.send(exc.status, json.dumps({'schema_version': 1, 'error_code': exc.code}).encode())
+                except (ValueError, TypeError, OverflowError):
+                    return self.send(400, b'{"schema_version":1,"error_code":"invalid_processing_query"}')
             if urlsplit(self.path).path in ('/api/v1/review/history', '/api/v1/review/record', '/api/v1/review/chain'):
                 if service.stop.is_set() or service.closed:
                     return self.send(503, b'{"schema_version":1,"error_code":"review_history_unavailable"}')

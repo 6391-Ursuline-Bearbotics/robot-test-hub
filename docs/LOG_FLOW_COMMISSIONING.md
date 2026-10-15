@@ -65,6 +65,8 @@ Use separately scoped trials for controlled robot reboot and reader-process fail
 
 ## Confirm the local evidence
 
+- [ ] Open [Recording processing](PROCESSING_STATUS.md) on Transfers. Confirm original verification, exact import outcomes, searchable runs and saved reports separately. Review Import needs attention across the catalog; an empty transfer queue alone does not prove usable data. A disabled-only recording can be imported without containing an enabled run.
+
 - [ ] Confirm original integrity verification and import status separately. Open a downloaded WPILOG in AdvantageScope.
 - [ ] Find the exercise in Run history by date/time and robot identity. If time mapping is unavailable, record the gap rather than assuming a time.
 - [ ] Save a local notebook note and verify its incident time can be associated with the intended run.
