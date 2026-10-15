@@ -369,6 +369,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                     or (origin and (urlsplit(origin).netloc != self.headers.get("Host") or urlsplit(origin).scheme != "http"))
                     or self.headers.get("Content-Type") != "application/json"):
                 return self.reject_unread(403, b'{}')
+            if self.path.startswith('/api/v1/imports/'):
+                return self.import_retry_post()
             if self.path.startswith('/api/v1/markers'):
                 return self.marker_request(post=True)
             if self.path in ('/api/v1/video/alignments','/api/v1/video/map','/api/v1/video/associate','/api/v1/video/preservations'):
@@ -402,6 +404,38 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
             except sqlite3.Error:
                 service.diagnostics.record("settings_write_failed", "Cannot save operator preference; check catalog/local storage")
                 self.send(503, b'{"error_code":"settings_write_failed","error":"Preference was not saved; check local storage"}')
+
+        def import_retry_post(self):
+            from .import_retry import RetryError
+            self.close_connection=True
+            pieces=self.path.split('/')
+            if (len(pieces)!=6 or pieces[:4]!=['','api','v1','imports'] or pieces[5]!='retry'
+                or not __import__('re').fullmatch('[A-Za-z0-9_-]{1,128}',pieces[4])):
+                return self.reject_unread(400,b'{"schema_version":1,"error_code":"invalid_import_retry"}')
+            if service.stop.is_set() or service.closed:
+                return self.reject_unread(503,b'{"schema_version":1,"error_code":"service_stopping"}')
+            consumed=False
+            try:
+                lengths=self.headers.get_all('Content-Length',[])
+                if (len(lengths)!=1 or self.headers.get_all('Transfer-Encoding')
+                    or len(self.headers.get_all('Origin',[]))>1 or self.headers.get_all('X-Hub-Request',[])!=['1']
+                    or self.headers.get_all('Content-Type',[])!=['application/json']):
+                    raise RetryError(400,'invalid_import_retry')
+                length=int(lengths[0])
+                if not 0<length<=4096:raise RetryError(400,'invalid_import_retry')
+                raw=self.rfile.read(length)
+                consumed=True
+                if len(raw)!=length:raise RetryError(400,'invalid_import_retry')
+                payload=strict_json(raw)
+                result=service.enqueue_import_retry(pieces[4],payload)
+                return self.send(202,json.dumps(result,allow_nan=False).encode())
+            except RetryError as exc:
+                body=json.dumps({'schema_version':1,'error_code':exc.code}).encode()
+                return self.send(exc.status,body) if consumed else self.reject_unread(exc.status,body)
+            except (ValueError,TypeError,KeyError,OverflowError,RecursionError):
+                return self.send(400,b'{"schema_version":1,"error_code":"invalid_import_retry"}')
+            except sqlite3.Error:
+                return self.send(503,b'{"schema_version":1,"error_code":"import_retry_storage_unavailable"}')
 
         def video_investigation_error(self, exc):
             if isinstance(exc, InvestigationError):
@@ -692,8 +726,8 @@ def main(argv=None) -> int:
         service.start()
         if application_control is not None:
             application_control.publish(httpd.server_address[1])
-        label=('DEMO TRANSFER — synthetic bytes; explicit marker connection enabled' if marker_config is not None
-               else 'DEMO ONLY — synthetic bytes, no robot connection') if isinstance(source,DemoSource) else 'LIVE READER — physical performance unqualified'
+        label=('DEMO TRANSFER â€” synthetic bytes; explicit marker connection enabled' if marker_config is not None
+               else 'DEMO ONLY â€” synthetic bytes, no robot connection') if isinstance(source,DemoSource) else 'LIVE READER â€” physical performance unqualified'
         print(f"{label}: http://127.0.0.1:{config.port}", flush=True)
         if not isinstance(source,DemoSource):
             print(f"Idle delay {config.idle_delay:g} s; freshness {config.freshness:g} s; chunk {config.chunk_size} bytes",flush=True)

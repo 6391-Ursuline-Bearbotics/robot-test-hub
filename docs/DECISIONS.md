@@ -13,6 +13,7 @@
 | Local-first Python service and browser UI | Fits existing Python analysis work; runs without cloud or internet. |
 | Files plus SQLite; opt-in Parquet and DuckDB derivatives | Main laptop performs detailed analysis; original evidence remains authoritative and writable databases stay local. |
 | Separate download, import, searchable-run and report status | A caught-up queue does not imply usable data. Bounded catalog-only projections expose attention without source requests; report lookup can be explicitly unavailable under its resource budget. See [processing status](PROCESSING_STATUS.md). |
+| Explicit exact-attempt local import retries | Retry eligible current I/O/extractor failures from retained originals, with durable deduplicated receipts and worker recovery; transfer retry stays separate. See [import retry](IMPORT_RETRY.md). |
 | Run identity independent of files | Existing recordings span enable/disable cycles; future rotation may split runs. |
 | Idle-only bounded resumable transfers | User priority: no bulk collection while operating; save work at interruptions. |
 | Explicit closed-segment manifest as preferred target | Stable size/identity avoids unreliable filename/growth heuristics. |

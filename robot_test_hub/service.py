@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import copy
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 import math
 import inspect
 from pathlib import Path
@@ -409,6 +409,18 @@ class HubService:
         with self.cache_lock:
             if not any(row['id'] == identity for row in self.cache['files']):
                 raise ValueError("Unknown transfer identity")
+
+    def enqueue_import_retry(self,job_id,payload):
+        from .import_retry import enqueue,RetryError
+        import sqlite3
+        with self.settings_lock:
+            if self.closed or self.stop.is_set():raise RetryError(503,'service_stopping')
+            with self.cache_lock:
+                state=self.health.get('indexer',{}).get('state')
+            if state!='running':raise RetryError(503,'import_indexer_unavailable')
+            with closing(sqlite3.connect((self.root/'catalog.sqlite3').as_uri()+'?mode=rw',uri=True,timeout=2)) as db:
+                db.row_factory=sqlite3.Row
+                return enqueue(db,job_id,payload)
 
     def retry_errors(self, identity=None):
         if self.stop.is_set():

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 class OwnershipError(RuntimeError):
@@ -140,6 +140,14 @@ def open_catalog(root: Path) -> sqlite3.Connection:
             if version <= 6:
                 db.execute("INSERT INTO schema_migrations VALUES (7,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
                 db.execute("PRAGMA user_version=7")
+            from .import_retry import install_schema as retry_schema,validate_schema as validate_retry
+            if version<=7:retry_schema(db)
+            try:validate_retry(db)
+            except (ValueError,sqlite3.DatabaseError):
+                raise SchemaError('Catalog import retry schema is incomplete or modified; preserve the data directory') from None
+            if version<=7:
+                db.execute("INSERT INTO schema_migrations VALUES(8,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+                db.execute('PRAGMA user_version=8')
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")

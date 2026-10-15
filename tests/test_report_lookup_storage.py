@@ -29,6 +29,7 @@ def insert_report(db, identity, body=None):
 
 
 def remove_lookup_schema(db):
+    db.execute("DROP TABLE import_retry_requests")
     for name in report_lookup.TRIGGER_SQL:
         db.execute('DROP TRIGGER "' + name + '"')
     for name in reversed(LOOKUP_TABLES):
@@ -87,7 +88,7 @@ class ReportLookupStorageTests(unittest.TestCase):
                 self.assertEqual(db.execute("SELECT result_json FROM analysis_reports").fetchone()[0],
                                  "not JSON: preserve exact original bytes")
                 self.assertEqual(db.execute("SELECT value FROM settings WHERE key='migration-preserve'").fetchone()[0], "original")
-                self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 7)
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM schema_migrations WHERE version=7").fetchone()[0], 1)
                 self.assertEqual(db.execute("SELECT discovery_complete FROM report_lookup_state").fetchone()[0], 0)
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM report_lookup_jobs").fetchone()[0], 0)
@@ -112,7 +113,7 @@ class ReportLookupStorageTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT COUNT(*) FROM schema_migrations WHERE version>=7").fetchone()[0], 0)
             self.assertEqual(db.execute("SELECT result_json FROM analysis_reports").fetchone()[0], report_body("legacy"))
         with closing(open_catalog(root)) as db:
-            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 7)
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             self.assertEqual(report_lookup.coverage(db)["state"], "incomplete")
 
     def corrupt(self, db, variant):
@@ -182,7 +183,7 @@ class ReportLookupStorageTests(unittest.TestCase):
         image = destination / "mid-backfill"
         self.assertEqual(verify(image)["file_count"], 1, "Lookup data belongs entirely to the catalog")
         manifest = json.loads((image / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["catalog_schema_version"], 7)
+        self.assertEqual(manifest["catalog_schema_version"], SCHEMA_VERSION)
         restored = self.base / "restored"
         restore(image, restored)
         self.assertEqual(hashlib.sha256((restored / "catalog.sqlite3").read_bytes()).hexdigest(), manifest["files"][0]["sha256"])
@@ -239,7 +240,7 @@ class ReportLookupStorageTests(unittest.TestCase):
             self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 6)
             self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='report_lookup_state'").fetchone())
         with closing(open_catalog(restored)) as db:
-            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 7)
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             self.assertEqual(report_lookup.coverage(db)["state"], "incomplete")
 
     def test_oldest_supported_backup_remains_readable_before_catalog_upgrade(self):

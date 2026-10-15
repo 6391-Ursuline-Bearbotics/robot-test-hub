@@ -25,7 +25,9 @@ The display does not claim remote USB durability, physical sample freshness, ind
 
 For unsupported data, preserve the original and confirm the library/profile supported by the importer. For malformed logs, investigate the recording and logging configuration; downloading identical bytes again does not repair their format. For import I/O failures, inspect diagnostics/storage before retrying. Existing transfer Retry actions retry collection and do not retry terminal import jobs.
 
-A maintainer can stop the hub through its normal graceful stop procedure and use the existing explicit importer retry workflow with the correct profile and original file. Automatic retry policy and an operator import-retry action are separate work; this status view performs no writes, deletes, native analysis or source requests.
+For a supported current import that failed with a local I/O/integrity or extractor error, inspect Import attempts and choose **Retry local import**. The saved request is tied to that exact job attempt. Queued and running receipts remain separate from import success; Refresh reads the latest receipt and outcome. A lost response can be checked by explicitly retrying the same saved request. See the [retry contract and recovery limits](IMPORT_RETRY.md).
+
+Invalid, unsupported, checksum-mismatched, resource-limited, active, successful and obsolete-version jobs do not offer this action. Preserve the original and investigate their specific cause. For advanced profile/manual workflows, stop the hub through its normal graceful procedure before using the existing importer CLI. There is no automatic terminal retry loop. Processing GETs perform no writes, native analysis or source requests; the explicit POST queues metadata and the indexer performs local work.
 
 ## Resource and API boundaries
 

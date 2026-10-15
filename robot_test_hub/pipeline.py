@@ -17,13 +17,15 @@ class Pipeline:
         from .report_lookup import has_schema, step
         if has_schema(self.db):
             step(self.db)
+        from .import_retry import step as retry_step
+        retry_processed=retry_step(self.root,self.db)
         candidates=self.db.execute("""SELECT f.id,f.sha256,m.metadata_json
             FROM files f JOIN verification_jobs v ON v.file_id=f.id
             JOIN manifest_items m ON m.file_id=f.id
             WHERE f.state='complete' AND v.state='complete'
             AND m.snapshot_id=(SELECT MAX(m2.snapshot_id) FROM manifest_items m2 WHERE m2.file_id=f.id)
             ORDER BY f.created_at DESC""").fetchall()
-        for candidate in candidates:
+        for candidate in ([] if retry_processed else candidates):
             metadata=json.loads(candidate['metadata_json'])
             if metadata.get('format')!='wpilog':
                 continue

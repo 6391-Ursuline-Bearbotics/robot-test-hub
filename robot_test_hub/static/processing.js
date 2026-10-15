@@ -3,8 +3,8 @@
   'use strict';
   const node = id => document.getElementById(id), LIMIT = 20, SHA = /^[a-f0-9]{64}$/, ID = /^[A-Za-z0-9_-]{1,128}$/;
   const sections = {transfers: 'Original transfers', imports: 'Import attempts', runs: 'Searchable runs', reports: 'Saved reports'};
-  const controllers = new Set(), previous = new Map();
-  let generation = 0, ready = false, busy = false, selection = null, page = null, referencePage = null, lastLoad = 0, stopping = false;
+  const controllers = new Set(), previous = new Map(), retryButtons = new Set(), retryActions = new Map();
+  let generation = 0, ready = false, busy = false, selection = null, page = null, referencePage = null, lastLoad = 0, stopping = false, actionBusy = false, indexerCanRetry = false;
 
   function count(value) { if (!Number.isSafeInteger(value) || value < 0) throw Error('Invalid recording progress count.'); return value; }
   function pageCursor(value) { if (value == null || value === '') return null; if (typeof value !== 'string' || value.length > 8192) throw Error('Invalid processing page. Refresh processing.'); return value; }
@@ -30,6 +30,7 @@
     for (const id of ['processing-recordings', 'processing-record-summary', 'processing-references']) node(id).replaceChildren();
     for (const id of ['processing-counts', 'processing-page-status', 'processing-reference-status', 'processing-record-title']) node(id).textContent = '';
     node('processing-selection').hidden = true; node('processing-guidance').hidden = true; page = null; referencePage = null;
+    retryButtons.clear(); indexerCanRetry = false;
   }
   function previousKey(which, value, cursor) { return JSON.stringify([which, value.view, which === 'references' ? value.sha : null, which === 'references' ? value.section : null, cursor]); }
   function controls() {
@@ -45,6 +46,7 @@
       node(prefix + 'previous').disabled = !active || !cursor || !previous.has(previousKey(which, selection, cursor));
       node(prefix + 'next').disabled = !active || !current.next_cursor;
     }
+    retryControls();
   }
   function unavailable(message) {
     generation++; abort(); ready = false; busy = false; clear();
@@ -120,18 +122,20 @@
     return item.reports.count ? item.reports.count + ' saved report(s)' : 'No saved reports yet';
   }
   function workerStatus(worker) {
+    indexerCanRetry = worker?.state === 'running';
     const labels = {starting: 'Indexer starting; progress may be incomplete.', running: 'Indexer running. Stored progress may update in the background.',
       idle: 'Indexer ready. Stored evidence does not establish hardware health.', paused: 'Indexer paused; processing may be incomplete.',
       stopped: 'Indexer stopped. New imports, searchable runs and reports may be incomplete. Check service diagnostics before restarting the hub.',
       failed: 'Indexer failed. New imports, searchable runs and reports may be incomplete. Check service diagnostics before restarting the hub.',
       unknown: 'Indexer status unavailable; processing may be incomplete.', unavailable: 'Indexer status unavailable; processing may be incomplete.'};
     node('processing-worker').textContent = labels[worker?.state] || 'Indexer status unavailable; processing may be incomplete.';
+    retryControls();
   }
   function technical(parent, title, value) {
     const details = add(parent, 'details'); add(details, 'summary', title);
     const allowed = ['sha256', 'source_sha256', 'id', 'file_id', 'job_id', 'import_job_id', 'revision', 'state', 'status', 'source_type', 'source_types',
       'current_profile', 'reader_profile', 'profile', 'extractor_version', 'mapping_revision', 'size_bytes', 'created_utc_ns', 'finished_utc_ns',
-      'run_id', 'report_id', 'catalog_revision', 'error_code', 'format', 'format_profile', 'verification_state', 'verified', 'supported_current_toolchain', 'current_toolchain'];
+      'run_id', 'report_id', 'catalog_revision', 'error_code', 'format', 'format_profile', 'verification_state', 'verified', 'supported_current_toolchain', 'current_toolchain', 'attempts', 'updated_utc_ns', 'expected_attempts', 'expected_updated_utc_ns', 'result_state', 'result_attempts', 'result_updated_utc_ns', 'attempt_updated_utc_ns'];
     const fields = Object.fromEntries(allowed.filter(key => value[key] !== undefined).map(key => [key, value[key]]));
     add(details, 'pre', JSON.stringify(fields, null, 2));
   }
@@ -169,6 +173,92 @@
     add(parent, 'p', [originalLabel(recording), importLabel(recording), searchableLabel(recording), reportLabel(recording)].join(' · '));
     technical(parent, 'Original identity and import versions', {sha256: recording.sha256, source_types: recording.source_types, ...recording.imports});
   }
+  const retryPinFields = ['job_id', 'source_sha256', 'extractor_version', 'profile', 'mapping_revision', 'expected_attempts', 'expected_updated_utc_ns'];
+  function samePins(left, right) { return retryPinFields.every(key => left[key] === right[key]); }
+  function validStamp(value) { return typeof value === 'string' && /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) < (1n << 63n); }
+  function retryPins(item, value) {
+    const pins = item.retry?.pins;
+    if (!pins || pins.job_id !== item.id || pins.source_sha256 !== value.sha || item.source_sha256 !== value.sha || !safeId(pins.job_id) || !SHA.test(pins.source_sha256) ||
+        !Number.isSafeInteger(pins.expected_attempts) || pins.expected_attempts < 0 || pins.expected_attempts >= 2147483648 || !validStamp(pins.expected_updated_utc_ns) ||
+        item.attempts !== pins.expected_attempts || item.updated_utc_ns !== pins.expected_updated_utc_ns ||
+        ['profile', 'extractor_version', 'mapping_revision'].some(key => typeof pins[key] !== 'string' || !/^[A-Za-z0-9_.-]{1,256}$/.test(pins[key]) || pins[key] !== item[key])) throw Error('The local retry identity does not match this saved import attempt. Refresh processing.');
+    return Object.fromEntries(retryPinFields.map(key => [key, pins[key]]));
+  }
+  function retryControls() {
+    for (const record of retryButtons) record.button.disabled = !ready || busy || actionBusy || stopping || !indexerCanRetry || record.blocked || ['accepted', 'stale', 'rejected'].includes(record.action?.state);
+  }
+  function requestLabel(receipt) {
+    const states = {pending: 'Queued local retry request. Import success has not been confirmed.', running: 'Local retry request is running. Import success has not been confirmed.',
+      completed: 'Local retry request finished. Its import result is shown separately.', failed: 'Local retry request failed. Check service diagnostics and local storage.',
+      superseded: 'The retry request no longer matches the current import attempt. Refresh before taking further action.'};
+    let text = states[receipt.state];
+    if (!text) throw Error('Unsupported local retry receipt.');
+    if (receipt.result_state) text += ' Recorded import result: ' + importLabel({imports: {state: receipt.result_state}}) + '.';
+    return text;
+  }
+  function noRetryGuidance(item) {
+    if (item.retry?.reason === 'unsupported_version' || item.state === 'unsupported') return 'Local retry is unavailable for unsupported profiles or older tool versions. Preserve the original and use a matching supported reader.';
+    if (item.state === 'invalid') return 'Invalid recording data needs investigation. Retrying identical bytes does not repair the format.';
+    if (item.state === 'checksum_mismatch') return 'A checksum mismatch needs original and storage investigation; local import retry is unavailable.';
+    if (['succeeded', 'succeeded_with_unsupported'].includes(item.state)) return 'This import already completed; no local retry is needed. Import completion does not establish hardware health.';
+    if (['pending', 'running'].includes(item.state)) return 'This import is waiting or running; allow the indexer to finish.';
+    if (item.error_code === 'resource_limit') return 'This failure reached a fixed processing limit. Inspect the recording and supported reader; dashboard retry cannot change that limit.';
+    if (item.retry?.reason === 'invalid_job_metadata') return 'The exact attempt identity is unavailable. Refresh processing before taking action.';
+    return 'This attempt is not eligible for dashboard retry. Check diagnostics, storage and supported reader versions; preserve the original.';
+  }
+  function renderRetry(entry, item, value) {
+    const latest = item.latest_retry_request;
+    if (latest) {
+      if (latest.job_id !== item.id || latest.source_sha256 !== value.sha) throw Error('A retry receipt belongs to a different original or job.');
+      add(entry, 'p', 'Latest saved request: ' + requestLabel(latest));
+      technical(entry, 'Saved retry request identity and recorded outcome', latest);
+    }
+    if (item.retry?.eligible !== true || item.state !== 'failed' || item.supported_current_toolchain !== true || !['import_io_or_integrity', 'extractor_failure'].includes(item.error_code)) { add(entry, 'p', noRetryGuidance(item)); return; }
+    const pins = retryPins(item, value), key = JSON.stringify(pins);
+    let action = retryActions.get(key);
+    if (!action) {
+      action = {payload: null, state: 'new'}; retryActions.set(key, action);
+      while (retryActions.size > 64) retryActions.delete(retryActions.keys().next().value);
+    }
+    if (latest && samePins(latest, pins)) action.state = 'accepted';
+    const message = add(entry, 'p'); message.setAttribute('role', 'status'); message.setAttribute('aria-live', 'polite');
+    if (action.state === 'unknown') message.textContent = 'The previous request result is unknown. Retry the same saved request to check safely; no new attempt identity will be substituted.';
+    if (action.state === 'accepted') message.textContent = 'This exact retry request was recorded. Inspect the saved request and import outcome; it is not a hardware health result.';
+    if (action.state === 'stale') message.textContent = 'The import attempt changed. Refresh processing to inspect the current attempt before retrying.';
+    if (action.state === 'rejected') message.textContent = 'The retry request was rejected. Refresh processing and inspect the current attempt.';
+    const button = add(entry, 'button', action.state === 'unknown' ? 'Retry the same local request' : 'Retry local import'); button.type = 'button';
+    button.setAttribute('aria-label', 'Retry local import for attempt ' + item.id + ' of recording ' + value.sha.slice(0, 12));
+    const record = {button, action, blocked: !!latest && ['pending', 'running'].includes(latest.state)};
+    retryButtons.add(record);
+    add(entry, 'p', 'Retry processes the saved original again. Its outcome will appear here; robot collection continues independently.');
+    button.addEventListener('click', async () => {
+      if (!retryButtons.has(record) || !ready || busy || actionBusy || stopping || !indexerCanRetry || record.blocked || ['accepted', 'stale', 'rejected'].includes(action.state) || selection?.sha !== value.sha || selection?.section !== 'imports') return;
+      if (!action.payload) action.payload = Object.freeze({request_id: crypto.randomUUID(), ...pins});
+      const ticket = generation, controller = new AbortController(), timer = setTimeout(() => controller.abort(), 8000);
+      controllers.add(controller); actionBusy = true; retryControls();
+      message.textContent = 'Submitting the exact local retry request; import success is not confirmed.';
+      try {
+        const response = await fetch('/api/v1/imports/' + encodeURIComponent(item.id) + '/retry', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Hub-Request': '1'}, body: JSON.stringify(action.payload), signal: controller.signal, cache: 'no-store'});
+        if (!response.ok) {
+          if (response.status === 409) { action.state = 'stale'; if (ticket === generation) message.textContent = 'The import attempt changed. Refresh processing to inspect the current attempt before retrying.'; return; }
+          if ([400, 403, 404].includes(response.status)) { action.state = 'rejected'; if (ticket === generation) message.textContent = 'The retry request was rejected. Refresh processing and inspect the current attempt.'; return; }
+          throw Error('Retry response unavailable.');
+        }
+        const result = await response.json(), receipt = result?.request;
+        if (!result || result.schema_version !== 1 || typeof result.idempotent !== 'boolean' || typeof result.deduplicated !== 'boolean' || !receipt || !samePins(receipt, pins) ||
+            typeof receipt.id !== 'string' || !/^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/.test(receipt.id) || (receipt.id !== action.payload.request_id && !result.deduplicated)) throw Error('Retry receipt could not be confirmed.');
+        requestLabel(receipt); action.state = 'accepted';
+        if (ticket !== generation) return;
+        message.textContent = requestLabel(receipt);
+        // Status reload is read-only. It never resubmits this mutation.
+        await load();
+      } catch (_) {
+        action.state = 'unknown';
+        if (ticket === generation) { message.textContent = 'The request result is unknown. Retry the same saved local request to check safely, or refresh processing to inspect its saved receipt.'; button.textContent = 'Retry the same local request'; }
+      } finally { clearTimeout(timer); controllers.delete(controller); actionBusy = false; retryControls(); }
+    });
+    retryControls();
+  }
   function renderReferences(data, value) {
     const parent = node('processing-references'); parent.replaceChildren();
     if (value.section === 'reports' && data.reason === 'report_lookup_failed') add(parent, 'p', 'Some saved report metadata could not be indexed. Lookup needs maintainer attention; this does not invalidate original recordings.');
@@ -197,6 +287,7 @@
         add(entry, 'strong', 'Import attempt');
         add(entry, 'p', importLabel({imports: item}));
         if (item.supported_current_toolchain === false) add(entry, 'p', 'This attempt is not a supported current-toolchain import. Older searchable results, if any, are separate.');
+        renderRetry(entry, item, value);
       } else {
         add(entry, 'strong', 'Original transfer');
         add(entry, 'p', ({complete: item.verified ? 'Original saved; hash verification recorded' : 'Transfer saved; hash verification unavailable', copying: 'Transfer in progress', queued: 'Waiting to download', error: 'Transfer needs attention', verifying: 'Awaiting local verification'})[item.state] || 'Stored transfer state; inspect identity details.');

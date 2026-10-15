@@ -19,6 +19,7 @@ from urllib.parse import urlencode
 
 from .wpilog import EXTRACTOR_VERSION, MAPPING_REVISION, PROFILE
 from .report_lookup import REFERENCES_SQL, coverage, validate_schema
+from .import_retry import eligibility, project_request, FIELDS as RETRY_FIELDS
 
 PREFIX = '/api/v1/processing'
 MAX_JSON_BYTES = 64 * 1024 * 1024
@@ -226,6 +227,35 @@ def _summary(db, row, reports_available=True, report_reason=None):
         attention=bool(row['attention']),attention_reasons=reasons,detail_url=PREFIX+'/'+sha)
 
 
+
+def _latest_retry(db, job_id):
+    """One indexed scalar receipt; no importer construction or artifact reads."""
+    limits = dict(id=36,job_id=128,source_sha256=64,extractor_version=256,profile=256,mapping_revision=128,
+        expected_updated_utc_ns=19,state=32,error_code=64,created_utc_ns=19,updated_utc_ns=19,
+        attempt_updated_utc_ns=19,result_state=32,result_updated_utc_ns=19)
+    columns=[]
+    for field in RETRY_FIELDS:
+        if field in ('expected_attempts','result_attempts'):
+            columns.append("CASE WHEN typeof("+field+")='integer' THEN "+field+" END AS "+field)
+        else:
+            columns.append("CASE WHEN typeof("+field+")='text' AND length("+field+")<="+str(limits[field])+" THEN "+field+" END AS "+field)
+    row=db.execute('SELECT '+','.join(columns)+' FROM import_retry_requests WHERE job_id=? ORDER BY rowid DESC LIMIT 1',(job_id,)).fetchone()
+    if row is None:
+        return None
+    value=project_request(row)
+    if (value['job_id']!=job_id or not re.fullmatch('[a-f0-9]{64}',value['source_sha256'] or '')
+        or any(_token(value[key])!=value[key] for key in ('extractor_version','profile','mapping_revision'))
+        or type(value['expected_attempts']) is not int or not 0<=value['expected_attempts']<1<<31
+        or value['result_state'] is not None and value['result_state'] not in IMPORT_STATES
+        or value['result_attempts'] is not None and (type(value['result_attempts']) is not int or not 0<=value['result_attempts']<1<<31)):
+        raise ValueError('evidence')
+    for field in ('attempt_updated_utc_ns','result_updated_utc_ns'):
+        stamp=value[field]
+        if stamp is not None and (type(stamp) is not str or not re.fullmatch('0|[1-9][0-9]{0,18}',stamp) or int(stamp)>=1<<63):
+            raise ValueError('evidence')
+    return value
+
+
 def _section(db, sha, section, limit, after, params):
     params = dict(params, sha=sha, limit=limit+1, after=after)
     if section == 'transfers':
@@ -233,7 +263,7 @@ def _section(db, sha, section, limit, after, params):
         sql='SELECT CASE WHEN length(id)<=128 THEN id END AS id,CASE WHEN length(state)<=32 THEN state END AS state,size,offset,CASE WHEN length(verification_state)<=32 THEN verification_state END AS verification_state,CASE WHEN length(verified_digest)<=64 THEN verified_digest END AS verified_digest,CASE WHEN length(format)<=32 THEN format END AS format,CASE WHEN length(profile)<=256 THEN profile END AS profile '+where+' AND id>:after ORDER BY id LIMIT :limit'
     elif section == 'imports':
         where='FROM import_jobs WHERE artifact_sha256=:sha'
-        sql=("SELECT CASE WHEN length(id)<=128 THEN id END AS id,CASE WHEN length(profile)<=256 THEN profile END AS profile,CASE WHEN length(extractor_version)<=256 THEN extractor_version END AS extractor_version,CASE WHEN length(mapping_revision)<=128 THEN mapping_revision END AS mapping_revision,CASE WHEN length(state)<=32 THEN state END AS state,CASE WHEN length(error_code)<=64 THEN error_code ELSE 'other_import_error' END AS error_code "+where+' AND id>:after ORDER BY id LIMIT :limit')
+        sql=("SELECT CASE WHEN length(id)<=128 THEN id END AS id,CASE WHEN length(profile)<=256 THEN profile END AS profile,CASE WHEN length(extractor_version)<=256 THEN extractor_version END AS extractor_version,CASE WHEN length(mapping_revision)<=128 THEN mapping_revision END AS mapping_revision,CASE WHEN length(state)<=32 THEN state END AS state,CASE WHEN length(error_code)<=64 THEN error_code ELSE 'other_import_error' END AS error_code,CASE WHEN typeof(attempts)='integer' THEN attempts END AS attempts,CASE WHEN typeof(updated_utc_ns)='integer' THEN updated_utc_ns END AS updated_utc_ns "+where+' AND id>:after ORDER BY id LIMIT :limit')
     elif section == 'runs':
         where='FROM run_refs WHERE sha=:sha'
         sql='SELECT CASE WHEN length(run_id)<=128 THEN run_id END AS id,current_toolchain '+where+' AND run_id>:after ORDER BY run_id LIMIT :limit'
@@ -262,10 +292,15 @@ def _section(db, sha, section, limit, after, params):
                 verification_state=row['verification_state'] if row['verification_state'] in ('queued','pending','running','complete','failed','error') else 'unavailable',
                 format=row['format'] if row['format'] in ('wpilog','opaque') else 'unavailable',format_profile=_token(row['profile']) if row['profile'] else None))
         elif section=='imports':
-            items.append(dict(id=identity,profile=_token(row['profile']),extractor_version=_token(row['extractor_version']),
-                mapping_revision=_token(row['mapping_revision']),state=row['state'] if row['state'] in IMPORT_STATES else 'unavailable',
+            job=dict(row)
+            job.update(artifact_sha256=sha,profile=_token(row['profile']),extractor_version=_token(row['extractor_version']),mapping_revision=_token(row['mapping_revision']))
+            items.append(dict(id=identity,source_sha256=sha,profile=job['profile'],extractor_version=job['extractor_version'],
+                mapping_revision=job['mapping_revision'],state=row['state'] if row['state'] in IMPORT_STATES else 'unavailable',
+                attempts=row['attempts'] if type(row['attempts']) is int and 0<=row['attempts']<1<<31 else None,
+                updated_utc_ns=str(row['updated_utc_ns']) if type(row['updated_utc_ns']) is int and 0<=row['updated_utc_ns']<1<<63 else None,
                 error_code=row['error_code'] if row['error_code'] in ERROR_CODES else 'other_import_error' if row['error_code'] else None,
-                supported_current_toolchain=row['extractor_version']==EXTRACTOR_VERSION and row['mapping_revision']==MAPPING_REVISION))
+                supported_current_toolchain=row['profile']==PROFILE and row['extractor_version']==EXTRACTOR_VERSION and row['mapping_revision']==MAPPING_REVISION,
+                retry=eligibility(job),latest_retry_request=_latest_retry(db,identity)))
         elif section=='runs':
             items.append(dict(run_id=identity,url='/api/v1/runs/'+identity,current_toolchain=bool(row['current_toolchain'])))
         else:

@@ -17,12 +17,13 @@ class Element {
   set textContent(text) { this._text = String(text); this.children = []; }
   get textContent() { return this._text + this.children.map(node => node.textContent).join(' '); }
   addEventListener(name, action) { this.listeners[name] = action; }
+  setAttribute(name, value) { (this.attributes ||= {})[name] = value; }
 }
 const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
 const sha = number => number.toString(16).padStart(64, '0');
 function browser(hash = '') {
   const elements = new Map(), listeners = {}, location = {hash}, calls = [];
-  const control = {pending: [], defer: false, fail: null, mismatch: false, reportsUnavailable: false, reportsPartial: false, badRunCount: false, now: 10000};
+  const control = {pending: [], defer: false, fail: null, mismatch: false, reportsUnavailable: false, reportsPartial: false, badRunCount: false, retryMode: false, postBehavior: 'success', audit: {}, posts: [], pendingPosts: [], enqueued: 0, attempts: 3, stamp: '9007199254740993123', workerState: 'running', now: 10000};
   const element = id => { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); };
   const recording = number => ({sha256: sha(number), label: 'ignored private filename', source_types: number === 0 ? ['synthetic_demo'] : number === 1 ? ['MANUAL_LOCAL', 'TRANSFER_CHECKSUM_MISMATCH'] : number === 2 ? ['VERIFIED_TRANSFER'] : ['<img src=x onerror=attack()>'],
     original: {state: number % 3 ? 'verified' : 'expected', transfer_count: 1, artifact_count: 0},
@@ -31,7 +32,7 @@ function browser(hash = '') {
     reports: control.reportsPartial ? {state: 'partial', count: null, known_count: 25} : {state: number === 0 ? 'not_applicable' : number === 1 ? 'unavailable' : 'available', count: number === 1 ? null : number > 1 ? 1 : 0}});
   function reply(url) {
     const parsed = new URL(url, 'http://127.0.0.1'), q = parsed.searchParams, section = q.get('section');
-    const common = {schema_version: 1, read_only: true, hardware_qualified: false, catalog_revision: 'catalog1', indexer: {state: 'running', error_code: null}};
+    const common = {schema_version: 1, read_only: true, hardware_qualified: false, catalog_revision: 'catalog1', indexer: {state: control.workerState, error_code: null}};
     if (parsed.pathname === '/api/v1/processing') {
       const offset = q.get('cursor') ? Number(q.get('cursor').slice(1)) : 0, attention = q.get('view') === 'attention';
       const total = attention ? 3 : 125, numbers = attention ? [1, 101, 124] : Array.from({length: Math.min(20, total - offset)}, (_, i) => i + offset);
@@ -46,20 +47,44 @@ function browser(hash = '') {
       const n = i + offset;
       if (section === 'runs') return {run_id: 'run-' + n, url: 'javascript:attack()', current_toolchain: false, catalog_revision: 'catalog1'};
       if (section === 'reports') return {run_id: 'run-' + n, report_id: 'report-' + n, url: 'javascript:attack()', sha256: sha(n)};
-      if (section === 'imports') return {id: 'attempt-' + n, profile: 'alpha7', state: 'failed', error_code: 'invalid_recording', extractor_version: 2, mapping_revision: 'm1', supported_current_toolchain: false, private_path: 'DO_NOT_RENDER_PRIVATE_PATH'};
+      if (section === 'imports') {
+        if (!control.retryMode) return {id: 'attempt-' + n, profile: 'alpha7', state: 'failed', error_code: 'invalid_recording', extractor_version: 2, mapping_revision: 'm1', supported_current_toolchain: false, private_path: 'DO_NOT_RENDER_PRIVATE_PATH'};
+        const states = ['failed', 'failed', 'invalid', 'unsupported', 'checksum_mismatch', 'succeeded', 'running', 'pending', 'failed', 'failed'];
+        const state = states[n] || 'unsupported', oldVersion = n === 8;
+        const error = n === 0 ? 'import_io_or_integrity' : n === 1 ? 'extractor_failure' : n === 9 ? 'resource_limit' : 'invalid_format';
+        const pins = {job_id: 'attempt-' + n, source_sha256: selected, profile: 'alpha7', extractor_version: oldVersion ? 'old-reader' : 'extractor-1', mapping_revision: 'm1', expected_attempts: control.attempts, expected_updated_utc_ns: control.stamp};
+        return {id: pins.job_id, source_sha256: selected, profile: pins.profile, extractor_version: pins.extractor_version, mapping_revision: pins.mapping_revision, attempts: control.attempts, updated_utc_ns: control.stamp, state, error_code: error, supported_current_toolchain: !oldVersion,
+          retry: {eligible: n < 2, reason: n < 2 ? 'eligible' : oldVersion ? 'unsupported_version' : state !== 'failed' ? 'state_not_retryable' : 'error_not_retryable', pins}, latest_retry_request: control.audit[pins.job_id] || null};
+      }
       return {id: 'transfer-' + n, state: 'complete', verification_state: 'verified', verified: true, format: 'not_wpilog'};
     });
     return {...common, catalog_revision: control.mismatch ? 'changed-catalog' : common.catalog_revision, sha256: selected, section, items, availability: section === 'reports' && control.reportsPartial ? 'partial' : 'available', known_total: 25, total: section === 'reports' && control.reportsPartial ? null : 25, returned: items.length, limit: 20, next_cursor: offset ? null : 'c20'};
   }
   const fetch = async (url, options) => {
     calls.push({url, options});
+    if (options?.method === 'POST') {
+      const payload = JSON.parse(options.body); control.posts.push(payload);
+      if (control.postBehavior === 'conflict') return {ok: false, status: 409};
+      let receipt = control.audit[payload.job_id];
+      if (!receipt) {
+        control.enqueued++;
+        const {request_id, ...pins} = payload;
+        receipt = {id: control.postBehavior === 'dedup' ? 'a'.repeat(32) : request_id, ...pins, state: 'pending', error_code: null,
+          created_utc_ns: '9007199254740993999', updated_utc_ns: '9007199254740993999', attempt_updated_utc_ns: null,
+          result_state: null, result_attempts: null, result_updated_utc_ns: null}; control.audit[payload.job_id] = receipt;
+      }
+      const respond = () => ({ok: true, status: 202, json: async () => ({schema_version: 1, request: receipt, idempotent: control.posts.length > 1, deduplicated: control.postBehavior === 'dedup'})});
+      if (control.postBehavior === 'lost') throw Error('Simulated lost acknowledgement');
+      if (control.postBehavior === 'defer') return new Promise(resolve => control.pendingPosts.push(() => resolve(respond())));
+      return respond();
+    }
     if (control.defer) return new Promise(resolve => control.pending.push(() => resolve({ok: true, status: 200, json: async () => reply(url)})));
     return control.fail ? {ok: false, status: control.fail} : {ok: true, status: 200, json: async () => reply(url)};
   };
   const context = {document: {getElementById: element, createElement: tag => new Element(tag)}, location,
     history: {pushState(_value, _unused, hash) { location.hash = hash; }},
     window: {addEventListener(name, action) { (listeners[name] ||= []).push(action); }},
-    Date: class extends Date { static now() { return control.now; } }, URLSearchParams, AbortController, setTimeout, clearTimeout, fetch, console};
+    Date: class extends Date { static now() { return control.now; } }, URLSearchParams, AbortController, setTimeout, clearTimeout, fetch, console, crypto: require('node:crypto')};
   vm.runInNewContext(source, context);
   return {element, location, control, calls, emit(name, detail) { for (const action of listeners[name] || []) action({detail}); },
     click(id) { element(id).listeners.click({button: 0, preventDefault() {}}); },
@@ -165,7 +190,65 @@ const allNodes = node => [node, ...node.children.flatMap(allNodes)];
   assert.equal(race.element('processing-recordings').children.length, 0);
   assert.equal(race.element('processing-refresh').disabled, false);
   for (const app of [b, selected, race]) assert.equal(app.calls.some(call => call.options?.method && call.options.method !== 'GET'), false, 'read-only UI never posts');
-  console.log('125-record paging, attention, separate stages, exact safe links, races, no-overlap, stopped and source-loss checks passed');
+  const retryPage = () => {
+    const app = browser('#processing?view=all&sha=' + sha(1) + '&section=imports'); app.control.retryMode = true; return app;
+  };
+  const buttons = app => allNodes(app.element('processing-references')).filter(node => node.tagName === 'button');
+  const press = button => button.listeners.click({button: 0, preventDefault() {}});
+  const eligible = retryPage(); await settle();
+  assert.equal(buttons(eligible).length, 2, 'only two eligible failures expose actions');
+  assert.equal(buttons(eligible)[0].disabled, false);
+  assert.match(eligible.element('processing-references').textContent, /matching supported reader/);
+  assert.match(eligible.element('processing-references').textContent, /does not repair the format/);
+  assert.match(eligible.element('processing-references').textContent, /fixed processing limit/);
+  eligible.emit('hub-status-available', {state: 'waiting', workers: {indexer: {state: 'failed'}}});
+  assert.equal(buttons(eligible)[0].disabled, true);
+  eligible.control.workerState = 'running'; eligible.click('processing-refresh'); await settle();
+  eligible.control.postBehavior = 'lost'; await press(buttons(eligible)[0]); await settle();
+  assert.equal(eligible.control.posts.length, 1);
+  assert.match(eligible.element('processing-references').textContent, /result is unknown/);
+  assert.equal(buttons(eligible)[0].disabled, false);
+  const exactPayload = JSON.stringify(eligible.control.posts[0]);
+  assert.equal(eligible.control.posts[0].expected_updated_utc_ns, '9007199254740993123');
+  eligible.control.postBehavior = 'success'; await press(buttons(eligible)[0]); await settle();
+  assert.equal(JSON.stringify(eligible.control.posts[1]), exactPayload, 'lost ack retry reuses exact UUID and pins');
+  assert.equal(eligible.control.enqueued, 1, 'one accepted retry despite lost acknowledgement');
+  assert.match(eligible.element('processing-references').textContent, /Queued local retry request/);
+  assert.match(eligible.element('processing-references').textContent, /Import success has not been confirmed/);
+  assert.equal(buttons(eligible)[0].disabled, true);
+
+  const duplicate = retryPage(); await settle(); duplicate.control.postBehavior = 'defer';
+  const duplicateButton = buttons(duplicate)[0]; press(duplicateButton); press(duplicateButton); await settle();
+  assert.equal(duplicate.control.posts.length, 1, 'duplicate clicks cannot submit twice');
+  assert.equal(buttons(duplicate)[1].disabled, true, 'all retry actions lock while submitting');
+  duplicate.location.hash = '#processing?view=all&sha=' + sha(2) + '&section=runs'; duplicate.emit('popstate'); await settle();
+  const afterNavigation = duplicate.calls.length;
+  duplicate.control.pendingPosts.splice(0).forEach(resolve => resolve()); await settle();
+  assert.equal(duplicate.calls.length, afterNavigation, 'stale POST acknowledgement cannot reload another selection');
+  assert.match(duplicate.element('processing-reference-status').textContent, /Searchable runs/);
+  assert.equal(duplicate.element('processing-record-title').textContent, 'Selected recording ' + sha(2).slice(0, 10));
+
+  const stale = retryPage(); await settle(); stale.control.postBehavior = 'conflict';
+  await press(buttons(stale)[0]); await settle();
+  assert.equal(buttons(stale)[0].disabled, true);
+  assert.match(stale.element('processing-references').textContent, /attempt changed/);
+  await press(buttons(stale)[0]); await settle(); assert.equal(stale.control.posts.length, 1);
+  stale.control.attempts = 4; stale.control.stamp = '9007199254740993124'; stale.click('processing-refresh'); await settle();
+  assert.equal(buttons(stale)[0].disabled, false);
+  assert.equal(stale.control.posts.length, 1, 'read-only refresh never retries automatically');
+
+  const dedup = retryPage(); await settle(); dedup.control.postBehavior = 'dedup';
+  await press(buttons(dedup)[0]); await settle();
+  assert.match(dedup.element('processing-references').textContent, /Queued local retry request/, 'canonical different request ID accepted only with matching pins');
+  const disconnected = retryPage(); await settle(); disconnected.control.postBehavior = 'defer'; press(buttons(disconnected)[0]);
+  disconnected.emit('hub-status-unavailable'); disconnected.control.pendingPosts.splice(0).forEach(resolve => resolve()); await settle();
+  assert.equal(disconnected.element('processing-references').children.length, 0, 'offline clears pending action claims');
+  assert.equal(disconnected.element('processing-refresh').disabled, false);
+  const stopped = retryPage(); stopped.control.workerState = 'stopped'; await settle();
+  assert.equal(buttons(stopped)[0].disabled, true);
+  stopped.emit('hub-status-available', {state: 'stopping'});
+  assert.equal(stopped.element('processing-references').children.length, 0);
+  console.log('125-record paging, attention, separate stages, exact safe links, races, no-overlap, stopped and source-loss checks passed; explicit retry pins, lost acknowledgements, duplicates and stale attempts passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
 
@@ -187,4 +270,5 @@ class ProcessingUITests(unittest.TestCase):
         self.assertIn('src="/processing.js"', html)
         script = (ROOT / "robot_test_hub/static/processing.js").read_text(encoding="utf-8")
         self.assertNotIn("innerHTML", script)
-        self.assertNotIn("method: 'POST'", script)
+        self.assertEqual(script.count("method: 'POST'"), 1)
+        self.assertIn("'/api/v1/imports/' + encodeURIComponent(item.id) + '/retry'", script)

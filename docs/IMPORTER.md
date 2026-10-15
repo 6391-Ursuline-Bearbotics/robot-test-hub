@@ -1,6 +1,6 @@
 # Versioned WPILOG import (T05)
 
-The manual local importer supports exactly `wpilib-2027.0.0-alpha-7_akit-27.0.0-alpha-6` and mapping revision `alpha7-aliases-1`. The standard-library Python extractor was compared with the locked installed official Alpha7 `DataLogReader.forEach()` for all **362 physical records** in the four T04 recordings, including their complete 14/15-byte tails. It avoids the installed iterator's short-tail omission and rejects incomplete framing. Selection of a profile is explicit: WPILOG's wire version and AdvantageKit extra header cannot establish the producing library versions. A conflicting recorded fixture profile, incompatible timestamp metadata, unknown profile, or unknown mapping revision remains an unsupported job. Older 2026 logs remain unsupported.
+The manual local importer supports exactly `wpilib-2027.0.0-alpha-7_akit-27.0.0-alpha-6` and mapping revision `alpha7-aliases-2`. The standard-library Python extractor was compared with the locked installed official Alpha7 `DataLogReader.forEach()` for all **362 physical records** in the four T04 recordings, including their complete 14/15-byte tails. It avoids the installed iterator's short-tail omission and rejects incomplete framing. Selection of a profile is explicit: WPILOG's wire version and AdvantageKit extra header cannot establish the producing library versions. A conflicting recorded fixture profile, incompatible timestamp metadata, unknown profile, or unknown mapping revision remains an unsupported job. Older 2026 logs remain unsupported.
 
 From the repository root:
 
@@ -12,6 +12,8 @@ python tools/importer/qualify.py
 ```
 
 The first three commands require only Python 3.10 or newer. Qualification reuses T04's locked installed Windows JDK25/library/native dependencies; it downloads nothing. `--expected-sha256` checks an external digest independently from format validity. `--retry` explicitly retries failed/unsupported jobs; a previous `running` job resumes automatically. CLI output is the persistent job state; non-success returns a nonzero exit code. The manual CLI owns the normal data-root lock, so stop the hub before importing into its data directory. Raw files remain private under the ignored data root. `--synthetic` is an explicit provenance assertion for invented data, not a way to sanitize real recordings.
+
+The running hub also supports [explicit dashboard retries](IMPORT_RETRY.md) for eligible current local I/O/integrity or extractor failures. These use the retained original, preserve provenance, and run on the indexer without stopping collection. Invalid/unsupported/checksum/resource-limit outcomes still require investigation rather than an identical dashboard retry.
 
 T09's long `/RealOutputs/TestHub/RobotMonotonicNs` and equivalent ReplayOutputs field use an exact profile nanosecond mapping because pinned Logger has no long-with-unit overload. The adjacent `RobotMonotonicNsUnit`, when recorded, must equal `nanoseconds`; conflicting types/units remain unsupported. These payloads also stay decimal strings even at small timestamps.
 

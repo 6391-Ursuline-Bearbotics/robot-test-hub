@@ -1,6 +1,6 @@
 # Maintained report provenance lookup
 
-The laptop maintains a SHA-to-report lookup in catalog schema 7. Processing pages read its scalar metadata instead of reparsing every saved report. There is no aggregate 32 MiB report-body limit in this path. Individual report normalization remains bounded; season-scale latency and physical DS load still require measurement.
+The laptop maintains a SHA-to-report lookup introduced in catalog schema 7 and retained by later schemas. Processing pages read its scalar metadata instead of reparsing every saved report. There is no aggregate 32 MiB report-body limit in this path. Individual report normalization remains bounded; season-scale latency and physical DS load still require measurement.
 
 ## Persistent contract
 
@@ -13,7 +13,7 @@ Original analysis report bodies remain authoritative and unchanged. Lookup metad
 
 ## Migration and writers
 
-Opening an older supported catalog upgrades it transactionally to schema 7. Migration installs tables, indexes and invalidation triggers but does not parse legacy reports. Existing bodies remain available through their normal exact report routes. A schema-7 open validates the expected definitions, including trigger bodies, rather than silently repairing missing or inert structures. Backup integrity validation applies the same rules.
+Opening an older supported catalog installs the lookup through the transactional migration chain. Migration installs tables, indexes and invalidation triggers but does not parse legacy reports. Existing bodies remain available through their normal exact report routes. Startup validates the expected lookup definitions, including trigger bodies, rather than silently repairing missing or inert structures. Backup integrity validation applies the same rules.
 
 New framework reports normalize the actual stored row in the report insertion transaction. INSERT OR IGNORE must never index a newly reconstructed body when another immutable body already owns that identity. Savepoints preserve caller-owned transactions: rollback removes both the report and its lookup changes. Standalone analysis databases without hub lookup infrastructure retain their original behavior.
 

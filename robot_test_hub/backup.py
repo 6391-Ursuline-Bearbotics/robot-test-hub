@@ -164,6 +164,11 @@ def _integrity(db):
             validate_lookup(db)
         except (ValueError, sqlite3.DatabaseError):
             raise BackupError("Catalog report lookup schema is incomplete or modified") from None
+    if version>=8:
+        from .import_retry import validate_schema as validate_retry
+        try:validate_retry(db)
+        except (ValueError,sqlite3.DatabaseError):
+            raise BackupError('Catalog import retry schema is incomplete or modified') from None
     return version
 
 

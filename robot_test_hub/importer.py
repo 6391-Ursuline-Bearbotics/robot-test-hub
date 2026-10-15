@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import stat
 import tempfile
 import time
 
@@ -195,10 +196,59 @@ class Importer:
             return job
         if job["state"] not in ("pending", "running") and not retry:
             return job
-        with self.db:
-            self.db.execute("UPDATE import_jobs SET state='running',attempts=attempts+1,error_code=NULL,error=NULL,updated_utc_ns=? WHERE id=?", (now, job_id))
+        return self._execute_job(job_id,digest,size,raw_path,source_type,profile,mapping_revision)
+
+    def _registered_raw(self,job_id,*,expected_sha256):
+        job=self.get_job(job_id)
+        if job['artifact_sha256']!=expected_sha256:
+            raise ArchiveConflict('Retry source identity changed')
+        artifact=self.db.execute('SELECT * FROM import_artifacts WHERE sha256=?',(job['artifact_sha256'],)).fetchone()
+        if artifact is None:
+            raise ArchiveConflict('Registered immutable raw artifact is unavailable')
+        expected=f"raw/{job['artifact_sha256'][:2]}/{job['artifact_sha256']}.wpilog"
+        if artifact['relative_path']!=expected:
+            raise ArchiveConflict('Registered raw path is not canonical')
+        candidate=self.root
+        for part in Path(expected).parts:
+            candidate=candidate/part
+            info=candidate.lstat()
+            if candidate.is_symlink() or getattr(info,'st_file_attributes',0)&getattr(stat,'FILE_ATTRIBUTE_REPARSE_POINT',0x400):
+                raise ArchiveConflict('Registered raw links are unsupported')
+        if (not candidate.is_file() or not stat.S_ISREG(candidate.stat().st_mode)
+            or _digest(candidate)!=(job['artifact_sha256'],artifact['size_bytes'])):
+            raise ArchiveConflict('Registered immutable raw bytes changed')
+        return expected,artifact['size_bytes'],artifact['source_type']
+
+    def retry_existing(self,job_id,*,request_id,expected_attempts,expected_updated_utc_ns):
+        from .import_retry import REQUEST_COLUMNS,project_request,supersede
+        from .report_lookup import atomic
+        claim=(expected_attempts,str(expected_updated_utc_ns))
+        # Revalidate all durable bindings immediately before any raw-file IO.
+        # Claiming and execution are separate transactions so metadata may have
+        # changed even when another writer retained the attempt/time fields.
+        with atomic(self.db):
+            job=self.get_job(job_id)
+            row=self.db.execute('SELECT '+REQUEST_COLUMNS+' FROM import_retry_requests WHERE id=?',(request_id,)).fetchone()
+            request=project_request(dict(row)) if row is not None else None
+            if (request is None or request['state']!='running' or request['job_id']!=job_id
+                or request['expected_attempts']+1!=expected_attempts
+                or request['attempt_updated_utc_ns']!=claim[1]
+                or (job['profile'],job['extractor_version'],job['mapping_revision'])!=(PROFILE,EXTRACTOR_VERSION,MAPPING_REVISION)
+                or job['state']!='running' or (job['attempts'],str(job['updated_utc_ns']))!=claim
+                or any(job[key]!=request[pin] for key,pin in (('artifact_sha256','source_sha256'),('extractor_version','extractor_version'),('profile','profile'),('mapping_revision','mapping_revision')))):
+                supersede(self.db,request_id)
+                return job
+        return self._execute_job(job_id,job['artifact_sha256'],0,'',None,job['profile'],job['mapping_revision'],
+                                 request_id=request_id,claim=claim)
+
+    def _execute_job(self,job_id,digest,size,raw_path,source_type,profile,mapping_revision,*,request_id=None,claim=None):
+        if request_id is None:
+            with self.db:
+                self.db.execute("UPDATE import_jobs SET state='running',attempts=attempts+1,error_code=NULL,error=NULL,updated_utc_ns=? WHERE id=?",(time.time_ns(),job_id))
         temporary = None
         try:
+            if request_id is not None:
+                raw_path,size,source_type=self._registered_raw(job_id,expected_sha256=digest)
             if mapping_revision != MAPPING_REVISION:
                 raise UnsupportedProfile("Unsupported alias mapping revision")
             temporary, output = _temporary(self.root / "derived", ".jsonl.tmp")
@@ -221,6 +271,8 @@ class Importer:
                     output.write(json.dumps(row, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n")
                 output.flush()
                 os.fsync(output.fileno())
+            if request_id is not None:
+                self._registered_raw(job_id,expected_sha256=digest)
             dataset_path = f"derived/{job_id}/signals.jsonl"
             dataset_digest = _digest(temporary)[0]
             _publish(temporary, self._path(dataset_path))
@@ -243,33 +295,46 @@ class Importer:
             manifest_path = f"derived/{job_id}/manifest.json"
             _publish(temporary, self._path(manifest_path))
             temporary = None
-            with self.db:
-                self.db.execute("UPDATE import_artifacts SET format_state='valid' WHERE sha256=?", (digest,))
-                self.db.execute("UPDATE import_jobs SET state=?,error_code=NULL,error=NULL,dataset_path=?,dataset_sha256=?,manifest_path=?,manifest_sha256=?,updated_utc_ns=? WHERE id=?",
-                                ("succeeded_with_unsupported" if unsupported else "succeeded", dataset_path, dataset_digest, manifest_path, manifest_digest, time.time_ns(), job_id))
-            return self.get_job(job_id)
+            return self._finish(job_id,"succeeded_with_unsupported" if unsupported else "succeeded",None,None,
+                request_id=request_id,claim=claim,artifact_format='valid',fields=dict(dataset_path=dataset_path,
+                dataset_sha256=dataset_digest,manifest_path=manifest_path,manifest_sha256=manifest_digest))
         except UnsupportedProfile as error:
-            return self._finish(job_id, "unsupported", "unsupported_profile", str(error))
+            return self._finish(job_id, "unsupported", "unsupported_profile", str(error), request_id=request_id, claim=claim)
         except UnsupportedType as error:
-            return self._finish(job_id, "unsupported", "unsupported_schema", str(error))
+            return self._finish(job_id, "unsupported", "unsupported_schema", str(error), request_id=request_id, claim=claim)
         except FormatError as error:
-            with self.db:
-                self.db.execute("UPDATE import_artifacts SET format_state='invalid' WHERE sha256=?", (digest,))
-            return self._finish(job_id, "invalid", "invalid_format", str(error))
+            return self._finish(job_id, "invalid", "invalid_format", str(error), request_id=request_id, claim=claim,artifact_format='invalid')
         except ResourceLimit as error:
-            return self._finish(job_id, "failed", "resource_limit", str(error))
+            return self._finish(job_id, "failed", "resource_limit", str(error), request_id=request_id, claim=claim)
         except (OSError, sqlite3.Error, ArchiveConflict) as error:
-            return self._finish(job_id, "failed", "import_io_or_integrity", type(error).__name__)
+            return self._finish(job_id, "failed", "import_io_or_integrity", type(error).__name__, request_id=request_id, claim=claim)
         except Exception as error:
-            return self._finish(job_id, "failed", "extractor_failure", type(error).__name__)
+            return self._finish(job_id, "failed", "extractor_failure", type(error).__name__, request_id=request_id, claim=claim)
         finally:
             if temporary:
                 temporary.unlink(missing_ok=True)
 
-    def _finish(self, job_id, state, code, error):
-        with self.db:
-            self.db.execute("UPDATE import_jobs SET state=?,error_code=?,error=?,updated_utc_ns=? WHERE id=?", (state, code, error, time.time_ns(), job_id))
-        return self.get_job(job_id)
+    def _finish(self,job_id,state,code,error,*,request_id=None,claim=None,fields=None,artifact_format=None):
+        from .report_lookup import atomic
+        with atomic(self.db):
+            current=self.get_job(job_id)
+            if request_id is not None:
+                from .import_retry import supersede,complete
+                request=self.db.execute('SELECT * FROM import_retry_requests WHERE id=?',(request_id,)).fetchone()
+                if (request is None or request['state']!='running' or request['job_id']!=job_id
+                    or current['state']!='running' or (current['attempts'],str(current['updated_utc_ns']))!=claim
+                    or request['attempt_updated_utc_ns']!=claim[1]
+                    or any(current[key]!=request[pin] for key,pin in (('artifact_sha256','source_sha256'),('extractor_version','extractor_version'),('profile','profile'),('mapping_revision','mapping_revision')))):
+                    supersede(self.db,request_id)
+                    return current
+            stamp=max(time.time_ns(),current['updated_utc_ns']+1)
+            updates=dict(state=state,error_code=code,error=error,updated_utc_ns=stamp,**(fields or {}))
+            self.db.execute('UPDATE import_jobs SET '+','.join(key+'=?' for key in updates)+' WHERE id=?',(*updates.values(),job_id))
+            if artifact_format is not None:
+                self.db.execute('UPDATE import_artifacts SET format_state=? WHERE sha256=?',(artifact_format,current['artifact_sha256']))
+            job=self.get_job(job_id)
+            if request_id is not None:complete(self.db,request_id,job)
+        return job
 
 
 def main():
