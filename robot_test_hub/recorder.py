@@ -388,7 +388,15 @@ class FFmpegAdapter:
         if self.process:
             for stream in (self.process.stdin,self.process.stdout,self.process.stderr):
                 if stream:
-                    stream.close()
+                    try:
+                        stream.close()
+                    except BrokenPipeError:
+                        # The reaped child cannot receive buffered q bytes. A
+                        # close that already released stdin completed cleanup;
+                        # preserve the original capture failure. An open handle
+                        # or a read-pipe close failure still retains ownership.
+                        if stream is not self.process.stdin or not stream.closed:
+                            raise
         for stream in (self._progress_file,self.log):
             if stream:
                 stream.close()

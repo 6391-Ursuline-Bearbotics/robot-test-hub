@@ -616,6 +616,48 @@ class StreamingCaptureTests(unittest.TestCase):
         self.assertEqual(self.recorder.stop()['error_code'],'recording_progress_invalid')
         self.assert_clean()
 
+    def test_exited_child_stdin_broken_pipe_close_preserves_capture_error(self):
+        self.start_child("import sys; print('frame=-1\\nprogress=continue',flush=True); sys.stdin.readline()")
+        self.wait_for_capture_failure()
+        original=self.adapter.process.stdin
+        remaining=[1]
+        class ClosedBrokenPipe:
+            @property
+            def closed(inner):return original.closed
+            def close(inner):
+                original.close()
+                if remaining[0]:
+                    remaining[0]-=1
+                    raise BrokenPipeError('Terminated child cannot receive buffered stdin')
+        self.adapter.process.stdin=ClosedBrokenPipe()
+        try:
+            self.assertEqual(self.recorder.stop()['error_code'],'recording_progress_invalid')
+            self.assert_clean()
+        finally:
+            self.adapter.process.stdin=original
+
+    def test_stdin_close_failure_with_open_handle_retains_cleanup_ownership(self):
+        self.start_child("import sys; print('frame=-1\\nprogress=continue',flush=True); sys.stdin.readline()")
+        self.wait_for_capture_failure()
+        original=self.adapter.process.stdin
+        blocked=[True]
+        class OpenBrokenPipe:
+            @property
+            def closed(inner):return original.closed
+            def close(inner):
+                if blocked[0]:raise BrokenPipeError('Handle cleanup still pending')
+                original.close()
+        self.adapter.process.stdin=OpenBrokenPipe()
+        try:
+            self.assertEqual(self.recorder.stop()['error_code'],'camera_shutdown_failed')
+            self.assertTrue(self.recorder.process_started)
+            self.assertIsNotNone(self.recorder.owner)
+            self.assertFalse(original.closed)
+        finally:
+            blocked[0]=False
+        self.assertEqual(self.recorder.stop()['error_code'],'recording_progress_invalid')
+        self.assert_clean()
+
     def test_diagnostic_storage_failure_terminates_child_without_exposing_native_content(self):
         with patch.object(self.adapter,'_rewrite',side_effect=OSError('private credential storage')):
             self.start_child("import sys; print('frame=3\\nprogress=continue',flush=True); sys.stdin.readline()")
