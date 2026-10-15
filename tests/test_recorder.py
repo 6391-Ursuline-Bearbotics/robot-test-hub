@@ -451,6 +451,10 @@ class StreamingCaptureTests(unittest.TestCase):
         self.addCleanup(self.cleanup_fixture)
 
     def cleanup_fixture(self):
+        self.finish_capture()
+        self.temporary.cleanup()
+
+    def finish_capture(self):
         deadline = time.monotonic()+20
         while True:
             self.recorder.stop()
@@ -461,7 +465,6 @@ class StreamingCaptureTests(unittest.TestCase):
             time.sleep(.01)
         self.assertIsNone(self.recorder.owner)
         self.assertEqual(self.adapter.capture_diagnostics()['readers_alive'],0)
-        self.temporary.cleanup()
 
     def start_child(self, script):
         original = subprocess.Popen
@@ -483,6 +486,14 @@ class StreamingCaptureTests(unittest.TestCase):
         while not predicate() and time.monotonic()<deadline:
             time.sleep(.01)
         self.assertTrue(predicate(), self.adapter.capture_diagnostics())
+
+    def wait_for_capture_failure(self):
+        # Drainers publish an error before terminate()/reader return. Wait for
+        # the failure to settle before testing its classification; pending
+        # cleanup and ownership retention have separate deterministic coverage.
+        self.wait_for(lambda:self.adapter.capture_diagnostics()['error_code'] is not None
+            and self.adapter.process.poll() is not None
+            and self.adapter.capture_diagnostics()['readers_alive']==0)
 
     def assert_clean(self):
         self.assertIsNotNone(self.adapter.process.poll())
@@ -570,15 +581,45 @@ class StreamingCaptureTests(unittest.TestCase):
                ("sys.stderr.write('private'*100); sys.stderr.flush()",'recording_error_record_too_large')]
         for producer, code in cases:
             with self.subTest(code=code, producer=producer):
-                self.start_child('import sys\n'+producer+'\nsys.stdin.readline()')
-                self.wait_for(lambda:self.adapter.capture_diagnostics()['error_code'] is not None)
-                self.assertEqual(self.recorder.tick()['error_code'],code)
-                self.assert_clean()
+                try:
+                    self.start_child('import sys\n'+producer+'\nsys.stdin.readline()')
+                    self.wait_for_capture_failure()
+                    self.assertEqual(self.recorder.tick()['error_code'],code)
+                    self.assert_clean()
+                finally:
+                    # One failed case must not leave an owned session for the
+                    # remaining producers. Never release it before real cleanup.
+                    self.finish_capture()
+
+    def test_published_protocol_error_can_precede_reader_cleanup_and_retain_owner(self):
+        published=threading.Event()
+        release=threading.Event()
+        failed=self.adapter._stream_failed
+        def delayed_reader_return(code):
+            failed(code)
+            published.set()
+            if not release.wait(20):
+                raise RuntimeError('Fixture reader release timed out')
+        with patch.object(self.adapter,'_stream_failed',side_effect=delayed_reader_return):
+            try:
+                self.start_child("import sys; print('frame=-1\\nprogress=continue',flush=True); sys.stdin.readline()")
+                self.assertTrue(published.wait(20))
+                self.assertEqual(self.adapter.capture_diagnostics()['error_code'],'recording_progress_invalid')
+                self.assertEqual(self.recorder.tick()['error_code'],'camera_shutdown_failed')
+                self.assertTrue(self.recorder.process_started)
+                self.assertIsNotNone(self.recorder.owner)
+                self.assertGreater(self.adapter.capture_diagnostics()['readers_alive'],0)
+            finally:
+                release.set()
+        self.wait_for(lambda:self.adapter.process.poll() is not None
+            and self.adapter.capture_diagnostics()['readers_alive']==0)
+        self.assertEqual(self.recorder.stop()['error_code'],'recording_progress_invalid')
+        self.assert_clean()
 
     def test_diagnostic_storage_failure_terminates_child_without_exposing_native_content(self):
         with patch.object(self.adapter,'_rewrite',side_effect=OSError('private credential storage')):
             self.start_child("import sys; print('frame=3\\nprogress=continue',flush=True); sys.stdin.readline()")
-            self.wait_for(lambda:self.adapter.capture_diagnostics()['error_code'] is not None)
+            self.wait_for_capture_failure()
             self.assertEqual(self.recorder.tick()['error_code'],'recording_diagnostics_write_failed')
         self.assertNotIn('credential',json.dumps(self.recorder.health()))
         self.assert_clean()
