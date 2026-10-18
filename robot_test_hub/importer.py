@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -13,7 +14,7 @@ import tempfile
 import time
 
 from .storage import DataRootOwner, open_catalog
-from .wpilog import ALIASES, ODOMETRY_ARRAY_TIMESTAMPS, EXTRACTOR_VERSION, MAPPING_REVISION, PROFILE, PROFILE_MAPPINGS, aliases_for, FormatError, ResourceLimit, UnsupportedProfile, UnsupportedType, extract
+from .wpilog import ALIASES, ODOMETRY_ARRAY_TIMESTAMPS, EXTRACTOR_VERSION, MAPPING_REVISION, PROFILE, PROFILE_AKIT26, PROFILE_MAPPINGS, aliases_for, FormatError, ResourceLimit, UnsupportedProfile, UnsupportedType, extract
 
 
 def _mapping_for(profile):
@@ -79,6 +80,32 @@ def _temporary(root, suffix):
     return Path(name), os.fdopen(descriptor, "wb")
 
 
+# Datasets of the historical 2026 profile are stored gzip-compressed
+# (about 10x smaller). Their extractor version differs, so job identity says so.
+EXTRACTOR_VERSION_GZIP = EXTRACTOR_VERSION + "-gzip"
+GZIP_LEVEL = 1
+GZIP_PROFILES = frozenset({PROFILE_AKIT26})
+
+
+def _extractor_for(profile):
+    # Only profiles with a supported compressed reader path; unknown profiles keep the
+    # standard version so failed/unsupported attempts stay visible to processing views.
+    return EXTRACTOR_VERSION_GZIP if profile in GZIP_PROFILES else EXTRACTOR_VERSION
+
+
+class _HashingWriter:
+    """File-like sink that hashes exactly the bytes written to the dataset file."""
+    def __init__(self, stream, digest):
+        self.stream, self.digest = stream, digest
+
+    def write(self, data):
+        self.digest.update(data)
+        return self.stream.write(data)
+
+    def flush(self):
+        self.stream.flush()
+
+
 # One reusable encoder; same bytes as json.dumps with these arguments.
 _ENCODER = json.JSONEncoder(ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
 DATASET_WRITE_BATCH_ROWS = 4096
@@ -136,7 +163,9 @@ class Importer:
         # A row of this kind always contains the kind as a JSON string; skipping lines
         # without it avoids parsing them. The exact kind check below stays authoritative.
         needle = json.dumps(kind) if isinstance(kind, str) and kind.isascii() else None
-        with self._path(job["dataset_path"]).open(encoding="utf-8") as stream:
+        path = self._path(job["dataset_path"])
+        opener = (lambda: gzip.open(path, "rt", encoding="utf-8")) if path.name.endswith(".gz") else (lambda: path.open(encoding="utf-8"))
+        with opener() as stream:
             for line in stream:
                 if needle is not None and needle not in line:
                     continue
@@ -196,12 +225,12 @@ class Importer:
         with self.db:
             self.db.execute("INSERT OR IGNORE INTO import_requests (artifact_sha256,original_name,source_type,expected_sha256,created_utc_ns) VALUES (?,?,?,?,?)",
                             (digest, Path(path).name, request_source_type, expected_sha256 or "", time.time_ns()))
-        identity = json.dumps([digest, EXTRACTOR_VERSION, profile, mapping_revision], separators=(",", ":"))
+        identity = json.dumps([digest, _extractor_for(profile), profile, mapping_revision], separators=(",", ":"))
         job_id = hashlib.sha256(identity.encode()).hexdigest()
         now = time.time_ns()
         with self.db:
             self.db.execute("INSERT OR IGNORE INTO import_jobs (id,artifact_sha256,extractor_version,profile,mapping_revision,state,created_utc_ns,updated_utc_ns) VALUES (?,?,?,?,?,'pending',?,?)",
-                            (job_id, digest, EXTRACTOR_VERSION, profile, mapping_revision, now, now))
+                            (job_id, digest, _extractor_for(profile), profile, mapping_revision, now, now))
         job = self.get_job(job_id)
         if expected_sha256 is not None and digest != expected_sha256:
             # A failed expectation must never turn an existing valid import into a success response.
@@ -271,16 +300,24 @@ class Importer:
             temporary, output = _temporary(self.root / "derived", ".jsonl.tmp")
             counts, unsupported, metadata, timestamp_min, timestamp_max = {}, set(), {}, None, None
             dataset_hash, lines, encode = hashlib.sha256(), [], _ENCODER.encode
+            extractor_version = _extractor_for(profile)
+            compressed = extractor_version == EXTRACTOR_VERSION_GZIP
+            # Deterministic gzip (no name, mtime 0) so identical input gives identical bytes.
+            sink = gzip.GzipFile(filename="", mode="wb", compresslevel=GZIP_LEVEL, mtime=0,
+                                 fileobj=_HashingWriter(output, dataset_hash)) if compressed else None
 
             def flush_lines():
                 chunk = "".join(lines).encode("utf-8")
-                dataset_hash.update(chunk)
-                output.write(chunk)
+                if sink is not None:
+                    sink.write(chunk)
+                else:
+                    dataset_hash.update(chunk)
+                    output.write(chunk)
                 lines.clear()
             with output:
                 for row in extract(self._path(raw_path), profile):
                     row["source_sha256"] = digest
-                    row["extractor_version"] = EXTRACTOR_VERSION
+                    row["extractor_version"] = extractor_version
                     row["profile"] = profile
                     row["mapping_revision"] = mapping_revision
                     counts[row["kind"]] = counts.get(row["kind"], 0) + 1
@@ -296,17 +333,19 @@ class Importer:
                     if len(lines) >= DATASET_WRITE_BATCH_ROWS:
                         flush_lines()
                 flush_lines()
+                if sink is not None:
+                    sink.close()
                 output.flush()
                 os.fsync(output.fileno())
             if request_id is not None:
                 self._registered_raw(job_id,expected_sha256=digest)
-            dataset_path = f"derived/{job_id}/signals.jsonl"
+            dataset_path = f"derived/{job_id}/signals.jsonl" + (".gz" if compressed else "")
             dataset_digest = dataset_hash.hexdigest()
             _publish(temporary, self._path(dataset_path))
             temporary = None
             manifest = {"schema_version": 1, "job_id": job_id, "source_sha256": digest,
                         "source_size_bytes": size, "raw_path": raw_path, "source_type": source_type,
-                        "extractor_version": EXTRACTOR_VERSION, "profile": profile,
+                        "extractor_version": extractor_version, "profile": profile,
                         "profile_selection": "explicit_caller_profile", "mapping_revision": mapping_revision,
                         "aliases": aliases_for(profile), "odometry_array_timestamps": ODOMETRY_ARRAY_TIMESTAMPS,
                         "record_header_unit": "microseconds", "record_timestamp_unit": "nanoseconds",
@@ -315,6 +354,8 @@ class Importer:
                         "first_cycle_timestamp_ns": timestamp_min, "last_cycle_timestamp_ns": timestamp_max,
                         "bootstrap_snapshot": "not_recorded", "dataset_path": dataset_path,
                         "dataset_sha256": dataset_digest, "coverage": "physical_records_only; terminal event and clock validity are separate"}
+            if compressed:
+                manifest["dataset_encoding"] = "gzip"
             temporary, output = _temporary(self.root / "derived", ".manifest.tmp")
             output.close()
             _write_json(temporary, manifest)
