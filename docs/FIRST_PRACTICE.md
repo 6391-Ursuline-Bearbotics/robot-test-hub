@@ -1,5 +1,7 @@
 # First practice with the hub
 
+**Shortcut:** after step 2, double-click `scripts\windows\InstallHub.cmd`. It checks for Python and offers to install it with winget, runs setup and the self-test, creates `C:\RobotHubPrivate\hub.json` and an offline profile, and runs the readiness check (steps 3–5 below). It is safe to run again: existing settings are kept.
+
 This gets a mentor from a clean Windows laptop to students reading "Today's practice". It covers importing logs from a USB drive or Google Drive; collecting straight from the robot is in [LOG_FLOW_COMMISSIONING.md](LOG_FLOW_COMMISSIONING.md). Plan on about 20 minutes the first time.
 
 1. **Install Python 3.10 or newer** from python.org with the `py` launcher enabled. School IT may need to approve it.
