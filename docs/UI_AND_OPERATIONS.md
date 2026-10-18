@@ -88,13 +88,24 @@ Glossary: the new student pages (home, practice time, board, trends) avoid the b
 
 ### Implemented: before/after for fixes (P4.2)
 
-Under a card's Details, each matching-part or trend finding has a **We fixed: …** button that asks what was fixed and stores it as an append-only repair record (`repairs.py`). The next three runs of the same robot and modes after that moment show a green line such as "After the fix "reseated back-right CAN cable": Back-right module wheel speed off target by 3.2 m/s → 0.40 m/s." It compares recorded values only and does not establish cause. Replay regression (P4.1) and an AI practice digest (P4.3) are not implemented.
+Under a card's Details, each matching-part or trend finding has a **We fixed: …** button that asks what was fixed and stores it as an append-only repair record (`repairs.py`). The next three runs of the same robot and modes after that moment show a green line such as "After the fix "reseated back-right CAN cable": Back-right module wheel speed off target by 3.2 m/s → 0.40 m/s." It compares recorded values only and does not establish cause. An AI practice digest (P4.3) is not implemented.
 
 ### Implemented: phone notes on the practice network with a PIN (P1.4)
 
 Opt in by adding `"lan_notes_port": 6392` to `hub.json` (optional `"lan_notes_host"`, default all interfaces) and restarting. A second listener then serves **only** the driver notebook and its note API (`lan_notes.py`); every other hub page and API returns 404 there. The admin page shows a 6-digit PIN that changes on every hub start, the phone URL(s) and a QR code. Addresses are ranked so the team's 10.63.91.x network comes first and virtual adapters last; the QR encoder (`qr.py`) was checked against an independent decoder for versions 1–10. A phone enters the PIN once and gets an HttpOnly session cookie. Five wrong PINs from one address block it for a minute. Notes save on the phone first and keep their original event time, as on the laptop; robot note delivery is not offered to phones. The traffic is plain HTTP on the team network: the PIN keeps other people on the network out, but does not protect against someone who can read the traffic. Windows may ask once to allow Python on private networks.
 
 Checked: PIN, cookie, rate limit and notebook-only surface in tests, and a phone-width browser check on loopback that saved a note visible to the hub. Not checked on a real phone over Wi-Fi.
+
+### Implemented: replay regression (P4.1, manual command)
+
+`python tools/replay_regression.py --robot-repo <robot repo> --log <incident.wpilog> --commit <A> [--compare-commit <B>] [--prefix Drive/]` checks out each commit into a temporary git worktree (the robot checkout is untouched) and runs its headless `replayLog` Gradle task (robot repo: `-Dfrc.replay=true` selects AdvantageKit REPLAY, `AKIT_LOG_PATH` names the log, no simulator GUI). It then compares outputs logged under `/RealOutputs/<key>` in the recording with `/ReplayOutputs/<key>` in the replay at the same cycle timestamps:
+
+- **Recording vs replay at A** (determinism): outputs that do not reproduce cannot be trusted when comparing commits.
+- **Replay at A vs replay at B**: what the change would have done differently with the same recorded inputs. The report gives the first time and number of differing samples, and the largest numeric gap.
+
+AdvantageKit timing, console and Test Hub status outputs are ignored (they use the live clock). Keys present on only one side are listed separately. Commits from before the robot repo added `replayLog` cannot be replayed this way.
+
+Checked: an end-to-end run on this laptop through a git worktree replayed a short simulation recording in about 20 s with 18 of 18 compared outputs reproduced, and HEAD vs HEAD showed no differences. Detecting a behavior change is unit-tested on invented logs only. It has not been run on a real incident log or two genuinely different commits.
 
 ## Screen 2: Run/time search
 
