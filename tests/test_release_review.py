@@ -116,9 +116,11 @@ class ReleaseReviewTests(unittest.TestCase):
                     error.winerror=32
                     raise error
             return original(path,*args,**kwargs)
-        with stub,patch.object(rehearsal,'CHILD_TIMEOUT',.05),patch.object(Path,'unlink',unlink),patch.object(rehearsal.time,'sleep') as pause:
+        with stub,patch.object(rehearsal,'CHILD_TIMEOUT',.05),patch.object(Path,'unlink',unlink),patch.object(rehearsal,'time',wraps=rehearsal.time) as cleanup_clock,patch.object(cleanup_clock,'sleep') as pause:
             with self.assertRaisesRegex(rehearsal.RehearsalError,'rehearsal_child_limit'):
                 rehearsal._run(Path(sys.executable),self.root,self.root,'restore')
+        # Patch only the hub clock binding: POSIX subprocess.wait uses the
+        # shared time module too, and must keep its own real backoff sleeps.
         self.assertEqual(len(attempts),3)
         self.assertEqual(pause.call_count,2)
         self.assertEqual(rehearsal._ACTIVE_CHILDREN,[])
@@ -137,7 +139,7 @@ class ReleaseReviewTests(unittest.TestCase):
                     if path == self.root/'child.stdout':raise error
                     return original(path,*args,**kwargs)
                 try:
-                    with stub,patch.object(Path,'unlink',unlink),patch.object(rehearsal,'CHILD_OUTPUT_CLEANUP_TIMEOUT',0),patch.object(rehearsal.time,'sleep') as pause:
+                    with stub,patch.object(Path,'unlink',unlink),patch.object(rehearsal,'CHILD_OUTPUT_CLEANUP_TIMEOUT',0),patch.object(rehearsal,'time',wraps=rehearsal.time) as cleanup_clock,patch.object(cleanup_clock,'sleep') as pause:
                         with self.assertRaisesRegex(rehearsal.RehearsalError,'^rehearsal_child_cleanup_failed$'):
                             rehearsal._run(Path(sys.executable),self.root,self.root,'restore')
                     pause.assert_not_called()
