@@ -8,18 +8,29 @@ from .analysis_plan import review_snapshot
 
 
 class Pipeline:
-    def __init__(self, root, db):
+    def __init__(self, root, db, *, stream_limits=None):
         self.root,self.db=root,db
         self.importer=Importer(root,db)
         self.last_signature=None
+        self.stream_runner=None
+        self.stream_limits=stream_limits
+        self.closed=False
 
     def tick(self):
+        if self.closed:raise RuntimeError('Pipeline is closed')
         from .report_lookup import has_schema, step
         if has_schema(self.db):
             step(self.db)
         from .run_lookup import has_schema as has_run_lookup, tick as run_lookup_tick
         if has_run_lookup(self.db):
             run_lookup_tick(self.db)
+        from .stream_analysis import has_schema as has_streams,StreamRunner
+        if has_streams(self.db):
+            if self.stream_runner is None:
+                from .stream_quality import RecordingQualityReducer
+                self.stream_runner=StreamRunner(self.root,self.db,reducer=RecordingQualityReducer(),limits=self.stream_limits)
+            from .reports import advance_streams
+            advance_streams(self.root,self.db,self.stream_runner)
         from .import_retry import step as retry_step
         retry_processed=retry_step(self.root,self.db)
         candidates=self.db.execute("""SELECT f.id,f.sha256,m.metadata_json
@@ -55,3 +66,9 @@ class Pipeline:
             self.last_signature=signature
             return {'state':'indexed','imports':len(imports),'runs':len(document['runs']),'reports':len(reports),'revision':document['revision']}
         return {'state':'idle','imports':len(imports)}
+
+    def close(self):
+        """Keep the worker owner alive until stream resources actually close."""
+        if self.stream_runner is not None and self.stream_runner.close() is not True:return False
+        self.closed=True
+        return True

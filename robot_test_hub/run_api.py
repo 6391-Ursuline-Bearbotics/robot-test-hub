@@ -13,6 +13,9 @@ def get(root, path, query, notebook=None):
         if query.keys() != {'local','timezone'}:
             raise ValueError('Specify local and timezone')
         return {'schema_version':1,'candidates':local_candidates(query['local'],query['timezone'])}
+    if path.startswith('/api/v1/runs/') and path.endswith('/stream-progress'):
+        from . import stream_api
+        return stream_api.get(root,path,query)
     if path.startswith('/api/v1/runs/') and path.endswith('/annotations'):
         return run_notes.get(root,path,query)
     with closing(sqlite3.connect((Path(root).resolve()/'catalog.sqlite3').as_uri()+'?mode=ro',uri=True,timeout=2)) as db:

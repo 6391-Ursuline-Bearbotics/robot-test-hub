@@ -1,6 +1,6 @@
 # Streaming analysis implementation plan
 
-Status: design only, October 18, 2026. This document specifies the next dependency-ready software increment. None of the streaming contracts, tables, workers, or tests below is implemented by this document. The maintained run lookup solves a separate serving problem; it does not remove the automatic analyzer's dense-log input limits or establish physical health.
+Status: staged design, October 18, 2026. Stage S1 now has a local implementation described in [STREAMING_RUNTIME.md](STREAMING_RUNTIME.md), with executed evidence in [VALIDATION_CURRENT.md](VALIDATION_CURRENT.md). Stages S2–S4 remain planned, including the four other streaming evaluators and streamed incident proof. The maintained run lookup solves a separate serving problem. Neither it nor full-source recording quality establishes physical health.
 
 ## Current limitation and compatibility boundary
 

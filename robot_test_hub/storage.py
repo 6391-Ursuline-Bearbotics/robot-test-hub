@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 class OwnershipError(RuntimeError):
@@ -158,6 +158,16 @@ def open_catalog(root: Path) -> sqlite3.Connection:
             if version<=8:
                 db.execute("INSERT INTO schema_migrations VALUES(9,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
                 db.execute('PRAGMA user_version=9')
+            # Streaming migration is metadata only. Verification, spooling and
+            # reducer execution run asynchronously under the index worker.
+            from .stream_analysis import install_schema as stream_schema, validate_schema as validate_stream
+            if version<=9:stream_schema(db)
+            try:validate_stream(db)
+            except (ValueError,sqlite3.DatabaseError):
+                raise SchemaError('Catalog analysis stream schema is incomplete or modified; preserve the data directory') from None
+            if version<=9:
+                db.execute("INSERT INTO schema_migrations VALUES(10,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+                db.execute('PRAGMA user_version=10')
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")

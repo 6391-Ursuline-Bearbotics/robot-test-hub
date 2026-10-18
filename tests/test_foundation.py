@@ -80,10 +80,12 @@ class ConfigTests(unittest.TestCase):
     def test_defaults_and_file_overrides(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "config.json"
-            path.write_text(json.dumps({"schema_version": 1, "port": 6500, "idle_delay": 10}))
+            path.write_text(json.dumps({"schema_version": 1, "port": 6500, "idle_delay": 10, "stream_max_spool_bytes": 1024**2, "stream_min_free_bytes": 0}))
             config = Config.load(path, port=6501)
             self.assertEqual(config.port, 6501)
             self.assertEqual(config.idle_delay, 10)
+            self.assertEqual(config.stream_max_spool_bytes,1024**2)
+            self.assertEqual(config.stream_min_free_bytes,0)
             self.assertEqual(config.as_dict()["schema_version"], 1)
 
     def test_invalid_values_have_field_errors(self):
@@ -91,6 +93,8 @@ class ConfigTests(unittest.TestCase):
                 "chunk_size": [True, 0, 16 * 1024 * 1024 + 1], "idle_delay": [True, -1, float("nan"), float("inf")],
                 "freshness": [0, True, float("nan"), 10**400], "tick_interval": [0, threading.TIMEOUT_MAX + 1],
                 "status_interval": [0, 10**400], "shutdown_timeout": [0, threading.TIMEOUT_MAX + 1],
+                "stream_max_spool_bytes": [True, 1024**2-1, 1024**4+1, 1.0, 10**400],
+                "stream_min_free_bytes": [True, -1, 1024**4+1, 0.0],
                 "data_dir": ["", "\x00", None]}.items():
             for value in values:
                 with self.subTest(field=field, value=value), self.assertRaisesRegex(ConfigError, field):

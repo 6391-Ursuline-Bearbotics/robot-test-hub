@@ -252,22 +252,38 @@ class HubService:
     def _pipeline_worker(self):
         from .pipeline import Pipeline
         db=None
+        pipeline=None
+        failed=False
         self._health('indexer','running')
         try:
             db=open_catalog(self.root)
-            pipeline=Pipeline(self.root,db)
+            from .stream_analysis import Limits
+            pipeline=Pipeline(self.root,db,stream_limits=Limits(max_spool_bytes=self.config.stream_max_spool_bytes,min_free_bytes=self.config.stream_min_free_bytes))
             while not self.stop.is_set():
                 pipeline.tick()
                 self.stop.wait(0.5)
         except Exception as exc:
+            failed=True
             self._health('indexer','failed','indexer_failed')
             self.diagnostics.record('indexer_failed','Local import/indexing stopped; originals preserved. Check catalog/storage and restart',exception=exc)
         finally:
+            if pipeline is not None:
+                cleanup_reported=False
+                while True:
+                    try:complete=pipeline.close() is True
+                    except Exception:complete=False
+                    if complete:break
+                    self._health('indexer','cleanup_pending','stream_cleanup_pending')
+                    if not cleanup_reported:
+                        self.diagnostics.record('stream_cleanup_pending','Streaming resources are still closing; archive ownership is retained')
+                        cleanup_reported=True
+                    # stop is already set during shutdown; Event.wait would spin.
+                    time.sleep(.05)
             if db is not None:
                 db.close()
             with self.cache_lock:
-                if self.health['indexer']['state']!='failed':
-                    self.health['indexer']={'state':'stopped','error_code':None}
+                self.health['indexer']=({'state':'failed','error_code':'indexer_failed'} if failed else
+                                        {'state':'stopped','error_code':None})
 
     def _analytics_publish(self,snapshot):
         with self.cache_lock:

@@ -16,6 +16,9 @@ LEGACY_VERSION = 'automatic-reports-5'
 from .phoenix_status import FIELDS as PHOENIX_FIELDS, phoenix_status_analyzer
 
 MAX_ROWS = 50000
+STREAM_VERSION = 'automatic-reports-8'
+STREAM_SELECTION = 'full_source_scoped_rows_1'
+STREAM_FRAMEWORK = 'stream-analysis-1'
 
 
 def _quality(evidence, configuration):
@@ -245,6 +248,8 @@ def generate(root, db, document, *, max_rows=MAX_ROWS, pipeline_version=None):
     Large/problematic runs produce explicit unavailable reports, never truncated
     successful health reports. Raw originals and complete imported datasets stay.
     """
+    if pipeline_version == STREAM_VERSION:
+        return schedule_stream_reports(root,db,document)
     if type(max_rows) is not int or max_rows < 2:
         raise ValueError('max_rows must be at least two')
     version = VERSION if pipeline_version is None else pipeline_version
@@ -285,9 +290,12 @@ def generate(root, db, document, *, max_rows=MAX_ROWS, pipeline_version=None):
         context.update(derived)
         evidence = Evidence(profiles[0] if len(profiles)==1 else 'mixed-unqualified', hashes, tuple(rows), context,
             context['mapping_revision'], '+'.join(sorted({j['extractor_version'] for j in jobs})), source_type)
-        reports.append(runner.report(analyzers(pipeline_version=version), evidence,
+        report=runner.report(analyzers(pipeline_version=version), evidence,
             {'swerve-tracking':plan['swerve_configuration'] if plan else {},
-             'recorded-steering-observation':plan.get('steering_configuration',{}) if plan else {}}))
+             'recorded-steering-observation':plan.get('steering_configuration',{}) if plan else {}})
+        reports.append(report)
+        if pipeline_version is None and context.get('row_limit_reached'):
+            _schedule_stream(root,db,run,document,snapshot,legacy_report=report)
     return reports
 
 
@@ -340,3 +348,98 @@ def public_for_run(db,run_id,*,limit=5):
         items.append(detail(db,run_id,row[0])['report'])
     return items,{'total':count,'returned':len(items),'limit':limit,'truncated':count>len(items),
                   'basis':'latest_immutable_report_versions','trace_limit_per_module':500}
+
+
+def _stream_context(run,document,snapshot,legacy_report=None):
+    from .wpilog import MAPPING_REVISION
+    context={key:run[key] for key in ('run_id','robot_id','boot_id','runtime_mode',
+        'start_monotonic_ns','end_monotonic_ns','completeness')}
+    context.update(pipeline_version=STREAM_VERSION,row_selection=STREAM_SELECTION,
+        run_catalog_revision=document['revision'],clock_mapping_revision=run['mapping_revision'],
+        mapping_revision=MAPPING_REVISION,import_job_ids=list(run['segment_ids']),
+        swerve_mapping_version=ROBOT_MAPPING_VERSION,swerve_freshness_policy='physical_acquisition_time_unknown')
+    selected,plan=resolve_plan(run,snapshot);context.update(selected)
+    if legacy_report is not None:
+        context['legacy_fallback_report_id']=legacy_report['report_id']
+        context['legacy_fallback_reason']='report_resource_limit_reached'
+        context['legacy_fallback_pipeline_version']='automatic-reports-7'
+    return context
+
+
+def _schedule_stream(root,db,run,document,snapshot,legacy_report=None,runner=None):
+    from .stream_analysis import StreamRunner
+    from .stream_quality import RecordingQualityReducer
+    owned=runner is None
+    if owned:runner=StreamRunner(root,db,reducer=RecordingQualityReducer())
+    try:return runner.schedule(run,_stream_context(run,document,snapshot,legacy_report))
+    finally:
+        if owned:runner.close()
+
+
+def schedule_stream_reports(root,db,document,*,runner=None):
+    """Explicit stream admission never invokes tuple manifest/dataset helpers."""
+    snapshot=review_snapshot(db)
+    return [_schedule_stream(root,db,run,document,snapshot,runner=runner) for run in document['runs']]
+
+
+def publish_stream_report(db,stream_id,descriptor):
+    """Publish a distinct fully verified input contract, never tuple Evidence."""
+    import time
+    from dataclasses import asdict
+    from .analysis import identity,canonical as encode,OUTCOMES
+    from .stream_quality import VERSION as quality_version
+    from .report_lookup import atomic,has_schema,index_report
+    if (descriptor.get('input_format')!='stream-evidence-1' or descriptor.get('framework')!=STREAM_FRAMEWORK
+            or descriptor.get('full_source_verified') is not True or descriptor.get('profile')!=PROFILE):
+        raise ValueError('stream_report_input_not_verified')
+    provenance={key:copy.deepcopy(value) for key,value in descriptor.items() if key!='result'}
+    if provenance.get('context',{}).get('pipeline_version')!=STREAM_VERSION:
+        raise ValueError('stream_report_policy_invalid')
+    quality=copy.deepcopy(descriptor['result'])
+    if quality.get('outcome') not in OUTCOMES:raise ValueError('stream_report_result_invalid')
+    definitions=[('recording-quality',quality_version),('swerve-tracking','stream-unconverted-1'),
+        ('phoenix-status-observation','stream-unconverted-1'),('system-status-observation','stream-unconverted-1'),
+        ('recorded-steering-observation','stream-unconverted-1')]
+    checks=[]
+    plan=provenance['context'].get('analysis_plan') or {}
+    for analyzer_id,version in definitions:
+        declaration=asdict(Declaration(analyzer_id,version,(PROFILE,),
+            eligible_windows='full verified source traversal; quality counters scoped to selected run' if analyzer_id=='recording-quality' else 'stream evaluator not converted'))
+        configuration=(plan.get('swerve_configuration',{}) if analyzer_id=='swerve-tracking' else
+            plan.get('steering_configuration',{}) if analyzer_id=='recorded-steering-observation' else {})
+        output=copy.deepcopy(quality) if analyzer_id=='recording-quality' else result('insufficient_data',
+            unavailable=['stream_evaluator_not_converted'],coverage={'scope':'not_evaluated','input_format':'stream-evidence-1','physical_acquisition_time_qualified':False})
+        job_id=identity([STREAM_FRAMEWORK,declaration,provenance,configuration])
+        output.update(job_id=job_id,analyzer_id=analyzer_id,analyzer_version=version,provenance=provenance,
+            configuration=configuration,declaration=declaration)
+        checks.append(output)
+    report_id=identity([STREAM_FRAMEWORK,[check['job_id'] for check in checks]])
+    document=dict(report_id=report_id,framework_version=STREAM_FRAMEWORK,source_type=provenance['source_type'],
+        source_hashes=provenance['source_hashes'],run_id=provenance['context']['run_id'],checks=checks,
+        evaluated_checks=sum(check['outcome'] in ('finding','evaluated_no_finding') for check in checks),
+        unavailable_checks=sum(check['outcome'] in ('insufficient_data','unsupported','failed') for check in checks),
+        finding_count=sum(len(check['findings']) for check in checks),overall_health='not_assessed')
+    with atomic(db):
+        ready=db.execute('SELECT state,report_id,descriptor_json FROM analysis_stream_jobs WHERE stream_id=?',(stream_id,)).fetchone()
+        if ready is None or ready[0]!='ready':raise ValueError('stream_report_job_not_ready')
+        if ready[2] is None or encode(json.loads(ready[2]))!=encode(descriptor):
+            raise ValueError('stream_report_ready_descriptor_mismatch')
+        if ready[1] is not None and ready[1]!=report_id:raise ValueError('stream_report_publication_conflict')
+        for check in checks:
+            db.execute('INSERT OR IGNORE INTO analyzer_jobs VALUES(?,?,?,?,?,?,?,?,?,?)',
+                (check['job_id'],STREAM_FRAMEWORK,check['analyzer_id'],check['analyzer_version'],encode(check['declaration']),
+                 encode(provenance),encode(check['configuration']),check['outcome'],encode(check),str(time.time_ns())))
+        db.execute('INSERT OR IGNORE INTO analysis_reports VALUES(?,?,?,?)',
+            (report_id,encode({'source_hashes':provenance['source_hashes'],'context':provenance['context']}),encode(document),str(time.time_ns())))
+        if has_schema(db):index_report(db,report_id)
+        db.execute('UPDATE analysis_stream_jobs SET report_id=? WHERE stream_id=? AND state=?',(report_id,stream_id,'ready'))
+    return document
+
+
+def advance_streams(root,db,runner,**step_budget):
+    """One bounded worker turn; no pending result is published as a report."""
+    progress=runner.step(**step_budget)
+    if progress.get('state')=='ready' and progress.get('descriptor') is not None:
+        document=publish_stream_report(db,progress['stream_id'],progress['descriptor'])
+        progress={**progress,'report_id':document['report_id'],'report':document}
+    return progress

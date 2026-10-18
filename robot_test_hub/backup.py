@@ -176,6 +176,11 @@ def _integrity(db):
         try:validate_run_lookup(db)
         except (ValueError,sqlite3.DatabaseError):
             raise BackupError('Catalog run lookup schema is incomplete or modified') from None
+    if version>=10:
+        from .stream_analysis import validate_schema as validate_stream
+        try:validate_stream(db)
+        except (ValueError,sqlite3.DatabaseError):
+            raise BackupError('Catalog analysis stream schema is incomplete or modified') from None
     return version
 
 
@@ -229,6 +234,18 @@ def _references(db):
             add(row["relative_path"]+"/metadata.json",hashlib.sha256(encoded).hexdigest(),len(encoded),kind="derived")
             for item in metadata["files"].values():
                 add(row["relative_path"]+"/"+item["name"],item["sha256"],item["size_bytes"],kind="raw")
+    if 'analysis_stream_chunks' in tables:
+        # Only committed chunk rows belong to the coherent SQLite snapshot.
+        # Incomplete unreferenced staging files are reconstructed on resume.
+        for row in db.execute('SELECT j.stream_id,j.generation FROM analysis_stream_jobs j WHERE j.final_manifest_path IS NOT NULL OR EXISTS(SELECT 1 FROM analysis_stream_chunks c WHERE c.stream_id=j.stream_id AND c.generation=j.generation) ORDER BY j.stream_id'):
+            stream_id=_identity(row['stream_id']);generation=row['generation']
+            if type(generation) is not int or generation<1:raise BackupError('Catalog analysis stream generation is invalid')
+            marker=json.dumps(dict(stream_id=stream_id,generation=generation),sort_keys=True,separators=(',',':'),allow_nan=False).encode()
+            add(f'analysis/streams/{stream_id}/g{generation}/.owner',hashlib.sha256(marker).hexdigest(),len(marker),kind='derived')
+        for row in db.execute('SELECT path,sha256,size_bytes FROM analysis_stream_chunks ORDER BY stream_id,generation,ordinal'):
+            add(row['path'],row['sha256'],row['size_bytes'],kind='derived')
+        for row in db.execute('SELECT final_manifest_path,final_manifest_sha256,final_manifest_size_bytes FROM analysis_stream_jobs WHERE final_manifest_path IS NOT NULL ORDER BY stream_id'):
+            add(row['final_manifest_path'],row['final_manifest_sha256'],row['final_manifest_size_bytes'],kind='derived')
     return [refs[key] for key in sorted(refs)]
 
 

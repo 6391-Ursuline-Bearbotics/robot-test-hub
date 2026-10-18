@@ -20,6 +20,7 @@ from test_runs import cycle
 TABLES=('run_lookup_state','run_lookup_jobs','run_lookup_runs','run_lookup_intervals')
 
 def remove_lookup(db):
+    for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'analysis_stream_%'").fetchall():db.execute('DROP TABLE "'+name+'"')
     for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'run_lookup_%'").fetchall():
         db.execute('DROP TRIGGER "'+name+'"')
     for name in reversed(TABLES):db.execute('DROP TABLE IF EXISTS '+name)
@@ -64,7 +65,7 @@ class RunLookupIntegrationTests(unittest.TestCase):
             db.set_authorizer(authorize);return db
         with patch.object(storage.sqlite3,'connect',side_effect=connect):self.db=open_catalog(self.root)
         self.db.set_authorizer(lambda *args:sqlite3.SQLITE_OK)
-        self.assertEqual(denied,[]);self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0],9)
+        self.assertEqual(denied,[]);self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0],storage.SCHEMA_VERSION)
         self.assertEqual(self.db.execute('SELECT document FROM run_catalog_revisions').fetchone()[0],raw)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM run_lookup_runs').fetchone()[0],0)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=9').fetchone()[0],1)
@@ -94,7 +95,7 @@ class RunLookupIntegrationTests(unittest.TestCase):
         self.assertEqual(json.loads((destination/'eight/manifest.json').read_text())['catalog_schema_version'],8)
         recovered=self.base/'recovered';restore(destination/'eight',recovered)
         with closing(sqlite3.connect(recovered/'catalog.sqlite3')) as db:self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],8)
-        with closing(open_catalog(recovered)) as db:self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],9)
+        with closing(open_catalog(recovered)) as db:self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],storage.SCHEMA_VERSION)
         self.db=sqlite3.connect(self.root/'catalog.sqlite3')
     def test_new_writer_ready_search_and_selection_deny_catalog_body_read(self):
         rows=[cycle(0,False),cycle(20000000,True),cycle(40000000,False)]

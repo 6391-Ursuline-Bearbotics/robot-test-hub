@@ -41,6 +41,8 @@ class Config:
     backup_destination: str | None = None
     backup_interval: float = 3600.0
     backup_retry: float = 60.0
+    stream_max_spool_bytes: int = 8 * 1024**3
+    stream_min_free_bytes: int = 2 * 1024**3
 
     def __post_init__(self):
         if type(self.schema_version) is not int or self.schema_version != 1:
@@ -62,7 +64,7 @@ class Config:
         for key in ("analytics_enabled","analytics_share_summaries","analytics_pause_when_enabled"):
             if type(getattr(self,key)) is not bool:
                 raise ConfigError(key+" must be boolean")
-        for key, low, high in (("analytics_threads",1,4),("analytics_memory_mb",128,4096),("port", 1, 65535), ("chunk_size", 1, 16 * 1024 * 1024), ("discovery_page_size", 1, 1000), ("retry_limit", 1, 100)):
+        for key, low, high in (("stream_max_spool_bytes",1024**2,1024**4),("stream_min_free_bytes",0,1024**4),("analytics_threads",1,4),("analytics_memory_mb",128,4096),("port", 1, 65535), ("chunk_size", 1, 16 * 1024 * 1024), ("discovery_page_size", 1, 1000), ("retry_limit", 1, 100)):
             value = getattr(self, key)
             if type(value) is not int or not low <= value <= high:
                 raise ConfigError(f"{key} must be an integer between {low} and {high}")
