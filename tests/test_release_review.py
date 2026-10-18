@@ -96,9 +96,58 @@ class ReleaseReviewTests(unittest.TestCase):
                 self.assertTrue(children)
                 self.assertTrue(all(child.poll() is not None for child in children))
                 self.assertEqual(rehearsal._ACTIVE_CHILDREN,before)
-                # Parent stdout/stderr handles are closed even after rejection.
-                (self.root/'child.stdout').unlink();(self.root/'child.stderr').unlink()
+                # Production cleanup confirms release of inherited Windows handles.
+                self.assertFalse((self.root/'child.stdout').exists())
+                self.assertFalse((self.root/'child.stderr').exists())
 
+
+    def test_output_sharing_violation_retains_ownership_until_files_are_released(self):
+        from robot_test_hub import release_rehearsal as rehearsal
+        stub,children,_=self.child('import time;time.sleep(30)')
+        original=Path.unlink
+        attempts=[]
+        def unlink(path,*args,**kwargs):
+            if path == self.root/'child.stdout':
+                self.assertTrue(children and children[0].poll() is not None)
+                self.assertIn((self.root,children[0]),rehearsal._ACTIVE_CHILDREN)
+                attempts.append(True)
+                if len(attempts)<3:
+                    error=PermissionError('inherited output still closing')
+                    error.winerror=32
+                    raise error
+            return original(path,*args,**kwargs)
+        with stub,patch.object(rehearsal,'CHILD_TIMEOUT',.05),patch.object(Path,'unlink',unlink),patch.object(rehearsal.time,'sleep') as pause:
+            with self.assertRaisesRegex(rehearsal.RehearsalError,'rehearsal_child_limit'):
+                rehearsal._run(Path(sys.executable),self.root,self.root,'restore')
+        self.assertEqual(len(attempts),3)
+        self.assertEqual(pause.call_count,2)
+        self.assertEqual(rehearsal._ACTIVE_CHILDREN,[])
+        self.assertFalse((self.root/'child.stdout').exists())
+        self.assertFalse((self.root/'child.stderr').exists())
+
+    def test_output_cleanup_deadline_retains_child_and_does_not_retry_other_errors(self):
+        from robot_test_hub import release_rehearsal as rehearsal
+        for winerror in (32,5):
+            with self.subTest(winerror=winerror):
+                stub,children,_=self.child('import json;print(json.dumps(dict(schema_version=1,success=True)))')
+                error=PermissionError('private output path')
+                error.winerror=winerror
+                original=Path.unlink
+                def unlink(path,*args,**kwargs):
+                    if path == self.root/'child.stdout':raise error
+                    return original(path,*args,**kwargs)
+                try:
+                    with stub,patch.object(Path,'unlink',unlink),patch.object(rehearsal,'CHILD_OUTPUT_CLEANUP_TIMEOUT',0),patch.object(rehearsal.time,'sleep') as pause:
+                        with self.assertRaisesRegex(rehearsal.RehearsalError,'^rehearsal_child_cleanup_failed$'):
+                            rehearsal._run(Path(sys.executable),self.root,self.root,'restore')
+                    pause.assert_not_called()
+                    self.assertTrue(all(child.poll() is not None for child in children))
+                    self.assertEqual(rehearsal._ACTIVE_CHILDREN,[(self.root,children[0])])
+                    self.assertTrue((self.root/'child.stdout').is_file())
+                finally:
+                    for child in children:
+                        if (self.root,child) in rehearsal._ACTIVE_CHILDREN:
+                            rehearsal._ACTIVE_CHILDREN.remove((self.root,child))
 
     def test_real_driver_detects_changed_original_before_upgrade(self):
         from robot_test_hub import release_rehearsal as rehearsal

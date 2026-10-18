@@ -11,7 +11,8 @@ from .analysis_plan import review_snapshot, resolve_plan
 from .swerve import (adapt_robot_swerve, swerve_analyzer, swerve_tracking, ROBOT_FIELDS,
                      ROBOT_MAPPING_VERSION, MODULE_POSITIONS)
 
-VERSION = 'automatic-reports-5'
+VERSION = 'automatic-reports-6'
+LEGACY_VERSION = 'automatic-reports-5'
 from .phoenix_status import FIELDS as PHOENIX_FIELDS, phoenix_status_analyzer
 
 MAX_ROWS = 50000
@@ -66,12 +67,36 @@ def _swerve(evidence,configuration):
     return output
 
 
-def analyzers():
-    return [Analyzer(Declaration('recording-quality', VERSION, (PROFILE,)), _quality),
-            Analyzer(swerve_analyzer((PROFILE,)).declaration,_swerve), phoenix_status_analyzer()]
+ROW_SELECTION_V5 = 'source_order_required_schemas_lifecycle_held_state_phoenix_sdk_observations_and_run_cycles'
+ROW_SELECTION = 'source_order_required_schemas_lifecycle_held_state_phoenix_sdk_system_status_observations_and_run_cycles'
+SELECTOR_POLICIES = {LEGACY_VERSION: ROW_SELECTION_V5, 'automatic-reports-6': ROW_SELECTION}
 
 
-ROW_SELECTION = 'source_order_required_schemas_lifecycle_held_state_phoenix_sdk_observations_and_run_cycles'
+def selector_policy(pipeline_version, row_selection):
+    """Accept only an exact saved selector/version pair; never upgrade old rows."""
+    if type(pipeline_version) is not str or pipeline_version not in SELECTOR_POLICIES or SELECTOR_POLICIES[pipeline_version] != row_selection:
+        raise ValueError('unsupported_report_selector')
+    fields = set(ROBOT_FIELDS.values()) | CONNECTION_FIELDS | PHOENIX_FIELDS
+    if pipeline_version == 'automatic-reports-6':
+        from .system_status import FIELDS
+        fields |= set(FIELDS)
+    return fields
+
+
+def analyzers(*, pipeline_version=None):
+    # Current candidate evaluator versions may deliberately change independently
+    # of selectors. Explicit historical generation is limited to known policies.
+    if pipeline_version is not None and pipeline_version not in SELECTOR_POLICIES:
+        raise ValueError('unsupported_report_selector')
+    version = VERSION if pipeline_version is None else pipeline_version
+    selected = [Analyzer(Declaration('recording-quality', version, (PROFILE,)), _quality),
+                Analyzer(swerve_analyzer((PROFILE,)).declaration,_swerve), phoenix_status_analyzer()]
+    if version != LEGACY_VERSION:
+        from .system_status import system_status_analyzer
+        selected.append(system_status_analyzer())
+    return selected
+
+
 DERIVED_CONTEXT_FIELDS = ('row_limit_reached', 'source_nonadvancing_cycles',
     'recorded_configuration_sha256', 'recorded_build_sha256', 'build_context_basis',
     'swerve_source_hazards')
@@ -81,8 +106,12 @@ class SelectionLimit(ValueError):
     pass
 
 
-def select_rows(run, jobs, manifests, datasets, *, max_rows=MAX_ROWS, plan=None, max_bytes=None):
-    """Pure automatic-reports-5 selector; datasets follow the supplied job order."""
+def select_rows(run, jobs, manifests, datasets, *, max_rows=MAX_ROWS, plan=None, max_bytes=None,
+                pipeline_version=None, row_selection=None):
+    """Pure versioned selector; datasets follow the supplied job order."""
+    version = VERSION if pipeline_version is None else pipeline_version
+    selection = SELECTOR_POLICIES.get(version) if row_selection is None else row_selection
+    fields = selector_policy(version, selection)
     # Derived evidence checks are part of the final job identity. Runner
     # reuses immutable results only after the bounded source scan completes.
     context = {}
@@ -121,7 +150,7 @@ def select_rows(run, jobs, manifests, datasets, *, max_rows=MAX_ROWS, plan=None,
             before=stamp is None or stamp<lo
             if row['kind'] in ('cycle','sample') and before:continue
             if row['kind']=='observation':
-                relevant=(row.get('field') in set(ROBOT_FIELDS.values())|CONNECTION_FIELDS|PHOENIX_FIELDS or row.get('type')=='structschema')
+                relevant=(row.get('field') in fields or row.get('type')=='structschema')
                 if not relevant and (before or row.get('validity')=='valid'):continue
             if row['kind'] == 'cycle':
                 aliases = {k:v.get('value') for k,v in row.get('aliases',{}).items()}
@@ -175,7 +204,7 @@ def select_rows(run, jobs, manifests, datasets, *, max_rows=MAX_ROWS, plan=None,
     return rows, context
 
 
-def generate(root, db, document, *, max_rows=MAX_ROWS):
+def generate(root, db, document, *, max_rows=MAX_ROWS, pipeline_version=None):
     """Read one run at a time. Never infer hardware origin from transfer transport.
 
     Valid observations are streamed past: the default check only counts invalid
@@ -185,6 +214,9 @@ def generate(root, db, document, *, max_rows=MAX_ROWS):
     """
     if type(max_rows) is not int or max_rows < 2:
         raise ValueError('max_rows must be at least two')
+    version = VERSION if pipeline_version is None else pipeline_version
+    selection = SELECTOR_POLICIES.get(version)
+    selector_policy(version, selection)
     importer, runner = Importer(root, db), Runner(db)
     snapshot=review_snapshot(db)
     reports = []
@@ -195,14 +227,14 @@ def generate(root, db, document, *, max_rows=MAX_ROWS):
         profiles = sorted({j['profile'] for j in jobs})
         context = {k:run[k] for k in ('run_id','robot_id','boot_id','mapping_revision','runtime_mode',
                                      'start_monotonic_ns','end_monotonic_ns','completeness')}
-        context['pipeline_version'] = VERSION
+        context['pipeline_version'] = version
         context['run_catalog_revision']=document['revision']
         context['clock_mapping_revision']=run['mapping_revision']
         mappings=sorted({j['mapping_revision'] for j in jobs})
         context['mapping_revision']=mappings[0] if len(mappings)==1 else 'mixed-unqualified'
         context['max_rows'] = max_rows
         context['import_job_ids'] = run['segment_ids']
-        context['row_selection'] = ROW_SELECTION
+        context['row_selection'] = selection
         selected,plan=resolve_plan(run,snapshot);context.update(selected)
         hashes = tuple(sorted({j['artifact_sha256'] for j in jobs}))
         source_types = {manifests[j['id']]['source_type'] for j in jobs}
@@ -215,11 +247,12 @@ def generate(root, db, document, *, max_rows=MAX_ROWS):
         context['swerve_freshness_policy']='ideal_simulation_cycle' if plan and plan['ideal_simulation_cycle_policy'] and source_type=='simulation' else 'physical_acquisition_time_unknown'
         context['dataset_hashes'] = sorted(j['dataset_sha256'] for j in jobs)
         rows, derived = select_rows(run, jobs, manifests,
-            (importer.iter_dataset(j['id']) for j in jobs), max_rows=max_rows, plan=plan)
+            (importer.iter_dataset(j['id']) for j in jobs), max_rows=max_rows, plan=plan,
+            pipeline_version=version, row_selection=selection)
         context.update(derived)
         evidence = Evidence(profiles[0] if len(profiles)==1 else 'mixed-unqualified', hashes, tuple(rows), context,
             context['mapping_revision'], '+'.join(sorted({j['extractor_version'] for j in jobs})), source_type)
-        reports.append(runner.report(analyzers(), evidence,
+        reports.append(runner.report(analyzers(pipeline_version=version), evidence,
             {'swerve-tracking':plan['swerve_configuration'] if plan else {}}))
     return reports
 

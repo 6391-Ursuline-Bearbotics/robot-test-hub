@@ -422,7 +422,7 @@ def verify_case(folder):
 
 def _code_identity():
     import sys
-    modules = ('analysis','reports','swerve','phoenix_status','analysis_plan','regression')
+    modules = ('analysis','reports','swerve','phoenix_status','system_status','analysis_plan','regression')
     hashes = {}
     for name in modules:
         from importlib import import_module

@@ -14,6 +14,7 @@ import time
 
 MAX_OUTPUT = 65536
 CHILD_TIMEOUT = 180
+CHILD_OUTPUT_CLEANUP_TIMEOUT = 5
 _ACTIVE_CHILDREN = []
 STAGES = ('verify_extract', 'older_prepare', 'newer_upgrade', 'rollback_restore', 'older_validate', 'newer_exercise')
 GUIDANCE = {
@@ -160,6 +161,20 @@ class RehearsalError(ValueError):
     pass
 
 
+def _remove_child_outputs(paths):
+    """Release only owned output files, allowing bounded Windows handle teardown."""
+    deadline = time.monotonic() + CHILD_OUTPUT_CLEANUP_TIMEOUT
+    for path in paths:
+        while True:
+            try:
+                path.unlink(missing_ok=True)
+                break
+            except OSError as error:
+                if getattr(error, 'winerror', None) != 32 or time.monotonic() >= deadline:
+                    raise RehearsalError('rehearsal_child_cleanup_failed') from None
+                time.sleep(min(.01, max(0, deadline - time.monotonic())))
+
+
 def _run(python, source, workspace, mode, analytics=False):
     """Bound output on disk, stop and reap the only owned child on every exit."""
     import os
@@ -170,34 +185,41 @@ def _run(python, source, workspace, mode, analytics=False):
     for name in ('TMP', 'TEMP', 'TMPDIR'):
         env[name] = str(child_temp)
     process = None
-    with (workspace / 'child.stdout').open('wb') as stdout, (workspace / 'child.stderr').open('wb') as stderr:
-        try:
-            process = subprocess.Popen([str(python), '-I', '-c', DRIVER, str(source), str(workspace), mode, '1' if analytics else '0'], cwd=workspace, env=env, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-            _ACTIVE_CHILDREN.append((workspace, process))
-            deadline = time.monotonic() + CHILD_TIMEOUT
-            while process.poll() is None:
-                if time.monotonic() >= deadline or (workspace / 'child.stdout').stat().st_size > MAX_OUTPUT or (workspace / 'child.stderr').stat().st_size > MAX_OUTPUT:
-                    raise RehearsalError('rehearsal_child_limit')
-                try:
-                    process.wait(timeout=.05)
-                except subprocess.TimeoutExpired:
-                    pass
-            if (workspace / 'child.stdout').stat().st_size > MAX_OUTPUT or (workspace / 'child.stderr').stat().st_size > MAX_OUTPUT:
-                raise RehearsalError('rehearsal_child_limit')
-            if process.returncode != 0:
-                raise RehearsalError('rehearsal_child_failed')
-        finally:
-            if process is not None and process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
-            if process is not None and process.poll() is not None:
-                _ACTIVE_CHILDREN.remove((workspace, process))
+    outputs = (workspace / 'child.stdout', workspace / 'child.stderr')
     try:
-        encoded = (workspace / 'child.stdout').read_bytes()
+        with (workspace / 'child.stdout').open('wb') as stdout, (workspace / 'child.stderr').open('wb') as stderr:
+            try:
+                process = subprocess.Popen([str(python), '-I', '-c', DRIVER, str(source), str(workspace), mode, '1' if analytics else '0'], cwd=workspace, env=env, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                _ACTIVE_CHILDREN.append((workspace, process))
+                deadline = time.monotonic() + CHILD_TIMEOUT
+                while process.poll() is None:
+                    if time.monotonic() >= deadline or (workspace / 'child.stdout').stat().st_size > MAX_OUTPUT or (workspace / 'child.stderr').stat().st_size > MAX_OUTPUT:
+                        raise RehearsalError('rehearsal_child_limit')
+                    try:
+                        process.wait(timeout=.05)
+                    except subprocess.TimeoutExpired:
+                        pass
+                if (workspace / 'child.stdout').stat().st_size > MAX_OUTPUT or (workspace / 'child.stderr').stat().st_size > MAX_OUTPUT:
+                    raise RehearsalError('rehearsal_child_limit')
+                if process.returncode != 0:
+                    raise RehearsalError('rehearsal_child_failed')
+            finally:
+                if process is not None and process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
+        encoded = outputs[0].read_bytes()
+    finally:
+        # A Windows interpreter/venv redirector can be signaled before its
+        # inherited output handles finish closing. Keep workspace ownership
+        # until our disposable output files really have been released.
+        _remove_child_outputs(outputs)
+        if process is not None and process.poll() is not None:
+            _ACTIVE_CHILDREN.remove((workspace, process))
+    try:
         if len(encoded) > MAX_OUTPUT:
             raise ValueError()
         result = json.loads(encoded)

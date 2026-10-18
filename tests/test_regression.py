@@ -82,7 +82,7 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(first,second)
         self.assertEqual(first['state'],'passed',first)
         self.assertFalse(first['robot_replay_executed']);self.assertEqual(first['overall_health'],'not_assessed')
-        self.assertEqual(set(first['evaluator_module_sha256']),{'analysis','reports','swerve','phoenix_status','analysis_plan','regression'})
+        self.assertEqual(set(first['evaluator_module_sha256']),{'analysis','reports','swerve','phoenix_status','system_status','analysis_plan','regression'})
         self.assertEqual(len(first['loaded_evaluator_code_sha256']),64)
         self.assertEqual(snapshot(),before)
 

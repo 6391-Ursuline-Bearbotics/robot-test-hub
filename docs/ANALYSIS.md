@@ -18,12 +18,14 @@ Every finding includes interval, severity, observed behavior, supporting metrics
 
 Outcome values: `evaluated_no_finding`, `finding`, `insufficient_data`, `unsupported`, `failed`. Overall report shows evaluated coverage and unavailable checks; it is not an unqualified green score.
 
-## First analyzer set
+## Analyzer scope
 
 | Analyzer | Windows / signals | Metrics / findings |
 | --- | --- | --- |
 | Data quality | Entire run, timestamp/connection/freshness | Gaps, invalid clock, missing keys, stale sensors, logger faults |
 | Swerve drive tracking | Enabled valid data; optimized command and measured velocity | Time-weighted RMSE, p95 absolute error, sustained lag; normalize by requested motion |
+| Recorded Phoenix SDK status | Exact raw IO status profile and held source records | Explicit recorded SDK status warnings; physical acquisition freshness remains unqualified |
+| Recorded SystemCore status | Seventeen exact AdvantageKit input fields; typed source/lifecycle/run coverage | Recorded true fault flags, exact counter changes and descriptive voltage; see [SYSTEM_STATUS.md](SYSTEM_STATUS.md) |
 | Swerve steering | Meaningful steering demand/speed, wrapped commanded/measured angles | Wrapped error, settling time, oscillation, encoder discontinuity |
 | Swerve effort/thermal | Matched speed/acceleration/voltage/workload windows | Stator/supply effort, temperature rise, per-module historical deviation |
 | Electrical | Valid voltage/current plus battery/load context | Brownout events, sag under comparable load, disconnect/reset clusters |
@@ -32,7 +34,7 @@ Outcome values: `evaluated_no_finding`, `finding`, `insufficient_data`, `unsuppo
 | Intake/indexer | Goal/command/current/velocity and recovery events | Jam rate per operating time, recovery duration/success, repeated retries |
 | Vision | Observations, rejection reasons/uncertainties | Accepted/rejected fraction by cause, observation age, correction size |
 
-Begin with data quality and swerve tracking; other analyzers are independent later tasks. Hardware faults with explicit status flags can be reported before a statistical baseline exists. Baseline-dependent comparisons remain unavailable until a meaningful cohort exists.
+The implemented automatic registry contains recording quality, swerve tracking, Phoenix status observations and SystemCore status observations. The other rows describe remaining analyzer work. Recorded true fault flags can produce warnings without a statistical baseline; their physical meaning still needs qualification. Matched-load sag/reset diagnosis, effort/thermal, dedicated steering dynamics and other subsystem analysis remain separate work. Baseline-dependent comparisons remain unavailable until a meaningful cohort exists.
 
 ## Swerve details
 

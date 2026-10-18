@@ -28,25 +28,31 @@ class RegressionReviewTests(unittest.TestCase):
         self.base=Path(self.temp.name).resolve();self.root=self.base/'archive';self.root.mkdir()
         self.db=open_catalog(self.root);self.addCleanup(self.db.close)
 
-    def imported(self,*,multiple=False):
+    def imported(self,*,multiple=False,pipeline_version=None):
         Importer(self.root,self.db).import_file(FIXTURE,source_type='SYNTHETIC')
         if multiple:
             second=self.base/'second.wpilog'
             second.write_bytes(FIXTURE.read_bytes()+wire_record(0,b'\x01'+struct.pack('<I',1),timestamp_us=10000000))
             self.assertEqual(Importer(self.root,self.db).import_file(second,source_type='SYNTHETIC')['state'],'succeeded')
-        Pipeline(self.root,self.db).tick()
+        if pipeline_version is None:
+            Pipeline(self.root,self.db).tick()
+        else:
+            from robot_test_hub import reports
+            from robot_test_hub.runs import rebuild_from_imports
+            document=rebuild_from_imports(self.root,self.db)
+            reports.generate(self.root,self.db,document,pipeline_version=pipeline_version)
         return [json.loads(row[0]) for row in self.db.execute('SELECT result_json FROM analysis_reports ORDER BY report_id')]
 
-    def reviewed(self):
-        reports=self.imported()
+    def reviewed(self,*,pipeline_version=None):
+        reports=self.imported(pipeline_version=pipeline_version)
         job=next(check for report in reports for check in report['checks'] if check['findings'])
         review=ReviewStore(self.db).review_finding({'id':'review-oracle','job_id':job['job_id'],'finding_index':0,
             'disposition':'unresolved','reviewer':'independent fixture','rationale':'Invented public-fixture review'})
         return review,job
 
-    def exported(self,expectations=None):
+    def exported(self,expectations=None,*,pipeline_version=None):
         from robot_test_hub import regression
-        review,job=self.reviewed()
+        review,job=self.reviewed(pipeline_version=pipeline_version)
         expectations=expectations or {'schema_version':1,'expected_outcome':'finding',
             'checks':[{'kind':'finding_count','finding_kind':'disconnected_observations','min':1,'max':1}]}
         folder=self.base/'case'
@@ -63,7 +69,7 @@ class RegressionReviewTests(unittest.TestCase):
         # Captured before extracting automatic-reports-5's selector. Two immutable
         # sources overlap identical cycles; the appended valid control changes
         # source identity without replacing any logged sample.
-        reports=self.imported(multiple=True)
+        reports=self.imported(multiple=True,pipeline_version='automatic-reports-5')
         expected={
             '90f0ce767b49f59d5c92e9a868f739a4b8dade342f8bd98120af8ddb6c1bf252':(
                 '48f20267336e435dbea3d51399c4f519e5dacb229722e37de74bece77e1aa0ec',
@@ -163,7 +169,7 @@ class RegressionReviewTests(unittest.TestCase):
 
     def test_real_recording_quality_version_bump_preserves_old_selector_proof(self):
         from robot_test_hub import regression,reports
-        folder,saved=self.exported()
+        folder,saved=self.exported(pipeline_version='automatic-reports-5')
         with patch.object(reports,'VERSION','automatic-reports-6'):
             refused=regression.run_case(folder)
             self.assertEqual(refused['state'],'unavailable')

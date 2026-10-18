@@ -34,6 +34,7 @@ The robot records locally whenever its program runs. After it is disabled long e
 | [INCIDENT_LOGS.md](INCIDENT_LOGS.md) | On-demand verified original WPILOG downloads scoped to immutable incident references |
 | [ANALYSIS.md](ANALYSIS.md) | Ingestion, health metrics, baselines, uncertainty, feedback/replay |
 | [AUTOMATIC_SWERVE.md](AUTOMATIC_SWERVE.md) | Implemented session plans, automatic swerve/cohort reports, bounded plots and qualification limits |
+| [SYSTEM_STATUS.md](SYSTEM_STATUS.md) | Recorded SystemCore fault flags, exact counter changes, descriptive voltage and preserved version-5 regression selectors |
 | [SWERVE_STATUS_TIMING.md](SWERVE_STATUS_TIMING.md) | Recorded Phoenix SDK status warnings, source-reviewed timestamp semantics and the physical commissioning worksheet |
 | [REVIEW_HISTORY.md](REVIEW_HISTORY.md) | Read-only saved review revisions, repair references, bounded pagination and exact links |
 | [REPORT_HISTORY.md](REPORT_HISTORY.md) | Immutable report selection and complete module trace navigation through bounded pages |

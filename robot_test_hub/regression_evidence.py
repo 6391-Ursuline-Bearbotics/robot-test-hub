@@ -33,7 +33,7 @@ MAX_MANIFEST_BYTES = 4 * 1024**2
 MAX_LINE_BYTES = 1024**2
 MAX_VM_STEPS = 5000000
 # Selector support is separate from a candidate evaluator/presentation version.
-SUPPORTED_SELECTOR_VERSIONS = ('automatic-reports-5',)
+SUPPORTED_SELECTOR_VERSIONS = ('automatic-reports-5','automatic-reports-6')
 HASH = re.compile(r'[0-9a-f]{64}\Z')
 REFERENCE = re.compile(r'[A-Za-z0-9_-]{1,128}\Z')
 
@@ -150,7 +150,13 @@ def _saved(db, review_id, revision):
     if saved['framework_version'] != FRAMEWORK_VERSION: _fail('regression_evidence_unsupported')
     declaration, provenance, config, job = (_json(saved[k]) for k in
         ('declaration_json','input_json','configuration_json','result_json'))
-    supported = {a.declaration.analyzer_id: json.loads(canonical(asdict(a.declaration))) for a in reports.analyzers()}
+    if type(provenance) is not dict or type(provenance.get('context')) is not dict: _fail()
+    version = provenance['context'].get('pipeline_version')
+    selection = provenance['context'].get('row_selection')
+    try: reports.selector_policy(version, selection)
+    except (ValueError, TypeError): _fail('regression_evidence_unsupported')
+    supported = {a.declaration.analyzer_id: json.loads(canonical(asdict(a.declaration)))
+                 for a in reports.analyzers(pipeline_version=version)}
     if declaration != supported.get(saved['analyzer_id']): _fail('regression_evidence_unsupported')
     if saved['analyzer_version'] != declaration['version'] or saved['outcome'] not in OUTCOMES: _fail()
     if (type(job) is not dict or job.get('job_id') != saved['job_id'] or
@@ -175,8 +181,10 @@ def _reconstruct(root, db, stack, review, job, provenance):
     context = copy.deepcopy(provenance['context'])
     if (provenance.get('profile') != PROFILE or provenance.get('mapping_revision') != MAPPING_REVISION or
             provenance.get('importer_version') != EXTRACTOR_VERSION or
-            context.get('pipeline_version') not in SUPPORTED_SELECTOR_VERSIONS or context.get('row_selection') != reports.ROW_SELECTION or
+            context.get('pipeline_version') not in SUPPORTED_SELECTOR_VERSIONS or
             context.get('swerve_mapping_version') != ROBOT_MAPPING_VERSION): _fail('regression_evidence_unsupported')
+    try: reports.selector_policy(context.get('pipeline_version'), context.get('row_selection'))
+    except (ValueError, TypeError): _fail('regression_evidence_unsupported')
     max_rows = context.get('max_rows')
     if type(max_rows) is not int or not 2 <= max_rows <= reports.MAX_ROWS: _fail('regression_evidence_resource_limit')
     ids = context.get('import_job_ids')
@@ -235,7 +243,8 @@ def _reconstruct(root, db, stack, review, job, provenance):
     budget = MAX_INPUT_BYTES-len(canonical(context).encode('utf-8'))-4096
     if budget <= 0: _fail('regression_evidence_resource_limit')
     rows, derived = reports.select_rows(run, jobs, manifests, (_dataset(datasets[j['id']]) for j in jobs),
-        max_rows=max_rows, plan=plan, max_bytes=budget)
+        max_rows=max_rows, plan=plan, max_bytes=budget,
+        pipeline_version=context['pipeline_version'], row_selection=context['row_selection'])
     context.update(derived)
     evidence = Evidence(PROFILE, tuple(sorted(originals)), tuple(rows), context, MAPPING_REVISION, EXTRACTOR_VERSION, source_type)
     normalized = asdict(evidence)
