@@ -10,6 +10,7 @@ Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the 
 
 ## Start here
 
+- [Import logs from a folder, USB drive or Google Drive (no robot connection needed)](docs/IMPORTER.md#import-a-folder-of-logs)
 - [Windows setup and daily Start / Check / Open / Stop shortcuts](docs/WINDOWS_SETUP.md)
 - [Verified complete-source ZIP and offline upgrade/rollback rehearsal](docs/RELEASE_ASSEMBLY.md)
 - [Offline installation exercise with a bundled synthetic log](docs/OFFLINE_EXERCISE.md)

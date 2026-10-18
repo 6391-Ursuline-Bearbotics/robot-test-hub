@@ -2,6 +2,18 @@
 
 The manual local importer supports exactly `wpilib-2027.0.0-alpha-7_akit-27.0.0-alpha-6` and mapping revision `alpha7-aliases-2`. The standard-library Python extractor was compared with the locked installed official Alpha7 `DataLogReader.forEach()` for all **362 physical records** in the four T04 recordings, including their complete 14/15-byte tails. It avoids the installed iterator's short-tail omission and rejects incomplete framing. Selection of a profile is explicit: WPILOG's wire version and AdvantageKit extra header cannot establish the producing library versions. A conflicting recorded fixture profile, incompatible timestamp metadata, unknown profile, or unknown mapping revision remains an unsupported job. Older 2026 logs remain unsupported.
 
+## Import a folder of logs
+
+Use this after practice, at events, or any day the automatic collector misbehaves. It needs no robot connection, receiver, manifest, SFTP or NT status. Every `.wpilog` under the folder (searched recursively, empty files skipped) is archived unchanged, imported, and passed through the normal run index and automatic checks. Identity is the SHA-256 of the bytes, so running it again over the same folder, or over renamed copies, imports nothing new.
+
+- **While the hub is running:** on the Transfers page, type the folder path in **Import logs from a folder** and choose **Import logs**. The indexer thread runs the import; progress and any files that could not be imported appear under the button. Only full local paths are accepted, and the hub's own data folder is refused.
+- **While the hub is stopped:** double-click `scripts\windows\ImportLogs.cmd` and pick the folder, or run `ImportLogs.cmd E:\`. It uses the same private launch profile as `StartHub.cmd` to find the data folder.
+- **Developer CLI:** `python -m robot_test_hub.import_folder <folder> --data-dir <data> [--profile <profile>] [--synthetic] [--no-process] [--json]`. The exit code is nonzero if any file was not imported.
+
+The log profile defaults to the pinned Alpha 7 profile and is never inferred from file contents. Logs from another library version are recorded as `unsupported` and kept in the archive for a later importer revision; they are not guessed at.
+
+Single-file manual import:
+
 From the repository root:
 
 ```powershell

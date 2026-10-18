@@ -110,6 +110,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
             if (urlsplit(self.path).path in ('/api/v1/video/media-tools','/api/v1/video/preservations')
                     or urlsplit(self.path).path.startswith('/api/v1/video/preservations/')):
                 return self.media_get()
+            if self.path == '/api/v1/import-folder':
+                return self.send(200, json.dumps(service.folder_import_status()).encode())
             if self.path == "/":
                 return self.send(200, page, "text/html; charset=utf-8")
             if self.path == "/notebook":
@@ -380,6 +382,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                     or (origin and (urlsplit(origin).netloc != self.headers.get("Host") or urlsplit(origin).scheme != "http"))
                     or self.headers.get("Content-Type") != "application/json"):
                 return self.reject_unread(403, b'{}')
+            if self.path == '/api/v1/import-folder':
+                return self.folder_import_post()
             if self.path.startswith('/api/v1/imports/'):
                 return self.import_retry_post()
             if self.path.startswith('/api/v1/markers'):
@@ -415,6 +419,23 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
             except sqlite3.Error:
                 service.diagnostics.record("settings_write_failed", "Cannot save operator preference; check catalog/local storage")
                 self.send(503, b'{"error_code":"settings_write_failed","error":"Preference was not saved; check local storage"}')
+
+        def folder_import_post(self):
+            self.close_connection=True
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=4096:
+                    return self.reject_unread(400,b'{"error_code":"invalid_import_request"}')
+                payload=json.loads(self.rfile.read(length))
+                if not isinstance(payload,dict) or payload.keys()-{'folder','profile'}:
+                    raise ValueError('invalid_import_request')
+                result=service.request_folder_import(payload.get('folder'),payload.get('profile'))
+                return self.send(202,json.dumps(result).encode())
+            except RuntimeError as exc:
+                return self.send(409 if str(exc)=='import_already_running' else 503,json.dumps({'error_code':str(exc)}).encode())
+            except (ValueError,TypeError) as exc:
+                code=str(exc) if str(exc) in ('folder_required','folder_must_be_absolute','folder_not_found','folder_inside_hub_data','invalid_profile') else 'invalid_import_request'
+                return self.send(400,json.dumps({'error_code':code}).encode())
 
         def import_retry_post(self):
             from .import_retry import RetryError

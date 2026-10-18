@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from contextlib import contextmanager, closing
 import math
 import inspect
@@ -154,6 +155,8 @@ class HubService:
                                  "cloud_upload_confirmed": False, "copied_files": 0, "pending_files": 0,
                                  "pending_bytes": 0, "skipped_files": 0, "error_code": None}
         self.health = {"collector": {"state": "starting"}, "status": {"state": "starting"}, 'indexer':{'state':'starting'}}
+        self.folder_import = {'state': 'idle', 'folder': None, 'total': 0, 'done': 0, 'counts': {}, 'failures': [], 'runs': None}
+        self.folder_import_request = None
         self.analytics_cache={"schema_version":1,"enabled":config.analytics_enabled,"state":"starting" if config.analytics_enabled else "disabled","error_code":None,"latest_report_id":None,"converted_files":0,"pending_files":0,"retry_files":0}
         self.health["analytics"]={"state":self.analytics_cache["state"]}
         self.health["log_export"] = {"state": self.log_export_cache["state"]}
@@ -260,6 +263,7 @@ class HubService:
             from .stream_analysis import Limits
             pipeline=Pipeline(self.root,db,stream_limits=Limits(max_spool_bytes=self.config.stream_max_spool_bytes,min_free_bytes=self.config.stream_min_free_bytes))
             while not self.stop.is_set():
+                self._run_folder_import(db)
                 pipeline.tick()
                 self.stop.wait(0.5)
         except Exception as exc:
@@ -425,6 +429,61 @@ class HubService:
         with self.cache_lock:
             if not any(row['id'] == identity for row in self.cache['files']):
                 raise ValueError("Unknown transfer identity")
+
+    def request_folder_import(self, folder, profile=None):
+        """Queue a manual folder import for the indexer thread, which owns catalog writes."""
+        from .import_folder import find_logs
+        from .wpilog import PROFILE
+        if not isinstance(folder, str) or not folder.strip() or len(folder) > 1024 or '\x00' in folder:
+            raise ValueError('folder_required')
+        if profile is not None and (not isinstance(profile, str) or not profile or len(profile) > 256):
+            raise ValueError('invalid_profile')
+        path = Path(folder.strip()).expanduser()
+        if not path.is_absolute():
+            raise ValueError('folder_must_be_absolute')
+        try:
+            if path.resolve() == self.root or self.root in path.resolve().parents:
+                raise ValueError('folder_inside_hub_data')
+            paths = find_logs(path)
+        except FileNotFoundError:
+            raise ValueError('folder_not_found') from None
+        with self.cache_lock:
+            if self.stop.is_set() or self.closed:
+                raise RuntimeError('service_stopping')
+            if self.folder_import_request is not None or self.folder_import['state'] == 'running':
+                raise RuntimeError('import_already_running')
+            self.folder_import_request = (paths, profile or PROFILE)
+            self.folder_import = {'state': 'queued', 'folder': str(path), 'total': len(paths), 'done': 0,
+                                  'counts': {}, 'failures': [], 'runs': None}
+            return dict(self.folder_import)
+
+    def folder_import_status(self):
+        with self.cache_lock:
+            return json.loads(json.dumps(self.folder_import))
+
+    def _run_folder_import(self, db):
+        from .import_folder import import_paths, summarize
+        with self.cache_lock:
+            request, self.folder_import_request = self.folder_import_request, None
+            if request is None:
+                return
+            self.folder_import['state'] = 'running'
+        paths, profile = request
+
+        def progress(done, total, result):
+            with self.cache_lock:
+                self.folder_import['done'] = done
+                if result['state'] not in ('succeeded', 'succeeded_with_unsupported'):
+                    self.folder_import['failures'] = (self.folder_import['failures'] + [
+                        {'file': Path(result['file']).name, 'state': result['state'], 'error_code': result['error_code']}])[-50:]
+        try:
+            results = import_paths(self.root, db, paths, profile=profile, progress=progress)
+            with self.cache_lock:
+                self.folder_import.update(state='complete', counts=summarize(results))
+        except Exception as exc:
+            with self.cache_lock:
+                self.folder_import['state'] = 'failed'
+            self.diagnostics.record('folder_import_failed', 'Manual folder import stopped; imported originals are preserved', exception=exc)
 
     def enqueue_import_retry(self,job_id,payload):
         from .import_retry import enqueue,RetryError
