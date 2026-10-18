@@ -45,7 +45,7 @@ def series(root, *, component=None, limit=MAX_RUNS):
         groups.setdefault(key, []).append((run_id, int(start), seconds))
     out = []
     for (robot, modes), members in groups.items():
-        names = [practice.MODE_WORDS.get(m, m.title()) for m in json.loads(modes)]
+        names = [practice.MODE_WORDS.get(str(m).upper(), str(m).title()) for m in json.loads(modes)]
         metrics = sorted({(c, m) for (r, c, m) in values if any(r == run for run, _, _ in members)
                           and m in practice.TREND_METRICS and (component is None or c == component)})
         for comp, metric in metrics:

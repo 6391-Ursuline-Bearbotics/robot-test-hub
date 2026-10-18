@@ -26,6 +26,13 @@ Import speed-up (same dataset bytes): faster record parsing, cached unit/categor
 
 Derived storage (2026 profile): datasets are now written as deterministic gzip (`signals.jsonl.gz`, extractor version `wpilog-python-1-gzip`). On one real 32.5 MB match log the derived folder went from about 1.7 GB to **103 MB** (about 16x smaller, ~3.3 bytes per raw byte), and the home-page findings were identical. Alpha 7 datasets, paths and pinned hashes are unchanged; unknown or unsupported profiles keep the standard extractor version. Logs imported before this change keep their uncompressed datasets until re-imported into a fresh data folder.
 
+2027-format log check (simulation, not hardware): the robot repository's own `SimulationFunctionalTest` (teleop plus four autos on both alliances) was run with `frc.testHubRecordingDir` set, so the real Alpha 7 / AdvantageKit 27 robot code wrote a 12 MB log through its rotating receiver, including the new PracticeEvents counters (8 intakes, 2 volleys). Importing it with the default 2027 profile produced 18 runs with `run-metrics-3` measurements. It found two bugs, both fixed:
+
+- **Overcounting.** Season detection counted 20 intakes and 3 volleys, because a counter value logged inside one run was not given to later runs as their starting state. Now it reports 8 and 2, matching the log. Results are versioned by detector logic (`-d2`), so the corrected counts are new rows.
+- **Invisible runs.** Simulation runs have no valid wall clock, so the home page showed none of them. They now appear under "Runs without clock time".
+
+Not covered: the simulation has no FMS or match clock (so no match detection) and no real hardware faults.
+
 # Full-source recorded status checkpoint — October 18, 2026
 
 Stage S2 adds a bounded cycle/lifecycle mapper and incremental recorded Phoenix/SystemCore checks under automatic-reports-9. Normal small-run automatic pipeline 7 remains unchanged. Automatic overflow now schedules 9; explicit 8 and pending 8 jobs retain their quality-only policy, reducer, declarations and saved results. Tracking and steering remain explicitly unavailable on streamed input. Overall robot health remains not assessed; SDK ages, fault labels/counters and voltage do not qualify physical freshness, event counts, reset diagnoses or battery health.

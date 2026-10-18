@@ -35,10 +35,10 @@ el('prev').onclick=()=>{if(data?.previous_day){selected=data.previous_day;load()
 el('next').onclick=()=>{if(data?.next_day){selected=data.next_day;load()}};
 const CHIP={ok:'Nothing flagged',look:'Look at this',unchecked:"Couldn't check"};
 function duration(s){if(s==null)return 'length unknown';if(s<60)return Math.round(s)+' s';const m=Math.floor(s/60),r=Math.round(s%60);return m+' min'+(r?' '+r+' s':'')}
-function dayTitle(iso){if(!iso)return 'No practice logs yet';const d=new Date(iso+'T12:00:00'),today=new Date();const same=(a,b)=>a.toDateString()===b.toDateString();const y=new Date(today);y.setDate(today.getDate()-1);const label=d.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:d.getFullYear()===today.getFullYear()?undefined:'numeric'});return same(d,today)?'Today · '+label:same(d,y)?'Yesterday · '+label:label}
+function dayTitle(iso){if(!iso)return 'No practice logs yet';if(iso==='undated')return 'Runs without clock time';const d=new Date(iso+'T12:00:00'),today=new Date();const same=(a,b)=>a.toDateString()===b.toDateString();const y=new Date(today);y.setDate(today.getDate()-1);const label=d.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:d.getFullYear()===today.getFullYear()?undefined:'numeric'});return same(d,today)?'Today · '+label:same(d,y)?'Yesterday · '+label:label}
 function add(parent,tag,text,cls){const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;parent.append(n);return n}
 function card(c){const a=document.createElement('article');a.className='card '+c.status;
- const top=add(a,'div',null,'top');add(top,'span',new Date(c.local_start).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}),'time');add(top,'span',CHIP[c.status],'chip '+c.status);
+ const top=add(a,'div',null,'top');add(top,'span',c.local_start?new Date(c.local_start).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}):'Time unknown','time');add(top,'span',CHIP[c.status],'chip '+c.status);
  const facts=[duration(c.duration_seconds),c.modes.join(' → ')||'mode unknown',c.battery_min_volts!=null?'battery low point '+c.battery_min_volts.toFixed(1)+' V':null,c.notes!=null?(c.notes===1?'1 note':c.notes+' notes'):null].filter(Boolean);
  const f=add(a,'div',facts.join(' · '),'facts');
  if(c.source_types.includes('SYNTHETIC'))add(f,'span','test data','tag');
@@ -91,7 +91,7 @@ async function load(){try{try{const mr=await (await fetch('/api/v1/matches',{cac
  el('digest').value=digest(data);
  const all=data.seen_all_day||[];el('allday').hidden=!all.length;el('allday-list').replaceChildren(...all.map(x=>{const li=document.createElement('li');li.textContent=`${x.sentence} (${x.runs} of ${x.of} runs)`;return li}));
  if(!n){const e=add(el('cards'),'div',null,'empty');add(e,'p',data.date?'No runs on this day.':'No robot logs yet. After practice, collect logs or use Import logs on the Transfers (admin) page.')}
- el('unknown').textContent=data.unknown_time_runs?`${data.unknown_time_runs} run(s) have no clock time and are not shown by day. See Run history.`:'';
+ el('unknown').textContent=data.unknown_time_runs&&data.date!=='undated'?`${data.unknown_time_runs} run(s) have no clock time; they are listed under "Runs without clock time" (use the arrows).`:'';
 }catch(e){el('date').textContent='The hub is not responding';}}
 const LOG_WORDS={caught_up:'caught up',downloading:'downloading from robot',verifying:'checking downloaded files',discovering:'looking for new logs on the robot',waiting:'waiting for the robot to be disabled',attention:'needs attention (see Transfers)'};
 async function status(){try{const r=await fetch('/api/v1/status',{cache:'no-store'});if(!r.ok)throw Error();const s=await r.json();

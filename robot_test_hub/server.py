@@ -632,7 +632,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 if query.keys()-{'date'} or any(len(v)!=1 for v in query.values()):
                     raise ValueError()
                 date=query.get('date',[None])[0]
-                if date is not None:
+                if date is not None and date != practice.UNDATED:
                     import datetime as _dt
                     _dt.date.fromisoformat(date)
                 return self.send(200,json.dumps(practice.day(service.root,date),allow_nan=False).encode())

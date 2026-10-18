@@ -275,7 +275,7 @@ def _short_run(db, run, start, seconds):
     usual = statistics.median(past)
     if seconds >= usual / 2 or usual - seconds < 5:
         return []
-    mode = ' and '.join(MODE_WORDS.get(m, m.title()) for m in json.loads(modes)) or 'This run'
+    mode = ' and '.join(MODE_WORDS.get(str(m).upper(), str(m).title()) for m in json.loads(modes)) or 'This run'
     return [{'kind': 'trend_outlier', 'component': 'robot', 'metric': 'duration_seconds', 'value': seconds,
              'recent_median': usual, 'basis': 'run length compared with recent runs in the same mode',
              'sentence': f"{mode} ended after {seconds:.0f} s; it usually lasts {usual:.0f} s. Was the robot disabled early?",
@@ -383,6 +383,9 @@ def _has_table(db, name):
     return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
 
 
+UNDATED = 'undated'
+
+
 def card_for(root, run_id, *, tz=None):
     """The home-page card for one run (computed with its whole day for day-level context)."""
     tz = tz or datetime.now().astimezone().tzinfo
@@ -393,9 +396,7 @@ def card_for(root, run_id, *, tz=None):
     if run is None:
         return None
     start = _start_utc_ns(run)
-    if start is None:
-        return {'run_id': run_id, 'findings': [], 'modes': [], 'siblings': [], 'trends': []}
-    cards = day(root, _local(start, tz).date().isoformat(), tz=tz)['cards']
+    cards = day(root, UNDATED if start is None else _local(start, tz).date().isoformat(), tz=tz)['cards']
     return next((c for c in cards if c['run_id'] == run_id), None)
 
 
@@ -409,31 +410,36 @@ def day(root, date=None, *, tz=None):
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA query_only=ON')
         runs = _all_runs(db) if _has_table(db, 'run_lookup_runs') else []
-        dated, unknown = {}, 0
+        dated, undated = {}, []
         for run in runs:
             start = _start_utc_ns(run)
             if start is None:
-                unknown += 1
+                undated.append((None, run))
                 continue
             dated.setdefault(_local(start, tz).date().isoformat(), []).append((start, run))
-        days = sorted(dated, reverse=True)
+        unknown = len(undated)
+        # Runs without a wall clock (no Driver Station time, simulation) get their own entry,
+        # ordered by boot and robot time.
+        dated[UNDATED] = sorted(undated, key=lambda pair: (str(pair[1].get('boot_id')), int(pair[1]['start_monotonic_ns'])))
+        days = sorted((d for d in dated if d != UNDATED), reverse=True) + ([UNDATED] if undated else [])
         selected = date if date is not None else (days[0] if days else None)
         cards, pending = [], []
         has_reports = _has_table(db, 'analysis_reports')
-        for start, run in sorted(dated.get(selected, []), key=lambda pair: pair[0]):
+        entries = dated.get(selected, [])
+        for start, run in (entries if selected == UNDATED else sorted(entries, key=lambda pair: pair[0])):
             report = _latest_report(db, run['run_id']) if has_reports else None
             siblings = sibling_findings(_all_metrics(report))
             rows = run_metrics.for_run(db, run['run_id'])
             measured = measured_findings(rows) if rows else []
             trends = []
             seconds = _duration_seconds(run)
-            if rows and seconds and seconds >= TREND_MIN_SECONDS:
+            if start is not None and rows and seconds and seconds >= TREND_MIN_SECONDS:
                 modes_key = json.dumps(sorted({p['mode'] for p in run.get('phases') or []}))
                 history = run_metrics.history(db, run.get('robot_id'), start, modes_key,
                                               {(r['component'], r['metric']) for r in rows}, limit=TREND_WINDOW,
                                               duration_seconds=seconds)
                 trends = trend_findings(rows, history)
-            if seconds is not None:
+            if seconds is not None and start is not None:
                 trends = _short_run(db, run, start, seconds) + trends
             pending.append((run, start, report, siblings, measured, trends, rows))
         common = _common_robot_findings([item[4] for item in pending])
@@ -447,16 +453,17 @@ def day(root, date=None, *, tz=None):
             measured = [f for f in measured if not (f['kind'] == 'robot_measurement' and f['metric'] in common)]
             chip, line, sentences = card_status(report, siblings, measured, trends, metrics_available=bool(rows))
             from . import repairs
-            after_fix = repairs.before_after(db, run, start, rows) if rows else []
+            after_fix = repairs.before_after(db, run, start, rows) if rows and start is not None else []
             modes = []
             for phase in run.get('phases') or []:
-                word = MODE_WORDS.get(phase.get('mode'), (phase.get('mode') or 'Unknown').title())
+                word = MODE_WORDS.get(str(phase.get('mode')).upper(), (phase.get('mode') or 'Unknown').title())
                 if not modes or modes[-1] != word:
                     modes.append(word)
             battery = _metric(report, 'recorded_battery_voltage_min')
             if battery is None and rows:
                 battery = next((r['value'] for r in rows if r['component'] == 'robot' and r['metric'] == 'battery_min_v'), None)
-            cards.append({'run_id': run['run_id'], 'local_start': _local(start, tz).isoformat(timespec='seconds'),
+            cards.append({'run_id': run['run_id'],
+                          'local_start': _local(start, tz).isoformat(timespec='seconds') if start is not None else None,
                           'duration_seconds': _duration_seconds(run), 'modes': modes,
                           'battery_min_volts': battery, 'notes': _note_count(db, run['run_id']),
                           'status': chip, 'headline': line, 'findings': sentences,

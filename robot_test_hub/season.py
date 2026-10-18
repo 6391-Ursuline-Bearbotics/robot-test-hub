@@ -24,6 +24,7 @@ import time
 
 SEASONS = Path(__file__).parent / 'seasons'
 DETECTORS = ('counter', 'rising', 'enters', 'threshold')
+DETECTOR_VERSION = 'd2'  # d2: a counter value from an earlier run is a starting state, not new events
 
 
 class SeasonError(ValueError):
@@ -46,7 +47,9 @@ def load(path):
         if task.get('from') not in season['actions'] or task.get('to') not in season['actions'] \
                 or not isinstance(task.get('max_seconds'), (int, float)) or task['max_seconds'] <= 0:
             raise SeasonError(f'Timed task {name} needs known from/to actions and positive max_seconds')
-    season['version'] = f"{season.get('season')}-{hashlib.sha256(raw).hexdigest()[:12]}"
+    # Results are keyed by both the season file and the detector logic, so a fix to either
+    # produces new results next to the old ones instead of silently reusing them.
+    season['version'] = f"{season.get('season')}-{hashlib.sha256(raw).hexdigest()[:12]}-{DETECTOR_VERSION}"
     return season
 
 
@@ -168,9 +171,9 @@ def step(root, db, document, *, seasons=None, max_jobs=1):
             for start, end, run_id in spans:
                 if start <= t <= end:
                     detectors[run_id].observe(row['field'], row['value'], t)
-                    break
-                # Track state before the run starts so the first change inside it is an edge.
-                if t < start:
+                elif t < start:
+                    # Every later run sees this value as its starting state (no event is credited),
+                    # so a counter that rose in an earlier run is not counted again.
                     detectors[run_id].observe(row['field'], row['value'], None)
     now = time.time_ns()
     with db:
