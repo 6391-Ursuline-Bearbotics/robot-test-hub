@@ -66,6 +66,16 @@ Runs without a wall-clock time are counted below the cards and remain available 
 
 Not yet done: the robot-side `PracticeEvents.record(...)` counter helper (robot repository, under its own AGENTS.md) and the 2027 season file.
 
+### Implemented: "Get the data" bundle (P1.3)
+
+Each run card's Details has **Get the data**, which downloads `/api/v1/bundles/<run_id>` as a zip:
+
+- the unchanged original WPILOG(s) of the run (SHA-256 listed in the README);
+- `advantagescope-layout.json`: a line-graph tab per flagged part (for a swerve module, the same current on all four modules on the left, and the flagged module's volts and speed on the right), plus "Battery and power" and "Loop time and CAN", each with the enabled state as stripes. Only fields present in the log are included. The structure follows a layout saved by AdvantageScope 26 (`hubs[0].state.tabs.tabs`, line graph `type: 1`);
+- `README.txt`: run, match, the log-time range to look at, the hub's sentences, and three steps (open the log, **File > Import Layout...**, drag to the time range).
+
+Not verified: importing this layout in the AdvantageScope GUI (desktop control was not available). Automatic seeking is not claimed. A bundle for a real 32 MB match log is built in about 3 s.
+
 ## Screen 2: Run/time search
 
 Filters: robot, session, local date/time interval, test type, build/config, component, battery, finding status. Show the resolved absolute date and timezone for natural-language or relative dates. Return overlapping intervals, including uncertainty, instead of matching only run start time.

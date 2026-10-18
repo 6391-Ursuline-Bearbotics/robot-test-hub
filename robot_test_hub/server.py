@@ -122,6 +122,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.crew_get()
             if urlsplit(self.path).path in ('/api/v1/matches', '/api/v1/leaderboard'):
                 return self.leaderboard_get()
+            if urlsplit(self.path).path.startswith('/api/v1/bundles/'):
+                return self.bundle_get()
             if urlsplit(self.path).path == '/board':
                 return self.send(200, (Path(__file__).parent / "static/board.html").read_bytes(), "text/html; charset=utf-8")
             if self.path == '/practice-time':
@@ -435,6 +437,36 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
             except sqlite3.Error:
                 service.diagnostics.record("settings_write_failed", "Cannot save operator preference; check catalog/local storage")
                 self.send(503, b'{"error_code":"settings_write_failed","error":"Preference was not saved; check local storage"}')
+
+        def bundle_get(self):
+            from . import evidence, practice
+            import re as _re
+            run_id=urlsplit(self.path).path[len('/api/v1/bundles/'):]
+            if not _re.fullmatch('[A-Za-z0-9_-]{1,128}',run_id):
+                return self.send(400,b'{"error_code":"invalid_run"}')
+            bundle=None
+            try:
+                card=practice.card_for(service.root,run_id)
+                if card is None:
+                    return self.send(404,b'{"error_code":"run_not_found"}')
+                bundle,name=evidence.build(service.root,run_id,card)
+                size=bundle.stat().st_size
+                self.send_response(200)
+                self.send_header('Content-Type','application/zip')
+                self.send_header('Content-Length',str(size))
+                self.send_header('Content-Disposition',f'attachment; filename="{name}"')
+                self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff')
+                self.end_headers()
+                with bundle.open('rb') as stream:
+                    while block:=stream.read(1<<20):
+                        self.wfile.write(block)
+            except evidence.EvidenceError as exc:
+                return self.send(exc.status,json.dumps({'error_code':exc.code}).encode())
+            except (sqlite3.Error,OSError,RuntimeError):
+                return self.send(503,b'{"error_code":"bundle_unavailable"}')
+            finally:
+                if bundle is not None:
+                    bundle.unlink(missing_ok=True)
 
         def leaderboard_get(self):
             from . import crew, leaderboard

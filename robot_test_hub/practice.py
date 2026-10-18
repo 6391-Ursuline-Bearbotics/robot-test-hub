@@ -383,6 +383,22 @@ def _has_table(db, name):
     return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
 
 
+def card_for(root, run_id, *, tz=None):
+    """The home-page card for one run (computed with its whole day for day-level context)."""
+    tz = tz or datetime.now().astimezone().tzinfo
+    path = Path(root).resolve() / 'catalog.sqlite3'
+    with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=2)) as db:
+        db.execute('PRAGMA query_only=ON')
+        run = next((r for r in _all_runs(db) if r['run_id'] == run_id), None)
+    if run is None:
+        return None
+    start = _start_utc_ns(run)
+    if start is None:
+        return {'run_id': run_id, 'findings': [], 'modes': [], 'siblings': [], 'trends': []}
+    cards = day(root, _local(start, tz).date().isoformat(), tz=tz)['cards']
+    return next((c for c in cards if c['run_id'] == run_id), None)
+
+
 def day(root, date=None, *, tz=None):
     """Cards for one local calendar day (default: most recent day with runs)."""
     tz = tz or datetime.now().astimezone().tzinfo
