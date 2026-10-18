@@ -413,6 +413,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.crew_post()
             if self.path.startswith('/api/v1/matches/') and self.path.endswith('/counted'):
                 return self.match_counted_post()
+            if self.path == '/api/v1/notes-import':
+                return self.notes_import_post()
             if self.path.startswith('/api/v1/imports/'):
                 return self.import_retry_post()
             if self.path.startswith('/api/v1/markers'):
@@ -496,6 +498,25 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.send(200,json.dumps(body).encode())
             except (sqlite3.Error,RuntimeError,OSError,ValueError):
                 return self.send(503,b'{"error_code":"leaderboard_unavailable"}')
+
+        def notes_import_post(self):
+            from . import notes_import
+            self.close_connection=True
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=notes_import.MAX_BYTES*2:
+                    return self.reject_unread(413,b'{"error_code":"file_too_large"}')
+                payload=json.loads(self.rfile.read(length))
+                if not isinstance(payload,dict) or payload.keys()!={'csv','timezone'} or not all(isinstance(payload[k],str) for k in payload):
+                    raise notes_import.ImportError_('Send csv text and a timezone name')
+                result=notes_import.import_csv(notebook,payload['csv'],timezone_name=payload['timezone'])
+                return self.send(200,json.dumps(result).encode())
+            except notes_import.ImportError_ as exc:
+                return self.send(400,json.dumps({'error_code':'invalid_notes_csv','error':str(exc)}).encode())
+            except (ValueError,TypeError):
+                return self.send(400,b'{"error_code":"invalid_notes_csv","error":"Could not read the request"}')
+            except sqlite3.Error:
+                return self.send(503,b'{"error_code":"notebook_storage_unavailable"}')
 
         def match_counted_post(self):
             from . import leaderboard

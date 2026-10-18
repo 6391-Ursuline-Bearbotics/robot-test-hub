@@ -80,6 +80,12 @@ Not verified: importing this layout in the AdvantageScope GUI (desktop control w
 
 `/trends` shows one small chart per measurement and part over the last 60 measured runs, split by robot and modes (auto with auto, teleop with teleop). Gold points are exactly the runs the home page called "Unusual compared with recent runs" (same rule, using only earlier runs). A run without the measurement is a gap. Charts with unusual runs sort first, and there is a filter by part. No approved baseline is needed; the approved-cohort reports remain a separate layer.
 
+### Implemented: phone notes via CSV import (P1.4 stopgap) and glossary pass (P1.5)
+
+Until LAN phone access with a PIN exists, students can use a phone form such as a Google Form. On the admin page, **Import phone notes (CSV)** takes the exported responses file. It needs a Timestamp column and a note/observation column; *Your name* and *Subsystem* columns are used when present. Each row becomes a saved note at its timestamp, interpreted in the browser's time zone. The note is labeled a user estimate within ±2 minutes, and the original timestamp text is kept. The event ID comes from the row content, so importing the same file again saves nothing. Rows with no text or an unreadable time are skipped and reported by row number (`notes_import.py`).
+
+Glossary: the new student pages (home, practice time, board, trends) avoid the banned words. Run history and the notebook replaced visible "snapshot" and "revision … robot session" wording with plain phrases; internal names are unchanged.
+
 ## Screen 2: Run/time search
 
 Filters: robot, session, local date/time interval, test type, build/config, component, battery, finding status. Show the resolved absolute date and timezone for natural-language or relative dates. Return overlapping intervals, including uncertainty, instead of matching only run start time.
