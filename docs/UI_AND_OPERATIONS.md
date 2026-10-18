@@ -86,6 +86,10 @@ Until LAN phone access with a PIN exists, students can use a phone form such as 
 
 Glossary: the new student pages (home, practice time, board, trends) avoid the banned words. Run history and the notebook replaced visible "snapshot" and "revision … robot session" wording with plain phrases; internal names are unchanged.
 
+### Implemented: before/after for fixes (P4.2)
+
+Under a card's Details, each matching-part or trend finding has a **We fixed: …** button that asks what was fixed and stores it as an append-only repair record (`repairs.py`). The next three runs of the same robot and modes after that moment show a green line such as "After the fix "reseated back-right CAN cable": Back-right module wheel speed off target by 3.2 m/s → 0.40 m/s." It compares recorded values only and does not establish cause. Replay regression (P4.1) and an AI practice digest (P4.3) are not implemented.
+
 ## Screen 2: Run/time search
 
 Filters: robot, session, local date/time interval, test type, build/config, component, battery, finding status. Show the resolved absolute date and timezone for natural-language or relative dates. Return overlapping intervals, including uncertainty, instead of matching only run start time.

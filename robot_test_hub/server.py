@@ -427,6 +427,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.crew_post()
             if self.path.startswith('/api/v1/matches/') and self.path.endswith('/counted'):
                 return self.match_counted_post()
+            if self.path == '/api/v1/repairs':
+                return self.repair_post()
             if self.path == '/api/v1/notes-import':
                 return self.notes_import_post()
             if self.path.startswith('/api/v1/imports/'):
@@ -531,6 +533,22 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.send(400,b'{"error_code":"invalid_notes_csv","error":"Could not read the request"}')
             except sqlite3.Error:
                 return self.send(503,b'{"error_code":"notebook_storage_unavailable"}')
+
+        def repair_post(self):
+            from . import repairs
+            self.close_connection=True
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=2048:
+                    return self.reject_unread(400,b'{"error_code":"invalid_repair"}')
+                payload=json.loads(self.rfile.read(length))
+                if not isinstance(payload,dict) or payload.keys()!={'run_id','component','metric','description'}:
+                    raise ValueError('invalid_repair')
+                return self.send(201,json.dumps(repairs.record(service.root,payload['run_id'],payload['component'],payload['metric'],payload['description'])).encode())
+            except ValueError as exc:
+                return self.send(400,json.dumps({'error_code':str(exc) if str(exc) in ('invalid_repair','description_required') else 'invalid_repair'}).encode())
+            except sqlite3.Error:
+                return self.send(503,b'{"error_code":"repair_storage_unavailable"}')
 
         def match_counted_post(self):
             from . import leaderboard

@@ -446,6 +446,8 @@ def day(root, date=None, *, tz=None):
         for run, start, report, siblings, measured, trends, rows in pending:
             measured = [f for f in measured if not (f['kind'] == 'robot_measurement' and f['metric'] in common)]
             chip, line, sentences = card_status(report, siblings, measured, trends, metrics_available=bool(rows))
+            from . import repairs
+            after_fix = repairs.before_after(db, run, start, rows) if rows else []
             modes = []
             for phase in run.get('phases') or []:
                 word = MODE_WORDS.get(phase.get('mode'), (phase.get('mode') or 'Unknown').title())
@@ -459,6 +461,7 @@ def day(root, date=None, *, tz=None):
                           'battery_min_volts': battery, 'notes': _note_count(db, run['run_id']),
                           'status': chip, 'headline': line, 'findings': sentences,
                           'siblings': siblings + [f for f in measured if f['kind'] == 'sibling_outlier'], 'trends': trends,
+                          'measured': measured, 'after_fix': after_fix,
                           'source_types': run.get('source_types') or [],
                           'match': found.get(run['run_id']),
                           'crew': ({'roles': {role: {'id': sid, 'name': who.get(sid, 'Removed student')}
