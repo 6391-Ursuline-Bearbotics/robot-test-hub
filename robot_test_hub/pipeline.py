@@ -71,6 +71,9 @@ class Pipeline:
         document=getattr(self,'metrics_document',None)
         if document is not None:
             computed=run_metrics.step(self.root,self.db,document)
+            if not computed:
+                from . import season
+                computed=season.step(self.root,self.db,document)
             if computed:
                 # Indexing is idle; measurements continue on following ticks.
                 return {'state':'idle','imports':len(imports),'measured_runs':computed}

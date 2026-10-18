@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Practice board · 6391</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#0b1218;color:#eef4f8;--gold:#e6b957;--muted:#9fb2c0;--panel:#14212b;--line:#2b3c4a;--good:#7fd29a}
+body{margin:0;padding:2.2vw 3vw;min-height:100vh;box-sizing:border-box}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:20px}.eyebrow{color:var(--gold);letter-spacing:.14em;font-weight:700;font-size:clamp(12px,1.1vw,20px)}
+h1{font-size:clamp(26px,3vw,56px);margin:.2em 0}.updated{color:var(--muted);font-size:clamp(12px,1vw,18px)}
+.latest{background:var(--panel);border:2px solid var(--gold);border-radius:20px;padding:1.6vw 2vw;margin:1.4vw 0;display:grid;grid-template-columns:1.2fr 1fr;gap:2vw;align-items:center}
+.latest .label{color:var(--muted);font-size:clamp(14px,1.3vw,24px)}.latest .crew{font-size:clamp(24px,2.6vw,48px);font-weight:700}
+.big{font-size:clamp(48px,7vw,130px);font-weight:800;line-height:1;color:var(--gold)}.big small{font-size:.3em;color:var(--muted);font-weight:600;margin-left:.3em}
+.stats{display:flex;gap:2.4vw;font-size:clamp(16px,1.6vw,30px)}.stats b{display:block;font-size:1.6em}
+.banner{color:var(--good);font-size:clamp(18px,2vw,36px);font-weight:700;margin-top:.4em}
+.boards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.4vw}
+.board{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:1.2vw 1.4vw}.board h2{margin:0 0 .6em;font-size:clamp(16px,1.5vw,28px);color:var(--gold)}
+ol{margin:0;padding-left:1.4em;font-size:clamp(15px,1.4vw,26px)}li{margin:.3em 0;display:list-item}li span{float:right;font-variant-numeric:tabular-nums;color:#dbe8f0}
+.note{color:var(--muted);font-size:clamp(11px,.9vw,16px);margin-top:1.4vw}.empty{color:var(--muted)}
+@media(max-width:700px){.latest{grid-template-columns:1fr}}
+</style></head><body>
+<div class="top"><div><div class="eyebrow">URSULINE BEARBOTICS / TEAM 6391</div><h1>Practice board</h1></div><div class="updated" id="updated"></div></div>
+<section class="latest" id="latest" aria-live="polite"><div class="empty">No practice matches yet.</div></section>
+<div class="boards" id="boards"></div>
+<p class="note" id="note"></p>
+<script>
+const params=new URLSearchParams(location.search),hide=params.get('names')==='0',windowName=params.get('window')==='season'?'season':'week';
+const el=id=>document.getElementById(id);const alias={};
+function who(label,key){if(!hide)return label;const k=JSON.stringify(key);if(!(k in alias))alias[k]='Crew '+(Object.keys(alias).length+1);return alias[k]}
+function node(tag,text,cls){const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n}
+const BOARDS=[['best_score','Best practice match','best_score',v=>v+' volleys'],['most_cycles','Most cycles in a match','most_cycles',v=>v],['fastest_average_cycle','Fastest average cycle','fastest_average_cycle_s',v=>v.toFixed(1)+' s'],['most_improved','Most improved this week','improvement',v=>'+'+v.toFixed(1)],['consistency','Most consistent (last 5)','consistency_spread',v=>'±'+(v/2).toFixed(1)]];
+async function load(){try{const r=await fetch('/api/v1/leaderboard?window='+windowName,{cache:'no-store'});if(!r.ok)throw Error();const d=await r.json();const m=d.latest;
+ const box=el('latest');box.replaceChildren();
+ if(m){const left=node('div');left.append(node('div',m.label+' · '+new Date(Number(BigInt(m.start_utc_ns)/1000000n)).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}),'label'),node('div',hide&&m.crew.driver?who(m.crew_label,[m.crew.driver.id,m.crew.operator?.id??null]):m.crew_label,'crew'));
+  if(m.new_best)left.append(node('div','New crew best!','banner'));else if(m.first_match_for_crew)left.append(node('div','First match for this crew','banner'));else if(m.previous_best_score!=null)left.append(node('div','Crew best so far: '+m.previous_best_score+' volleys','label'));
+  if(!m.counted)left.append(node('div','Not counted: '+(m.not_counted_reason||''),'label'));
+  const right=node('div');if(m.scored){const big=node('div',String(m.score),'big');big.append(node('small',m.score_label||'score'));right.append(big);const st=node('div',null,'stats');st.append(Object.assign(node('div','cycles'),{}));st.lastChild.prepend(node('b',String(m.cycles)));const avg=node('div','avg cycle');avg.prepend(node('b',m.cycle_average_s!=null?m.cycle_average_s.toFixed(1)+' s':'—'));const best=node('div','best cycle');best.prepend(node('b',m.cycle_best_s!=null?m.cycle_best_s.toFixed(1)+' s':'—'));st.append(avg,best);right.append(st)}else right.append(node('div','Waiting for this match\'s log to be processed…','label'));
+  box.append(left,right)}else box.append(node('div','No practice matches yet.','empty'));
+ const boards=el('boards');boards.replaceChildren();
+ for(const [key,title,field,fmt] of BOARDS){const b=node('section',null,'board');b.append(node('h2',title));const rows=d.boards[key].slice(0,5);if(!rows.length)b.append(node('div','Not enough matches yet','empty'));else{const ol=node('ol');for(const e of rows){const li=node('li',who(e.crew,e.crew_key));li.append(node('span',fmt(e[field])));ol.append(li)}b.append(ol)}boards.append(b)}
+ el('note').textContent=`${windowName==='week'?'This week':'Season'} · driver + operator crews · score is an estimate from the season file, not an official score · matches a mentor marked "not counted" are left out.`;
+ el('updated').textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+}catch(e){el('updated').textContent='Hub not responding'}}
+load();setInterval(load,10000);
+</script></body></html>

@@ -57,6 +57,15 @@ Runs without a wall-clock time are counted below the cards and remain available 
 - **Crew**: "Who's on the controls?" on the home page saves a driver/operator/coach selection that starts when saved and lasts until the next one. Each run card shows its crew. **Fix crew** under Details saves a correction as a new revision; the original selection and earlier corrections are kept.
 - **Practice time** (`/practice-time`): enabled time, match time, runs, matches and last practiced per student and role, for this week or the season. Runs with nobody selected count as **Unassigned**.
 
+### Implemented: season actions, match scores and leaderboards (P1b 5–7, 9–13)
+
+- **Season file** (`robot_test_hub/seasons/<year>.json`, committed, no private data): actions with a signal and a detect mode (`counter`, `rising`, `enters` a value, or `threshold` with re-arm), timed tasks (from the first *from* action after the previous *to* until the next *to*, kept only within `min_seconds`–`max_seconds`), and an optional score estimate. Results are stored per run under the file's content hash (`season_results`), so editing a definition adds new results and keeps old ones.
+- **2026 definition**: the 2026 robot had no event counters, so it uses logged goal states: *Intake* = `/RealOutputs/Intake/Goal` enters `INTAKE`, *Shoot* = `/RealOutputs/Indexer/Goal` enters `FEED` (one volley, not a game-piece count), *Cycle* = intake to volley within 2–30 s, and the score estimate is volleys. Checked against the raw log of one real qualification match: 1 auto volley and 6 teleop volleys, matching a count of the logged FEED transitions. This was not compared with video.
+- **Match records** (`leaderboard.py`): crew, auto and teleop counts, cycles, average and best cycle, and the score estimate. The home page match header shows the score line and a **Don't count this match** button, which asks for a reason, is stored as a revision and can be undone.
+- **Practice board** (`/board`, for a TV): the latest match result (with "New crew best!" or the crew's best so far), then boards by driver + operator crew: best match, most cycles, fastest average cycle (3+ cycles), most improved this week, and most consistent over the last 5 matches. It refreshes every 10 s. `?names=0` shows "Crew 1, 2…" instead of names and `?window=season` switches the window. Matches marked not counted are left out.
+
+Not yet done: the robot-side `PracticeEvents.record(...)` counter helper (robot repository, under its own AGENTS.md) and the 2027 season file.
+
 ## Screen 2: Run/time search
 
 Filters: robot, session, local date/time interval, test type, build/config, component, battery, finding status. Show the resolved absolute date and timezone for natural-language or relative dates. Return overlapping intervals, including uncertainty, instead of matching only run start time.

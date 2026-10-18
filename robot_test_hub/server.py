@@ -120,6 +120,10 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.practice_get()
             if urlsplit(self.path).path in ('/api/v1/roster', '/api/v1/crew', '/api/v1/practice-time'):
                 return self.crew_get()
+            if urlsplit(self.path).path in ('/api/v1/matches', '/api/v1/leaderboard'):
+                return self.leaderboard_get()
+            if urlsplit(self.path).path == '/board':
+                return self.send(200, (Path(__file__).parent / "static/board.html").read_bytes(), "text/html; charset=utf-8")
             if self.path == '/practice-time':
                 return self.send(200, (Path(__file__).parent / "static/practice_time.html").read_bytes(), "text/html; charset=utf-8")
             if self.path == "/notebook":
@@ -394,6 +398,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.folder_import_post()
             if self.path.startswith(('/api/v1/roster', '/api/v1/crew')):
                 return self.crew_post()
+            if self.path.startswith('/api/v1/matches/') and self.path.endswith('/counted'):
+                return self.match_counted_post()
             if self.path.startswith('/api/v1/imports/'):
                 return self.import_retry_post()
             if self.path.startswith('/api/v1/markers'):
@@ -429,6 +435,42 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
             except sqlite3.Error:
                 service.diagnostics.record("settings_write_failed", "Cannot save operator preference; check catalog/local storage")
                 self.send(503, b'{"error_code":"settings_write_failed","error":"Preference was not saved; check local storage"}')
+
+        def leaderboard_get(self):
+            from . import crew, leaderboard
+            try:
+                url=urlsplit(self.path)
+                query=parse_qs(url.query,max_num_fields=1)
+                items=leaderboard.records(service.root)
+                if url.path=='/api/v1/matches':
+                    return self.send(200,json.dumps({'matches':items,'latest':leaderboard.latest_result(items)}).encode())
+                window=query.get('window',['week'])[0]
+                if window not in ('week','season'):
+                    return self.send(400,b'{"error_code":"invalid_window"}')
+                week=crew.week_start_utc_ns()
+                body={'window':window,'boards':leaderboard.boards(items,since_utc_ns=week if window=='week' else None,week_start_utc_ns=week),
+                      'latest':leaderboard.latest_result(items)}
+                return self.send(200,json.dumps(body).encode())
+            except (sqlite3.Error,RuntimeError,OSError,ValueError):
+                return self.send(503,b'{"error_code":"leaderboard_unavailable"}')
+
+        def match_counted_post(self):
+            from . import leaderboard
+            self.close_connection=True
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=2048:
+                    return self.reject_unread(400,b'{"error_code":"invalid_match_request"}')
+                payload=json.loads(self.rfile.read(length))
+                if not isinstance(payload,dict) or payload.keys()-{'counted','reason'} or type(payload.get('counted')) is not bool:
+                    raise ValueError('invalid_match_request')
+                match_id=self.path[len('/api/v1/matches/'):-len('/counted')]
+                return self.send(201,json.dumps(leaderboard.set_counted(service.root,match_id,payload['counted'],payload.get('reason',''))).encode())
+            except ValueError as exc:
+                code=str(exc) if str(exc) in ('invalid_match','reason_required') else 'invalid_match_request'
+                return self.send(400,json.dumps({'error_code':code}).encode())
+            except sqlite3.Error:
+                return self.send(503,b'{"error_code":"match_storage_unavailable"}')
 
         def crew_get(self):
             from . import crew
