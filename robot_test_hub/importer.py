@@ -13,7 +13,12 @@ import tempfile
 import time
 
 from .storage import DataRootOwner, open_catalog
-from .wpilog import ALIASES, ODOMETRY_ARRAY_TIMESTAMPS, EXTRACTOR_VERSION, MAPPING_REVISION, PROFILE, FormatError, ResourceLimit, UnsupportedProfile, UnsupportedType, extract
+from .wpilog import ALIASES, ODOMETRY_ARRAY_TIMESTAMPS, EXTRACTOR_VERSION, MAPPING_REVISION, PROFILE, PROFILE_MAPPINGS, aliases_for, FormatError, ResourceLimit, UnsupportedProfile, UnsupportedType, extract
+
+
+def _mapping_for(profile):
+    # Read this module's MAPPING_REVISION at call time so the Alpha 7 pin stays authoritative.
+    return MAPPING_REVISION if profile == PROFILE else PROFILE_MAPPINGS.get(profile, MAPPING_REVISION)
 
 
 class ArchiveConflict(RuntimeError):
@@ -165,7 +170,9 @@ class Importer:
             temporary.unlink(missing_ok=True)
 
     def import_file(self, path: Path, *, profile=PROFILE, expected_sha256=None,
-                    source_type="MANUAL_LOCAL", mapping_revision=MAPPING_REVISION, retry=False):
+                    source_type="MANUAL_LOCAL", mapping_revision=None, retry=False):
+        if mapping_revision is None:
+            mapping_revision = _mapping_for(profile)
         if not isinstance(profile, str) or not profile or len(profile) > 256:
             raise ValueError("Profile must be a nonempty bounded string")
         if not isinstance(mapping_revision, str) or not mapping_revision or len(mapping_revision) > 128:
@@ -249,7 +256,7 @@ class Importer:
         try:
             if request_id is not None:
                 raw_path,size,source_type=self._registered_raw(job_id,expected_sha256=digest)
-            if mapping_revision != MAPPING_REVISION:
+            if mapping_revision != _mapping_for(profile):
                 raise UnsupportedProfile("Unsupported alias mapping revision")
             temporary, output = _temporary(self.root / "derived", ".jsonl.tmp")
             counts, unsupported, metadata, timestamp_min, timestamp_max = {}, set(), {}, None, None
@@ -281,7 +288,7 @@ class Importer:
                         "source_size_bytes": size, "raw_path": raw_path, "source_type": source_type,
                         "extractor_version": EXTRACTOR_VERSION, "profile": profile,
                         "profile_selection": "explicit_caller_profile", "mapping_revision": mapping_revision,
-                        "aliases": ALIASES, "odometry_array_timestamps": ODOMETRY_ARRAY_TIMESTAMPS,
+                        "aliases": aliases_for(profile), "odometry_array_timestamps": ODOMETRY_ARRAY_TIMESTAMPS,
                         "record_header_unit": "microseconds", "record_timestamp_unit": "nanoseconds",
                         "timestamp_payload_unit": "nanoseconds", "epoch_payload_unit": "microseconds",
                         "counts": counts, "unsupported_types": sorted(unsupported), "metadata_last_values": metadata,

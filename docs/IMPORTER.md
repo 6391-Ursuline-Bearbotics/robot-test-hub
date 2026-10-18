@@ -12,6 +12,18 @@ Use this after practice, at events, or any day the automatic collector misbehave
 
 The log profile defaults to the pinned Alpha 7 profile and is never inferred from file contents. Logs from another library version are recorded as `unsupported` and kept in the archive for a later importer revision; they are not guessed at.
 
+### Historical 2026 logs (`wpilib-2026_akit-26`)
+
+Last season's roboRIO logs (WPILib 2026, AdvantageKit 26) import with `--profile wpilib-2026_akit-26` (or `ImportLogs.cmd -LogProfile wpilib-2026_akit-26`). The profile was built against real September 2026 match logs, and its rules come from those files:
+
+- `/Timestamp` is int64 **microseconds** with no unit metadata and equals each record's header time; any disagreement is a format error.
+- The robot mode is not logged as an enum. `robot_mode` is a *derived* alias: AUTONOMOUS if `/DriverStation/Autonomous`, TEST if `/DriverStation/Test`, otherwise TELEOPERATED. Each derived alias names its source fields and rule.
+- The wall clock is `/SystemStats/EpochTimeMicros`. `epoch_valid` is derived as "after 2020-01-01", because the roboRIO starts with a wrong clock until the Driver Station sets it. The epoch value is read during the cycle, not at the cycle timestamp. On real logs its offset moved 1–10 ms per cycle and occasionally ~100–150 ms, so every anchor states ±200 ms uncertainty instead of the Alpha 7 ±1 ms.
+- There is no boot ID. Each file is its own boot (AdvantageKit starts a new file per boot), so runs from one file are grouped together.
+- A final record cut off by power loss is accepted for this profile only: the bytes before it import normally and a `quality` row records the cut-off offset and length. The Alpha 7 profile still rejects incomplete framing.
+
+The existing Alpha 7 analyzers report `unsupported` for 2026 runs. Real-length runs instead get the [per-run measurements](UI_AND_OPERATIONS.md#implemented-todays-practice-home-page-october-18-2026) (`run_metrics.py`), which feed the home page. 2025 logs (AdvantageKit 25) remain unsupported.
+
 Single-file manual import:
 
 From the repository root:

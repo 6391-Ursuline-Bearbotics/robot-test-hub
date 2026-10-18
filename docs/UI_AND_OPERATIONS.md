@@ -44,6 +44,12 @@ Chip rules (`robot_test_hub/practice.py`): any finding or sibling outlier → *L
 
 Runs without a wall-clock time are counted below the cards and remain available in Run history.
 
+**Measured findings (P2.2/P2.3, `run_metrics.py`).** After indexing, the pipeline streams each dataset once (one per worker tick) and stores per-run, per-component measurements in `run_metrics` under `run-metrics-1`; a new version adds rows rather than replacing them. The home page adds three kinds of sentence:
+
+- *Matching parts:* swerve modules, Left/Right and Top/Bottom pairs. A part is flagged at 2× (1.5× for wheel speed error) the median of all matching parts plus an absolute floor. Average current is flagged in either direction, because a dead motor draws almost nothing. Supply current is stored but not compared, since it mirrors stator current.
+- *Robot-wide rules of thumb* (stated in the sentence): battery below 7 V, 3 s or more below 9 V, any brownout, 25+ loops over 25 ms, CAN bus 95%+ busy. A rule that fires in 60% or more of a day's runs (and at least 3) appears once in a "Seen in most runs this day" box instead of on each card.
+- *Unusual compared with recent runs:* the last 20 runs with the same robot, modes and a length within ½–2×. A value is flagged only in the worse direction, beyond 3.5 scaled MADs and the metric's absolute floor, and outside the quoted 25th–75th percentile range. At least 5 earlier runs are required, and runs under 10 s are not trended. A run less than half the usual length for its mode is flagged as possibly disabled early.
+
 ## Screen 2: Run/time search
 
 Filters: robot, session, local date/time interval, test type, build/config, component, battery, finding status. Show the resolved absolute date and timezone for natural-language or relative dates. Return overlapping intervals, including uncertainty, instead of matching only run start time.

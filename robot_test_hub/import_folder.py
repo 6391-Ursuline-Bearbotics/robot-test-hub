@@ -54,14 +54,17 @@ def import_paths(root: Path, db, paths, *, profile=PROFILE, source_type="MANUAL_
 def process(root: Path, db, *, max_ticks=MAX_PIPELINE_TICKS):
     """Run the normal indexing/report pipeline until it reports idle."""
     pipeline = Pipeline(root, db)
-    last = None
+    summary = {}
     try:
         for _ in range(max_ticks):
             result = pipeline.tick()
-            if result["state"] == "idle":
-                return last or result
-            last = result
-        return dict(last or {}, state="incomplete")
+            if result.get("measured_runs"):
+                summary["measured_runs"] = summary.get("measured_runs", 0) + result["measured_runs"]
+            elif result["state"] == "idle":
+                return dict(summary, state="idle")
+            if result["state"] == "indexed":
+                summary.update(runs=result["runs"], reports=result["reports"], revision=result["revision"])
+        return dict(summary, state="incomplete")
     finally:
         pipeline.close()
 

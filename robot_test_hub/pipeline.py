@@ -64,7 +64,17 @@ class Pipeline:
             document=rebuild_from_imports(self.root,self.db)
             reports=generate(self.root,self.db,document)
             self.last_signature=signature
+            self.metrics_document=document
             return {'state':'indexed','imports':len(imports),'runs':len(document['runs']),'reports':len(reports),'revision':document['revision']}
+        # Per-run measurements, one dataset per tick so status and collection stay responsive.
+        from . import run_metrics
+        document=getattr(self,'metrics_document',None)
+        if document is not None:
+            computed=run_metrics.step(self.root,self.db,document)
+            if computed:
+                # Indexing is idle; measurements continue on following ticks.
+                return {'state':'idle','imports':len(imports),'measured_runs':computed}
+            self.metrics_document=None
         return {'state':'idle','imports':len(imports)}
 
     def close(self):

@@ -297,7 +297,9 @@ def generate(root, db, document, *, max_rows=MAX_ROWS, pipeline_version=None):
             {'swerve-tracking':plan['swerve_configuration'] if plan else {},
              'recorded-steering-observation':plan.get('steering_configuration',{}) if plan else {}})
         reports.append(report)
-        if pipeline_version is None and context.get('row_limit_reached'):
+        # Streaming analysis is pinned to the Alpha 7 profile; other profiles keep
+        # the explicit row-limited report rather than failing the whole pipeline.
+        if pipeline_version is None and context.get('row_limit_reached') and profiles==[STREAM_PROFILE]:
             _schedule_stream(root,db,run,document,snapshot,legacy_report=report,pipeline_version=CURRENT_STREAM_VERSION)
     return reports
 
@@ -451,6 +453,9 @@ def _stream_context(run,document,snapshot,legacy_report=None,*,pipeline_version=
         context['legacy_fallback_reason']='report_resource_limit_reached'
         context['legacy_fallback_pipeline_version']='automatic-reports-7'
     return context
+
+
+from .wpilog import PROFILE as STREAM_PROFILE
 
 
 def _schedule_stream(root,db,run,document,snapshot,legacy_report=None,runner=None,*,pipeline_version=STREAM_VERSION):

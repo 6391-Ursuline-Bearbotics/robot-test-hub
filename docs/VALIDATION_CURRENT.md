@@ -1,3 +1,27 @@
+# Real-log shakedown (P0.3) — October 18, 2026
+
+First run of the hub on **real robot logs**: seven 2026-season match logs (WPILib 2026 / AdvantageKit 26, roboRIO) from the team's shared Drive, 32–68 MB each, copied privately to the mentor laptop outside the repository. No log, match identifier or robot-specific observation is committed here.
+
+What broke, and what changed:
+
+| Real-data finding | Change |
+| --- | --- |
+| Every real log ends with a record cut off mid-write (power off while logging). The extractor rejected the whole file. | New `wpilib-2026_akit-26` profile accepts one truncated **final** record and records its offset/length as a `quality` row. Alpha 7 still rejects incomplete framing. |
+| AdvantageKit 26 `/Timestamp` is int64 **microseconds** without unit metadata; Alpha 7 requires nanoseconds metadata. | Profile labels the unit explicitly and errors if it disagrees with the record header time. |
+| No robot-mode enum: mode is three DS booleans logged only on change. | Derived `robot_mode` alias with named sources and rule. Run separation produced exactly one ~20 s auto and one ~140 s teleop run per match. |
+| roboRIO wall clock starts wrong (months off) until the DS sets it; afterwards the epoch reading jitters 1–10 ms per cycle and up to ~150 ms against the cycle timestamp. The ±1 ms anchor policy split one match into 1,883 clock pieces, exceeding the run index's interval limit. | Derived `epoch_valid` (after 2020-01-01) and a stated ±200 ms anchor uncertainty for this profile. Runs now map to wall-clock time as one anchored interval. |
+| Real runs exceed the 50,000-row tuple report limit; streaming analysis is pinned to Alpha 7 and crashed the pipeline for other profiles. | Streaming is scheduled only for Alpha 7 runs; other profiles keep the explicit row-limited report. |
+| Existing analyzers return `unsupported` for 2026 runs. | New `run_metrics.py` (P2.2) streams each dataset once and stores per-run, per-component measurements (battery, brownout, loop time, CAN load/counters, motor temperature/current, per-module swerve speed/steering error). |
+
+Results on the seven real matches (14 runs), shown on the home page:
+
+- **Sibling comparison** flagged a single swerve module with much larger speed error than its three siblings in most matches of one event, and in one match also near-zero drive current. Raw recorded applied voltage for that module averaged ~0.2 V against ~6 V for the others, confirming it was not a calculation artifact. Physical cause is unconfirmed.
+- **Robot-wide rules** flagged battery dips below 7 V, brownouts, slow loops and a CAN bus at 95–100% peak load. Rules that fired in most of a day's runs are shown once per day.
+- **Trend detection** (last 20 runs with the same robot, modes and similar length; median ± 3.5 scaled MAD; worse direction only; value outside the quoted range) flagged a few runs, including an auto that ended after 4 s instead of 20 s.
+- Noise found and removed on real data: improvements were flagged as "unusual", supply and stator current double-counted one motor, a 4 s run was compared with 20 s runs, and a broken module skewed the median so a healthy sibling was flagged.
+
+Not verified: thresholds are rules of thumb, not approved limits. 2027 SystemCore/Alpha 7 logs, the rotating receiver, SFTP collection and phone notes remain unexercised on hardware. Import speed is ~1–2.5 s per MB on the mentor laptop, so a full practice day will take several minutes. 2025 logs remain unsupported.
+
 # Full-source recorded status checkpoint — October 18, 2026
 
 Stage S2 adds a bounded cycle/lifecycle mapper and incremental recorded Phoenix/SystemCore checks under automatic-reports-9. Normal small-run automatic pipeline 7 remains unchanged. Automatic overflow now schedules 9; explicit 8 and pending 8 jobs retain their quality-only policy, reducer, declarations and saved results. Tracking and steering remain explicitly unavailable on streamed input. Overall robot health remains not assessed; SDK ages, fault labels/counters and voltage do not qualify physical freshness, event counts, reset diagnoses or battery health.

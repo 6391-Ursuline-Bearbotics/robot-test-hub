@@ -87,7 +87,9 @@ def derive_runs(datasets: Iterable[tuple[str, Iterable[dict]]], *, max_gap_ns=25
                     pass
             if valid and not sample.get('updated_in_cycle', False):
                 continue
-            anchors.append(Anchor(row["timestamp_ns"], utc, valid and utc is not None))
+            uncertainty = sample.get("uncertainty_ns", 1_000_000)
+            anchors.append(Anchor(row["timestamp_ns"], utc, valid and utc is not None,
+                                  uncertainty if type(uncertainty) is int and uncertainty >= 0 else 1_000_000))
         mapping = build_mapping(boot, revision, anchors, max_gap_ns=max_gap_ns)
         mappings.append({"robot_id":robot, "boot_id":boot, "revision":revision,
             "pieces":[{"start_ns":str(p.start_ns), "end_ns":str(p.end_ns), "reason":p.reason,

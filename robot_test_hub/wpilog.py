@@ -34,6 +34,40 @@ ALIASES = {
     "source_sha256": "/RealMetadata/SourceSHA256", "artifact_sha256": "/RealMetadata/ArtifactSHA256",
     "configuration_sha256": "/RealOutputs/TestHub/ConfigurationSHA256",
 }
+# Historical 2026 roboRIO logs (WPILib 2026, AdvantageKit 26). The library versions
+# are not recorded in the file; selecting this profile is an explicit caller
+# assertion, like the Alpha 7 profile. AdvantageKit 26 logs /Timestamp as int64
+# microseconds without unit metadata, equal to the record header time of every
+# record in that logger cycle.
+PROFILE_AKIT26 = "wpilib-2026_akit-26"
+MAPPING_REVISION_AKIT26 = "akit26-aliases-1"
+PROFILE_MAPPINGS = {PROFILE: MAPPING_REVISION, PROFILE_AKIT26: MAPPING_REVISION_AKIT26}
+ALIASES_AKIT26 = {
+    "enabled": "/DriverStation/Enabled", "ds_autonomous": "/DriverStation/Autonomous",
+    "ds_test": "/DriverStation/Test", "fms_attached": "/DriverStation/FMSAttached",
+    "match_time": "/DriverStation/MatchTime", "match_type": "/DriverStation/MatchType",
+    "match_number": "/DriverStation/MatchNumber", "event_name": "/DriverStation/EventName",
+    "epoch_us": "/SystemStats/EpochTimeMicros", "robot_id": "/SystemStats/SerialNumber",
+    "team_number": "/SystemStats/TeamNumber",
+}
+# Epoch values before 2020-01-01 mean the roboRIO clock was not yet set by the DS.
+AKIT26_EPOCH_VALID_AFTER_US = 1_577_836_800_000_000
+# EpochTimeMicros is read during the cycle, not at the cycle timestamp. On a real
+# September 2026 match log its offset from the cycle time moved by 1-10 ms per cycle
+# and occasionally ~100-150 ms (loop overruns). Each anchor states this uncertainty.
+AKIT26_EPOCH_UNCERTAINTY_NS = 200_000_000
+AKIT26_DERIVED = {
+    "robot_mode": {"derived_from": ["/DriverStation/Enabled", "/DriverStation/Autonomous", "/DriverStation/Test"],
+                   "derivation": "AUTONOMOUS if Autonomous, TEST if Test, else TELEOPERATED (held DS booleans)"},
+    "epoch_valid": {"derived_from": ["/SystemStats/EpochTimeMicros"],
+                    "derivation": f"EpochTimeMicros > {AKIT26_EPOCH_VALID_AFTER_US} (clock set after 2020-01-01)"},
+}
+
+
+def aliases_for(profile):
+    return ALIASES_AKIT26 if profile == PROFILE_AKIT26 else ALIASES
+
+
 ODOMETRY = {
     f"/Drive/Module{i}/OdometryTimestamps": f"/Drive/Module{i}/OdometryDrivePositionsRad"
     for i in range(4)
@@ -78,8 +112,13 @@ def _read(stream, count, label):
     return data
 
 
-def records(stream, max_record_bytes=MAX_RECORD_BYTES):
-    """Consume all framing, including valid records smaller than 16 bytes at EOF."""
+def records(stream, max_record_bytes=MAX_RECORD_BYTES, truncated_tail=None):
+    """Consume all framing, including valid records smaller than 16 bytes at EOF.
+
+    A dict passed as truncated_tail accepts one incomplete final record (a log cut
+    off by power loss): its offset and byte count are stored there and iteration
+    ends. Otherwise incomplete framing raises FormatError.
+    """
     header = _read(stream, 12, "WPILOG header")
     if header[:6] != b"WPILOG":
         raise FormatError("Invalid WPILOG magic")
@@ -100,12 +139,20 @@ def records(stream, max_record_bytes=MAX_RECORD_BYTES):
         if flag & 0x80:
             raise FormatError(f"Reserved record header flag at byte {offset}")
         widths = ((flag & 3) + 1, ((flag >> 2) & 3) + 1, ((flag >> 4) & 7) + 1)
-        entry, size, timestamp = (int.from_bytes(_read(stream, n, "record header"), "little") for n in widths)
-        if timestamp > MAX_NS // 1000:
-            raise FormatError("Wire timestamp cannot be represented as Alpha7 nanoseconds")
-        if size > max_record_bytes:
-            raise ResourceLimit("Payload exceeds configured record limit")
-        yield Record(index, offset, entry, timestamp, _read(stream, size, "record payload"))
+        try:
+            entry, size, timestamp = (int.from_bytes(_read(stream, n, "record header"), "little") for n in widths)
+            if timestamp > MAX_NS // 1000:
+                raise FormatError("Wire timestamp cannot be represented as Alpha7 nanoseconds")
+            if size > max_record_bytes:
+                raise ResourceLimit("Payload exceeds configured record limit")
+            payload = _read(stream, size, "record payload")
+        except FormatError as error:
+            if truncated_tail is None or not str(error).startswith("Truncated"):
+                raise
+            end = stream.seek(0, 2)
+            truncated_tail.update(offset=offset, bytes=end - offset, reason=str(error))
+            return
+        yield Record(index, offset, entry, timestamp, payload)
         index += 1
 
 
@@ -305,6 +352,9 @@ def extract(path: Path, profile=PROFILE):
     Two bounded-record passes retain schemas, not the whole recording. A caller must
     select the exact profile; wire signatures alone do not prove library versions.
     """
+    if profile == PROFILE_AKIT26:
+        yield from _extract_akit26(Path(path))
+        return
     if profile != PROFILE:
         raise UnsupportedProfile(f"Unsupported format profile: {profile}")
     schemas, active, generations = {}, {}, {}
@@ -402,6 +452,129 @@ def extract(path: Path, profile=PROFILE):
             yield from _cycle_rows(cycle, timestamp_index, state)
 
 
+def _observation(record, entry, structs, cycle):
+    field = entry["field"]
+    unsupported = None
+    try:
+        value = decode(entry["type"], record.payload, structs)
+    except UnsupportedType as error:
+        value, unsupported = None, str(error)
+    row = dict(record_index=record.index, byte_offset=record.offset,
+               record_timestamp_ns=str(record.timestamp_us * 1000), **entry, kind="observation",
+               entry_id=record.entry, category=category(field),
+               cycle_timestamp_ns=str(cycle) if cycle is not None else None,
+               unit=_unit(entry), value=_safe(value), decoded=unsupported is None,
+               validity="unsupported" if unsupported else ("valid" if _finite(value) else "nonfinite"),
+               coordinate_frame=None)
+    if unsupported or not _finite(value):
+        row["raw_hex"] = record.payload.hex()
+    if unsupported:
+        row["unavailable_reason"] = unsupported
+    return row
+
+
+def _extract_akit26(path):
+    """Historical AdvantageKit 26 logs: cycles are runs of equal record timestamps."""
+    schemas, active, generations, found_data = {}, {}, {}, False
+    with path.open("rb") as stream:
+        for record in records(stream, truncated_tail={}):
+            if record.entry == 0:
+                _control(record, active, generations)
+                continue
+            if record.entry not in active:
+                raise FormatError("Data references an inactive entry")
+            entry = active[record.entry]
+            found_data = True
+            if entry["field"] == "/Timestamp" and (entry["type"] != "int64" or _unit(entry) not in (None, "microseconds")):
+                raise UnsupportedProfile("AdvantageKit 26 /Timestamp must be int64 microseconds")
+            if entry["field"] == "/SystemStats/EpochTimeMicros" and entry["type"] != "int64":
+                raise UnsupportedProfile("AdvantageKit 26 EpochTimeMicros must be int64")
+            if entry["type"] == "structschema":
+                name = entry["field"].removeprefix("/.schema/struct:")
+                schema = _text(record.payload)
+                if name in schemas and schemas[name] != schema:
+                    raise UnsupportedType("Changing struct schemas require a new importer profile")
+                schemas[name] = schema
+    if not found_data:
+        raise UnsupportedProfile("No AdvantageKit data records")
+    structs, active, generations, state, tail = Structs(schemas), {}, {}, {}, {}
+    cycle, timestamp_index = None, None
+    with path.open("rb") as stream:
+        for record in records(stream, truncated_tail=tail):
+            if record.entry == 0:
+                old_field = active.get(int.from_bytes(record.payload[1:5], "little"), {}).get("field")
+                control = _control(record, active, generations)
+                if control["control"] in ("finish", "start"):
+                    if old_field is not None:
+                        state.pop(old_field, None)
+                    state.pop(control["field"], None)
+                yield dict(record_index=record.index, byte_offset=record.offset,
+                           record_timestamp_ns=str(record.timestamp_us * 1000), kind="control", **control)
+                continue
+            if record.entry not in active:
+                raise FormatError("Data references an inactive entry")
+            timestamp = record.timestamp_us * 1000
+            if cycle is None or timestamp != cycle:
+                if cycle is not None and timestamp < cycle:
+                    raise FormatError("Nonadvancing record timestamp within one recording")
+                if cycle is not None:
+                    yield from _cycle_rows(cycle, timestamp_index, state, profile=PROFILE_AKIT26)
+                cycle, timestamp_index = timestamp, record.index
+            row = _observation(record, dict(active[record.entry]), structs, cycle)
+            field = row["field"]
+            if field == "/Timestamp":
+                if row["value"] != record.timestamp_us:
+                    raise FormatError("AdvantageKit 26 /Timestamp differs from its record header time")
+                if row["unit"] is None:
+                    row["unit"], row["unit_source"] = "microseconds", "explicit_profile_mapping"
+            if field == "/SystemStats/EpochTimeMicros" and row["unit"] is None:
+                row["unit"], row["unit_source"] = "microseconds", "explicit_profile_mapping"
+            if field in ODOMETRY and row["type"] == "double[]":
+                row["unit_source"] = "explicit_profile_mapping" if row["unit"] is None else "record_metadata"
+                row["unit"] = row["unit"] or "seconds"
+            if field in ODOMETRY.values() and row["type"] == "double[]":
+                row["unit_source"] = "explicit_profile_mapping" if row["unit"] is None else "record_metadata"
+                row["unit"] = row["unit"] or "radians"
+            if field in ODOMETRY_ARRAY_TIMESTAMPS:
+                row["sample_timestamp_field"] = ODOMETRY_ARRAY_TIMESTAMPS[field]
+            if field in POSE_FIELDS:
+                row["coordinate_frame"] = "2026-rebuilt-blue-origin"
+                row["coordinate_frame_source"] = "explicit_profile_mapping"
+            _canonical(row)
+            state[field] = row
+            yield row
+        if cycle is not None:
+            yield from _cycle_rows(cycle, timestamp_index, state, profile=PROFILE_AKIT26)
+    if tail:
+        yield {"kind": "quality", "cycle_timestamp_ns": str(cycle) if cycle is not None else None,
+               "field": None, "reason": "Final record cut off (log ended mid-write, usually power loss)",
+               "truncated_tail_offset": tail["offset"], "truncated_tail_bytes": tail["bytes"]}
+
+
+def _akit26_derived(state, timestamp_index):
+    def ref(field):
+        row = state.get(field)
+        return _reference(row, timestamp_index) if row else None
+    derived = {}
+    enabled, auto, test = ref("/DriverStation/Enabled"), ref("/DriverStation/Autonomous"), ref("/DriverStation/Test")
+    if auto and test and type(auto["value"]) is bool and type(test["value"]) is bool:
+        mode = "AUTONOMOUS" if auto["value"] else "TEST" if test["value"] else "TELEOPERATED"
+        sources = [r for r in (enabled, auto, test) if r]
+        derived["robot_mode"] = {"value": mode, "validity": "valid", "derived": True,
+                                 "updated_in_cycle": any(r["updated_in_cycle"] for r in sources),
+                                 "sources": sources, **AKIT26_DERIVED["robot_mode"]}
+    epoch = ref("/SystemStats/EpochTimeMicros")
+    if epoch:
+        epoch["uncertainty_ns"] = AKIT26_EPOCH_UNCERTAINTY_NS
+        epoch["uncertainty_basis"] = "epoch read during cycle, not at cycle timestamp (AdvantageKit 26 profile)"
+        derived["epoch_us"] = epoch
+    if epoch and epoch["validity"] == "valid" and type(epoch["value"]) is int:
+        derived["epoch_valid"] = {"value": epoch["value"] > AKIT26_EPOCH_VALID_AFTER_US, "validity": "valid",
+                                  "derived": True, "updated_in_cycle": epoch["updated_in_cycle"],
+                                  "sources": [epoch], **AKIT26_DERIVED["epoch_valid"]}
+    return derived
+
+
 def _canonical(row):
     unit = row["unit"]
     factors = {"meters": (1, "meters"), "centimeters": (.01, "meters"),
@@ -424,10 +597,12 @@ def _reference(row, timestamp_index):
             "updated_in_cycle": row["record_index"] >= timestamp_index}
 
 
-def _cycle_rows(cycle, timestamp_index, state):
+def _cycle_rows(cycle, timestamp_index, state, profile=PROFILE):
+    aliases = {alias: _reference(state[field], timestamp_index) for alias, field in aliases_for(profile).items() if field in state}
+    if profile == PROFILE_AKIT26:
+        aliases.update(_akit26_derived(state, timestamp_index))
     yield {"kind": "cycle", "timestamp_ns": str(cycle), "timestamp_record_index": timestamp_index,
-           "bootstrap_snapshot": None,
-           "aliases": {alias: _reference(state[field], timestamp_index) for alias, field in ALIASES.items() if field in state}}
+           "bootstrap_snapshot": None, "aliases": aliases}
     for time_field, position_field in ODOMETRY.items():
         time_row, position_row = state.get(time_field), state.get(position_field)
         if not time_row or time_row["record_index"] < timestamp_index:
