@@ -28,11 +28,15 @@ def get(root, path, query, notebook=None):
             unknown=query.get('include_unknown','false')
             if unknown not in ('true','false'):
                 raise ValueError('Invalid include_unknown')
-            return {'schema_version':1,**catalog.search(
+            result=catalog.search(
                 utc_from_ns=int(query['from']) if 'from' in query else None,
                 utc_to_ns=int(query['to']) if 'to' in query else None,
                 robot=query.get('robot'),include_unknown=unknown=='true',
-                offset=int(query.get('offset','0')),limit=int(query.get('limit','50')))}
+                offset=int(query.get('offset','0')),limit=int(query.get('limit','50')))
+            if result.get('availability','available')!='available':
+                from .run_lookup import LookupUnavailable
+                raise LookupUnavailable(result.get('reason') or 'run_lookup_unavailable')
+            return {'schema_version':1,**result}
         prefix='/api/v1/runs/'
         if path.startswith(prefix) and not query:
             identity=path[len(prefix):]

@@ -185,6 +185,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                     return self.send(503,b'{"error_code":"review_storage_unavailable"}')
             if urlsplit(self.path).path.startswith(('/api/v1/runs','/api/v1/time/')):
                 from .run_notes import RunNotesError
+                from .run_lookup import LookupUnavailable, LookupMissing
                 notes_route=urlsplit(self.path).path.endswith('/annotations')
                 if service.stop.is_set() or service.closed:
                     code='run_notes_unavailable' if notes_route else 'catalog_unavailable'
@@ -196,6 +197,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                         raise ValueError('Repeated query field')
                     result=run_api.get(service.root,url.path,{k:v[0] for k,v in query.items()},notebook)
                     return self.send(200,json.dumps(result,allow_nan=False).encode())
+                except (LookupUnavailable,LookupMissing) as exc:
+                    return self.send(exc.status,json.dumps({'schema_version':1,'error_code':exc.code}).encode())
                 except RunNotesError as exc:
                     return self.send(exc.status,json.dumps({'schema_version':1,'error_code':exc.code}).encode())
                 except (ValueError,TypeError,OverflowError) as exc:

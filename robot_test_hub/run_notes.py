@@ -92,17 +92,15 @@ def _intervals(run):
 
 
 def _run(db,identity,revision,pinned):
-    row=db.execute('SELECT length(CAST(document AS BLOB)),CASE WHEN length(CAST(document AS BLOB))<=? THEN json_valid(document) END FROM run_catalog_revisions WHERE id=?',(MAX_CATALOG_BYTES,revision)).fetchone()
-    if row is None:raise _changed() if pinned else RunNotesError(404,'run_not_found')
-    if row[1]!=1:raise _unavailable()
-    valid=db.execute("SELECT json_type(document,'$.runs'),json_type(document,'$.revision'),json_extract(document,'$.revision'),EXISTS(SELECT 1 FROM json_each(document) WHERE key IN ('runs','revision') GROUP BY key HAVING COUNT(*)>1) FROM run_catalog_revisions WHERE id=?",(revision,)).fetchone()
-    if valid[0]!='array' or valid[1]!='text' or valid[2]!=revision or valid[3]:raise _unavailable()
-    rows=db.execute("SELECT length(CAST(r.value AS BLOB)),CASE WHEN length(CAST(r.value AS BLOB))<=? THEN r.value END FROM run_catalog_revisions c,json_each(c.document,'$.runs') r WHERE c.id=? AND r.type='object' AND json_extract(r.value,'$.run_id')=? LIMIT 2",(MAX_RUN_BYTES,revision,identity)).fetchall()
-    if not rows:raise _changed() if pinned else RunNotesError(404,'run_not_found')
-    if len(rows)!=1 or rows[0][1] is None:raise _unavailable()
-    raw=rows[0][1];run=_json(raw)
-    if type(run) is not dict or run.get('run_id')!=identity:raise _unavailable()
-    return run,hashlib.sha256(raw.encode('utf-8')).hexdigest()
+    from .run_lookup import select_run,LookupMissing,LookupUnavailable
+    try:
+        run,digest,_=select_run(db,identity,revision,budget=False)
+        return run,digest
+    except LookupMissing:
+        raise _changed() if pinned else RunNotesError(404,'run_not_found') from None
+    except LookupUnavailable:
+        raise _unavailable() from None
+
 
 
 CANDIDATES="""WITH latest AS MATERIALIZED (

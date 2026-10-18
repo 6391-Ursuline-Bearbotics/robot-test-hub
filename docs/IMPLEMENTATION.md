@@ -107,7 +107,7 @@ Acceptance: V14 unit/type fixtures; known extracted values agree with generator;
 
 ## T06 — Run catalog, time mapping, and search
 
-Status: **implemented locally; scale qualification remains open**. Integer time mapping and immutable catalog revisions handle boots, mode phases, file boundaries, unknown clocks and gaps. Browser checked three genuine synthetic runs, DST overlap choices and spring-forward rejection. Verified transfers automatically import/index on an independent worker. See [RUNS](RUNS.md).
+Status: **implemented locally with maintained indexed lookup; physical and end-to-end season-scale qualification remains open**. Integer time mapping and immutable catalog revisions handle boots, mode phases, file boundaries, unknown clocks and gaps. Schema 9 publishes new indexes atomically and backfills historical revisions on the writer worker, including unchanged-import ticks. Search, selected-run and note GETs do not decode original catalog documents or repair indexes; incomplete indexes return unavailable. Exact source order, integer UTC uncertainty and pinned legacy note hashes remain preserved. Synthetic catalog-only trials at 10,000 and 50,000 runs are recorded separately from raw-log derivation and dense-analysis limits in [RUN_LOOKUP](RUN_LOOKUP.md) and [validation](VALIDATION_CURRENT.md). Verified transfers automatically import/index on an independent worker. See [RUNS](RUNS.md).
 
 Work: sessions/boots/runs/segments and interval mapping, logged and legacy run derivation, valid epoch anchors with piecewise mappings, timezone-aware search, run detail/coverage view. Create revisions when mapping improves.
 

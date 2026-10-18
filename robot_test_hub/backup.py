@@ -169,6 +169,13 @@ def _integrity(db):
         try:validate_retry(db)
         except (ValueError,sqlite3.DatabaseError):
             raise BackupError('Catalog import retry schema is incomplete or modified') from None
+    if version>=9:
+        required.update({'run_lookup_state','run_lookup_jobs','run_lookup_runs','run_lookup_intervals'})
+        if not required<=tables:raise BackupError('Catalog run lookup schema is incomplete')
+        from .run_lookup import validate_schema as validate_run_lookup
+        try:validate_run_lookup(db)
+        except (ValueError,sqlite3.DatabaseError):
+            raise BackupError('Catalog run lookup schema is incomplete or modified') from None
     return version
 
 

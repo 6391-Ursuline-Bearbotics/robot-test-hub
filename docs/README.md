@@ -13,6 +13,8 @@ The robot records locally whenever its program runs. After it is disabled long e
 | [REGRESSION_CASES.md](REGRESSION_CASES.md) | Private incident cases, original-to-input proof and executable analyzer expectations; robot replay remains separate |
 | [RELEASE_ASSEMBLY.md](RELEASE_ASSEMBLY.md) | Reproducible committed-source release, verification and disposable cross-release upgrade/rollback rehearsal |
 | [SOFTWARE_READINESS.md](SOFTWARE_READINESS.md) | Requirement audit, concrete remaining software and separate lab dependencies |
+| [STREAMING_ANALYSIS.md](STREAMING_ANALYSIS.md) | Design-only staged full-log analysis, bounded recovery/evidence, reducer and incident-proof contracts |
+| [RUN_LOOKUP.md](RUN_LOOKUP.md) | Schema-9 indexed run search/selection, exact snapshots, bounded historical backfill and unavailable semantics |
 | [RUN_NOTES.md](RUN_NOTES.md) | Complete selected-run note candidates, stable saved revisions, bounded pages and refresh semantics |
 | [OFFLINE_EXERCISE.md](OFFLINE_EXERCISE.md) | Isolated synthetic sample-log installation exercise, commands and limits |
 | [WINDOWS_STARTUP.md](WINDOWS_STARTUP.md) | Opt-in current-user sign-in task, preview, status, removal and commissioning limits |

@@ -27,6 +27,7 @@
 | Explicit revisioned UTC practice plans and selected cohorts | Assign comparable test/configuration context; edits regenerate reports without changing original evidence. |
 | Separate signal, run-catalog and clock revisions | New imports do not invalidate an unchanged signal mapping; results retain each revision independently. |
 | Read-only review history with exact revision pins | Stable append snapshots reach older records; embedded bundle evidence stays preserved and unpinned maintenance never resolves silently to latest. See [review history](REVIEW_HISTORY.md). |
+| Maintained schema-9 run/time lookup | New catalog publications index atomically; writer-only resumable backfill preserves exact legacy run bytes. Read-only search/selection uses bounded indexed rows, with unavailable rather than zero for incomplete indexes. Integer uncertainty and pinned note revisions remain exact. See [RUN_LOOKUP.md](RUN_LOOKUP.md). |
 | Maintained schema-7 report provenance lookup | Atomic writer metadata and resumable legacy backfill; unknown totals stay unknown while valid known references remain reachable. See [lookup contract](REPORT_LOOKUP.md). |
 | Immutable report selection with bounded trace pages | Older results remain investigable while new results arrive; complete traces are reachable without accumulating them in the browser. |
 | Provisional tracking thresholds; REAL freshness required | Automatic reports cannot establish physical health from logging-cycle timestamps or invented sample freshness. |

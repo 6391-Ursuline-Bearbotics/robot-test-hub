@@ -176,36 +176,17 @@ class RunCatalog:
 
     def rebuild(self, datasets, **policy):
         document = derive_runs(datasets, **policy)
-        with self.db:
-            install_schema(self.db)
-            self.db.execute("INSERT OR IGNORE INTO run_catalog_revisions VALUES (?,?)", (document["revision"],canonical(document)))
-            self.db.execute("INSERT INTO run_catalog_state VALUES (1,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision",(document["revision"],))
-        return document
+        from .run_lookup import publish_document
+        return publish_document(self.db,document)
 
     def current(self):
         row = self.db.execute("SELECT document FROM run_catalog_revisions r JOIN run_catalog_state s ON s.revision=r.id WHERE s.id=1").fetchone()
         return json.loads(row[0]) if row else {"revision":None,"runs":[],"mappings":[]}
 
     def search(self, *, utc_from_ns=None, utc_to_ns=None, robot=None, include_unknown=False, offset=0, limit=50):
-        if type(limit) is not int or not 1 <= limit <= 200 or type(offset) is not int or offset < 0:
-            raise ValueError("Invalid pagination")
-        if (utc_from_ns is None) != (utc_to_ns is None):
-            raise ValueError("Both interval endpoints are required")
-        if utc_from_ns is not None and (type(utc_from_ns) is not int or type(utc_to_ns) is not int or utc_to_ns < utc_from_ns):
-            raise ValueError("Invalid UTC interval")
-        document = self.current()
-        matches = []
-        for run in document["runs"]:
-            if robot is not None and run["robot_id"] != robot:
-                continue
-            intervals = run["utc_intervals"]
-            if utc_from_ns is not None and not any(int(i["utc_start_ns"])-int(i["uncertainty_ns"]) <= utc_to_ns and
-                    int(i["utc_end_ns"])+int(i["uncertainty_ns"]) >= utc_from_ns for i in intervals):
-                if intervals or not include_unknown:
-                    continue
-            matches.append(run)
-        return {"revision":document["revision"],"items":matches[offset:offset+limit],"total":len(matches),
-                "next_offset":offset+limit if offset+limit < len(matches) else None}
+        from .run_lookup import search
+        return search(self.db,utc_from_ns=utc_from_ns,utc_to_ns=utc_to_ns,robot=robot,
+            include_unknown=include_unknown,offset=offset,limit=limit)
 
 
 def rebuild_from_imports(root, db):

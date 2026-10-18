@@ -205,6 +205,9 @@ class ImportRetryTests(unittest.TestCase):
     def test_schema_upgrade_and_schema_validation(self):
         self.db.close()
         with closing(sqlite3.connect(self.root/'catalog.sqlite3')) as db,db:
+            for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'run_lookup_%'").fetchall():db.execute('DROP TRIGGER "'+name+'"')
+            for table in ('run_lookup_intervals','run_lookup_runs','run_lookup_jobs','run_lookup_state'):db.execute('DROP TABLE IF EXISTS '+table)
+            db.execute('DELETE FROM schema_migrations WHERE version>=9')
             db.execute('DROP TABLE import_retry_requests')
             db.execute('DELETE FROM schema_migrations WHERE version=8')
             db.execute('PRAGMA user_version=7')

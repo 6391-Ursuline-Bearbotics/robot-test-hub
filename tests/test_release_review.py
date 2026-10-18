@@ -157,7 +157,8 @@ class ReleaseReviewTests(unittest.TestCase):
         source=Path(__file__).resolve().parents[1]
         (self.root/'sample.wpilog').write_bytes(_sample())
         prepared=rehearsal._run(Path(sys.executable),source,self.root,'prepare')
-        self.assertEqual(prepared['schema'],8)
+        from robot_test_hub.storage import SCHEMA_VERSION
+        self.assertEqual(prepared['schema'],SCHEMA_VERSION)
         self.assertEqual(prepared['report_count'],2)
         originals=list((self.root/'archive/raw').rglob('*.wpilog'))
         self.assertEqual(len(originals),1)

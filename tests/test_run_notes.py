@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from robot_test_hub import run_notes,run_api
+from robot_test_hub import run_notes,run_api,run_lookup
 from robot_test_hub.notebook import Notebook
 from robot_test_hub.storage import open_catalog
 
@@ -24,11 +24,13 @@ def note(identity,point=1800,revision=1,text='Invented observation'):
 
 def catalog(db,revision='catalog-1',intervals=None):
     if intervals is None:intervals=[(1000,2000),(1500,2500),(5000,6000)]
-    run={'run_id':'run-a','utc_intervals':[dict(utc_start_ns=str(a),utc_end_ns=str(b),uncertainty_ns='1000000000') for a,b in intervals]}
+    run={'run_id':'run-a','robot_id':'synthetic-note-robot','utc_intervals':[dict(utc_start_ns=str(a),utc_end_ns=str(b),uncertainty_ns='1000000000') for a,b in intervals]}
     document=dict(revision=revision,runs=[run],mappings=[])
     with db:
+        run_lookup.install_schema(db)
         db.execute('INSERT INTO run_catalog_revisions VALUES(?,?)',(revision,json.dumps(document)))
         db.execute('INSERT OR REPLACE INTO run_catalog_state VALUES(1,?)',(revision,))
+    run_lookup.tick(db)
     return document
 
 
@@ -99,10 +101,11 @@ class RunNotesTests(unittest.TestCase):
     def test_unknown_invalid_and_empty_clock_are_unavailable_not_zero(self):
         for index,intervals in enumerate(([],None,[{'utc_start_ns':'bad','utc_end_ns':'2000','uncertainty_ns':'1'}])):
             revision='unknown-'+str(index)
-            doc={'revision':revision,'runs':[{'run_id':'run-a','utc_intervals':intervals}]}
+            doc={'revision':revision,'runs':[{'run_id':'run-a','robot_id':'synthetic-note-robot','utc_intervals':intervals}]}
             with self.db:
                 self.db.execute('INSERT INTO run_catalog_revisions VALUES(?,?)',(revision,json.dumps(doc)))
                 self.db.execute('UPDATE run_catalog_state SET revision=?',(revision,))
+            run_lookup.tick(self.db)
             page=self.get()
             self.assertEqual((page['availability'],page['reason'],page['total'],page['annotations'],page['next_cursor']),('unavailable','run_clock_unavailable',None,[],None))
 

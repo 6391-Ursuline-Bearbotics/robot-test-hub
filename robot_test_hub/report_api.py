@@ -196,7 +196,12 @@ def history(db,run,query):
     if state['highwater']>highwater:raise ValueError('invalid_report_cursor')
     where=RUN_FILTER+' AND rowid<=?';parameters=[run,state['highwater']]
     total=db.execute('SELECT COUNT(*) FROM analysis_reports WHERE '+where,parameters).fetchone()[0]
-    if not total:raise KeyError('report_history_not_found')
+    if not total:
+        # A cataloged run may have no saved analysis yet. Validate that run
+        # through maintained metadata, without reading or repairing its source.
+        # Existing report histories remain independently reachable above.
+        from .run_lookup import select_run
+        select_run(db,run)
     direction=state['direction'];boundary=state['boundary']
     if boundary is not None:
         operator='<' if direction=='older' else '>'

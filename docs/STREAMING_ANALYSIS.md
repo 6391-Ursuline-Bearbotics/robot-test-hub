@@ -1,0 +1,128 @@
+# Streaming analysis implementation plan
+
+Status: design only, October 18, 2026. This document specifies the next dependency-ready software increment. None of the streaming contracts, tables, workers, or tests below is implemented by this document. The maintained run lookup solves a separate serving problem; it does not remove the automatic analyzer's dense-log input limits or establish physical health.
+
+## Current limitation and compatibility boundary
+
+`reports.select_rows` retains at most 50,000 selected rows and scans at most `max_rows * 5` dataset lines (250,000 by default). The scan counter advances before relevance and time filtering, including records outside the selected run. Relevant pre-run observations and controls also consume retained capacity. A short run late in a long recording can exhaust the scan allowance before reaching that run. Overflow is explicitly unavailable; it is not a successful analysis of the prefix.
+
+`generate` invokes manifest verification and dataset iteration for each run. `Importer._check_dataset` hashes original, dataset, and manifest files, so verification and source scans repeat across runs. After selection, Evidence admission serializes its rows, Runner hashes and copies them, and analyzers construct additional arrays and sets. The steering adapter appends four mapped samples per cycle to the original rows; its own 50,000-row admission applies to that combined sequence. Raising the selector cap alone would leave these other memory and processing costs.
+
+The current five checks are recording quality, swerve tracking, Phoenix SDK observations, SystemCore observations, and recorded steering dynamics. Full-log recording quality is the first streaming consumer. The other four checks must explicitly remain unavailable for an unconverted streamed input; they cannot silently evaluate a short prefix or be described as complete dense-log coverage. REAL acquisition freshness remains unknown even after a streaming implementation.
+
+Preserve `automatic-reports-5`, `automatic-reports-6`, and `automatic-reports-7`, their exact selector strings, row ordering, pre-run inclusion, hazard semantics, declarations, saved context, original-to-input reconstruction, and existing job/report bytes. In particular, do not change the old selector's treatment of after-run clock regressions or its row limits while adding this path. Existing immutable cases continue to use the versions they saved.
+
+## Staged tasks and completion criteria
+
+### S1 — Source-pinned stream substrate and full-log recording quality
+
+Add a separate `automatic-reports-8` policy and a stream-specific evidence/runner contract. Do not pass a lazy iterator to the current tuple-based Evidence API or replace its rows with a misleading empty tuple. Introduce resumable writer work that scans each pinned source in bounded batches, builds deterministic selected-evidence chunks, tracks source-order hazards, and feeds a recording-quality reducer through EOF. Retain the existing five-check registry presentation, marking the four unconverted checks explicitly unavailable for streamed evidence.
+
+Finish S1 only when a recording-quality finding after both old input boundaries is evaluated, a short run beyond a 250,000-line prefix is reached, cancellation/restart recovers safely, complete source hashes are checked before publication, and measured memory remains bounded as input grows. Merely constructing a spool, producing progress, or increasing limits does not complete S1.
+
+### S2 — Shared cycle/lifecycle mapper and status reducers
+
+Extract a new source-reviewed streaming mapper without changing the old adapter. Preserve original record indices/timestamps, held values, entry generations, source boundaries, schemas, source order, connection status, and enabled-state authority. The mapper carries only currently active required fields and the preceding compatible cycle. A gap, invalid observation, missing cycle, source transition, finish/start, entry reuse, or incompatible schema resets the affected contiguous state.
+
+Convert Phoenix and SystemCore checks to incremental reducers. Exact boolean/counter decisions remain the existing source-reviewed policies; neither device freshness nor physical acquisition time is inferred. Port counter deduplication, distinct-record counts, gap coverage, and voltage summaries without growing in-memory lists. Use a disk-backed uniqueness set where evidence can legitimately revisit an unbounded number of identities. Complete this stage only after all selected records and endpoints contribute, including late warnings and long held-state spans.
+
+### S3 — Tracking and steering reducers with exact external quantiles
+
+Implement the streaming swerve and steering evaluators against the new mapper. Carry adjacent eligible endpoints, weighted sums, duration/coverage, sustained-error starts, stable-command anchors, hysteresis side, pending step/dwell state, and censor state across processing batches. Batch boundaries are not signal discontinuities. Source/lifecycle/gap boundaries remain discontinuities.
+
+Use disk-backed ordered samples for exact weighted p95; do not silently substitute a histogram, reservoir, t-digest, or unweighted percentile. RMSE and other reductions need explicitly specified stable finite arithmetic. New numerical identities may differ from historical floating summation; pipeline 5/6/7 retain their original implementation and exact results. S3 completes only when every current check has a complete streamed evaluator or an explicitly justified ordinary evidence-availability reason.
+
+### S4 — Streamed incident proof and release qualification
+
+Add an explicit streamed case format, source reimport proof, candidate-evaluation contract, bounded case transport, and public documentation. Re-run existing version 5/6/7 cases unchanged. Finish with full tests, independent review, actual loopback/browser inspection of progress/failure/report navigation, and recorded Windows and Linux measurements. Software qualification remains distinct from school deployment, real robot load, physical timing, diagnosis, and repair validation.
+
+## Data, identity, and version contracts
+
+The original raw artifact, imported `signals.jsonl`, and import manifest remain immutable authority. A stream descriptor pins every original/dataset/manifest SHA-256, byte count, import job ID, exact format profile, extractor version, importer version, signal-mapping revision, source type, robot/run/boot interval, source ordering, analysis-plan revision, component assignments, configuration, selector policy, and analyzer declaration. Validate the complete format-profile/extractor/importer/mapping tuple against an explicit supported contract; do not accept independently plausible version labels as compatibility proof. Filenames and filesystem timestamps are not content identity.
+
+Pin source-type classification independently of recorded runtime mode and transfer transport. Synthetic originals remain synthetic even if their payload says REAL or SIM; neither a simulator label nor a successful transport can grant real acquisition provenance. Preserve the original import source types and the exact classification policy in the descriptor. Mixed or incompatible source classifications remain explicitly unqualified rather than silently promoted.
+
+Proposed implementation names:
+
+- `StreamEvidence`: immutable bounded descriptor, not an open file handle or embedded full row array.
+- `StreamRunner`: separate stream admission, checkpoint, finalize, and result-publication path; it must not change the current Runner's identity rules.
+- `automatic-reports-8`: exact new selector/presentation identity with its own selector string.
+- `stream-selection-1`: canonical selected-row/chunk serialization and chain specification.
+- Stream analyzer declarations receive explicit new versions rather than reusing an old version for new selection or numerical behavior.
+
+Pin source order by `(manifest first cycle timestamp, import job ID)`, matching the established deterministic ordering unless a separately reviewed policy explicitly changes it. Never repair nonadvancing or overlapping sources by sorting their observations into an apparently healthy timeline. The full source must be inspected for source-order qualification, including relevant clock regressions after the run; a scan cannot stop merely because a timestamp first exceeds the run end. Distinguish this verified traversal scope from each reducer's run scope. Out-of-run fault flags, invalid observations, gaps, and source span must not inflate the selected run's quality counts or duration. Pre-run rows may establish held state only through the declared lifecycle policy. Record full-source ordering/overlap/after-run hazards separately and apply their declared qualification consequences to the run; do not attribute an after-run warning as an in-run event. The new selector must specify these two scopes explicitly, while old selectors retain their exact saved semantics.
+
+The new selector may compact pre-run held state, but only under its new policy: retain the active schema, entry lifecycle, required latest observations, and exact source references needed at run entry. Preserve an explicit summary/proof of pre-run invalidation. Do not claim this compacted input is the old version's exact selected row array.
+
+## Proposed persistent schema
+
+Choose the next available catalog schema version at implementation time; do not reserve or install tables from this design. Migration creates metadata only and never scans or decodes logs on startup or GET.
+
+- `analysis_stream_jobs`: stable staging identity; canonical source/configuration pins; policy versions; pending/running/verifying/ready/failed/canceled state; source ordinal; committed source byte offset and line ordinal; deterministic chunk ordinal and chain; checkpoint generation; cumulative counts; fixed error code; explicit progress and resource usage.
+- `analysis_stream_chunks`: staging job/generation, deterministic chunk ordinal, source and record range, exact relative owned path, size, SHA-256, preceding and resulting selection chain, committed state.
+- `analysis_stream_checkpoints`: reducer ID/version, chunk ordinal, bounded typed reducer state, state hash, source-validation progress, generation. Commit chunk metadata and all reducer checkpoints in one transaction after durable chunk publication.
+- Ordinary persistent SQLite tables for exact weighted values and uniqueness keys. These are disposable work tables owned by staging job/generation and reducer/module, not SQL `TEMP` tables or connection-local state: they must survive connection/process restart. Key every contribution by deterministic chunk ordinal plus record/metric identity, so replay is idempotent. Insert a sealed chunk's reducer/quantile/uniqueness contributions and advance its reducer checkpoint in the same transaction. After a crash, either both contributions and checkpoint are committed or neither is; duplicate delivery cannot double-count. These derivatives are not new original evidence and can be removed only through owned-job cleanup.
+
+A final immutable stream manifest identifies all committed chunks and the full selected row/count/byte totals. Stream and page that inventory through a versioned on-disk representation with exact totals and a content hash; do not collect all chunk paths or hashes into an in-memory descriptor/list. Likewise either impose an explicit source-count admission bound or page the pinned source inventory on disk. `StreamEvidence` keeps bounded manifest references, not an O(chunks/sources) expanded inventory. Finalization, proof, cleanup, and HTTP metadata readers must traverse these inventories in bounded pages. Its hash and the completed selection chain enter the final analyzer provenance/job identity. A staging identity is not a completed analyzer job ID. Publish final jobs/reports atomically only after all source admission, EOF, reducer completion, and final manifest checks succeed. Existing reports remain immutable.
+
+## Batching, storage, cancellation, and recovery
+
+Use distinct limits for bounded work and bounded admission. Candidate initial structural values to implement and measure are 4,096 input rows or 4 MiB of input per worker turn, 1 MiB per normalized line, 1 MiB per deterministic selected chunk, and 128 displayed references per check. A cooperative elapsed-time check should yield after approximately 25 ms of Python processing, while acknowledging that a single filesystem/SQLite operation is not a hard real-time guarantee. Stop between complete records and commit only complete deterministic chunks. Runtime scheduling batches must not determine evidence identity.
+
+Specify deterministic chunking by normalized UTF-8 byte size and record order, independent of worker timing. Define the selection chain precisely using a domain/version prefix, previous chain, chunk SHA-256, and canonical range/count metadata. This is a new chain identity, not the old `identity(evidence.rows)` JSON-array digest. A checkpoint at a sealed chunk lets an interrupted turn safely repeat at most one uncommitted chunk's processing.
+
+Large total input is allowed to take many turns; a work-turn allowance must never truncate the analysis and then finalize it. Impose explicit total work-disk admission, available-space reserve, per-file/line limits, and configurable processing deadlines. Select concrete total-disk defaults from measured school-laptop capacity during implementation, document them, and test their exhaustion. Reaching a total admission limit produces resource-unavailable/failed state with unknown remaining counts, not a no-finding report.
+
+Stage files only beneath an exclusively owned analysis workspace. Publish chunk files with flush/fsync and manifest-last semantics before committing references. Cancellation must stop launching more work, release owned handles, and leave a resumable or explicitly canceled receipt. Shutdown must retain worker/archive ownership until active file/SQLite operations finish; it cannot report completed cleanup while work still owns the workspace. Remove only proven owned temporary files, preserving conflicts and originals.
+
+Do not serialize a live `hashlib` object or trust an arbitrary pickled checkpoint. On process restart, revalidate source pins and sealed chunk hashes. Re-scan the complete already-consumed dataset byte prefix from byte zero in bounded verification turns, rebuilding a fresh live full-byte hasher over every original byte, including unselected records and whitespace. In parallel, reconstruct and compare deterministic selected chunks before trusting the stored reducer checkpoint. A matching selected chain alone cannot validate changed unselected bytes. Continue that same rebuilt live hasher into the remaining suffix and require the complete EOF digest to match the pinned dataset SHA-256 before publication. Resume reducer updates only after the prefix and committed work-table/checkpoint consistency have been validated; do not reapply committed prefix contributions. If the process restarts again, repeat prefix verification rather than restoring a serialized hasher. This may repeat linear I/O after a restart; record that cost rather than inventing portable hash-state recovery.
+
+Read artifacts through verified handles with before/after identity checks. Hash the complete dataset bytes during full traversal and compare the pinned digest at EOF. Original/manifest verification also runs as bounded explicit phases rather than an uninterruptible repeated verification per run. S1 must not call the legacy `read_manifest`/`iter_dataset` admission path, because its synchronous `_check_dataset` hashes all three files before the first yielded row. Introduce a separate verified-handle admission/iteration path whose original, manifest, and dataset verification phases yield under the stated batch budgets; preserve the old helpers for legacy semantics. Any changed path identity, bytes, manifest, dataset digest, or source generation blocks final publication. A completed scan of one immutable source can serve multiple runs through a versioned source summary/offset index, but that cache must retain provenance and must never bypass full source-order qualification.
+
+## Analyzer-specific bounded state
+
+Recording quality needs last compatible source cycle, span extrema, exact counters, connection/invalid/stale deduplication, clock coverage, and bounded examples. Replace unbounded gap/reference lists with exact totals plus explicit retained/omitted counts. Disk-backed uniqueness is appropriate for repeated source identities; missing data remains missing.
+
+Phoenix status needs the pinned field/lifecycle state, exact recorded warning counters, source qualification, and bounded supporting examples. SystemCore additionally needs counter baselines, held/unique record accounting, eligible voltage minimum/maximum, and a stable weighted voltage accumulator. These are recorded-state observations, not physical fault diagnosis.
+
+Tracking needs per-module previous endpoint, coverage denominators, weighted squared drive/angle errors, demand weights, and sustained-interval state. Preserve fresh-data admission and REAL freshness unavailability.
+
+Steering additionally carries normalized representation continuity, stable target, pending step and band entry/dwell, signed hysteresis side/count, adjacent wrapped recorded change/rate, and event censor reason. Final run end must censor a late unfinished step explicitly. An optimization pi flip accompanied by signed velocity reversal must not create a spurious steering event. Keep the shared display budgets already established: 128 retained events and 128 event references across a module's event collections, and 128 supporting finding references per check. Exact totals and criterion decisions are computed before display trimming.
+
+For exact weighted p95, store `(error, duration_ns, deterministic sequence)` on disk, indexed by module/metric/error/sequence. Compute total eligible weight first, then traverse the ordered index in bounded turns until cumulative weight reaches the declared percentile convention. Record that convention and tie ordering. Test values equal to the boundary and irregular intervals. Temporary sorting may use disk; expose disk usage and cleanup state. Do not load all values into Python to calculate the final percentile.
+
+## Streamed incident-case proof
+
+Keep current `analyzer-case-1` reconstruction and selectors 5/6/7 unchanged, including their original 64 MiB embedded-input boundaries. A new explicit case format should carry the stream descriptor, original/import pins, policy/declaration/configuration, final stream manifest and chain, bounded expected results, and chunk inventory. Do not embed an unbounded selected-row array or silently reinterpret an old case as the new selector.
+
+Proof must reimport the exact originals with the pinned importer/mapping, reconstruct the declared stream, verify every chunk/range and final chain, and compare the resulting evaluator input identity before executing an allowlisted analyzer. Missing originals, changed source bytes, wrong chunk order, missing/extra chunks, changed held/lifecycle state, or unsupported versions fail proof. Case success remains analyzer execution evidence, not robot replay or physical repair validation.
+
+Decide and document whether case bundles include selected chunks as verified portable derivatives or regenerate them solely from included originals; in either mode the originals-to-stream proof is mandatory. Old-case evaluation with a new candidate remains an explicit user-selected operation with separately identified input/evaluator versions, never an automatic retarget. That opt-in does not grant format compatibility: a streamed evaluator rejects an unsupported tuple-input case, and a tuple evaluator rejects an unsupported streamed case. Any future conversion requires its own explicit versioned originals-to-input reconstruction proof and must not silently rewrite or upgrade the saved case.
+
+## Executable acceptance plan
+
+Create dedicated tests as part of S1–S4 rather than making production code depend on fixture modules. Commands below describe the intended test files after their implementation:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_stream_selection.py -v
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_stream_quality.py -v
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_stream_reducers.py -v
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_stream_regression_proof.py -v
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Generate digest-pinned synthetic WPILOGs through the actual importer, including more than 250,000 irrelevant prefix records, more than 50,000 relevant rows, multiple runs per recording, a final warning beyond both old limits, long held-state spans, invalid lifecycle transitions, source overlaps, and after-run clock regressions. Include several-minute high-density cases with exact schema/units and explicit synthetic provenance. Assert complete processed counts, reached run endpoints, late findings, and no resource-limit truncation outcome for admitted inputs.
+
+Compare independent known numeric expectations and a small reference evaluator across many runtime batch sizes, elapsed-time yields, and forced chunk boundaries. The final selection chain, counts, metrics, censoring, and findings must be independent of runtime scheduling. Exercise irregular timing, exact percentile boundaries, wrap/reversal, late settling, source/gap resets, unknown REAL freshness, and missing mechanisms/status fields.
+
+Inject cancellation/crash before and after durable chunk publication, reducer checkpoint commit, source EOF verification, final manifest publication, and report insertion. Verify bounded replay, no double-counting, no successful partial report, original preservation, no stale checkpoint reuse, and true handle/ownership cleanup on Windows. Restart through a newly opened SQLite connection to prove reducer/quantile/uniqueness state is persistent rather than SQL `TEMP`; inject crashes on both sides of the shared contribution/checkpoint commit. Mutate an unselected prefix record without changing selected rows and require full-byte prefix/EOF verification to reject it. Place warnings and gaps before and after the run and assert that only in-run quality counts/span are attributed, while separately declared full-source hazards remain visible. Inject disk-full, short write, corrupted chunk, source mutation, source replacement, invalid UTF-8/JSON, oversized lines, counter overflow, invalid clocks, and exhausted work-disk admission.
+
+Prove legacy compatibility by rebuilding saved selector 5/6/7 inputs and complete reports against their frozen references, then running existing incident proof/execution tests unchanged. Add explicit new-format proof rejection tests for every missing/changed/order/version boundary.
+
+Measure wall time, per-turn latency distribution, peak resident memory, spool/index size, source bytes hashed/read, checkpoint replay bytes, and cleanup for progressively larger generated recordings. Use isolated owned archives and fixed input hashes; record OS/Python/tool versions. Verify memory grows with configured batch/state bounds rather than total rows. Guard the new path with tests that reject calls to legacy `read_manifest`, `iter_dataset`, and synchronous `_check_dataset`, proving that first admission itself yields through bounded verification phases. Exercise many chunks and source inventory pages through finalization/proof/cleanup, asserting that no full inventory list is materialized and that incomplete/missing pages fail rather than finalize a partial stream. Keep separate measurements for importer, run derivation, stream selection, each reducer, final quantile passes, and HTTP rendering. Run derivation's own in-memory accumulation is a separate remaining scale limit; this increment must not claim to solve it.
+
+Use a real local server/browser to inspect pending/verifying/failed/ready progress, refresh behavior, cancellation, completed report evidence paging, and explicit unavailable checks. Run neither real robot hardware nor native deployment or cloud tasks. Report these software checks separately from physical qualification.
+
+## Remaining decisions before implementation
+
+Choose concrete total work-disk/reserve defaults using the measured target machine, specify the deterministic chunk/chain encoding in tests, and decide new-case chunk transport. These are implementation policy decisions with documented defaults, not reasons to change legacy evidence. Source-backed streaming quality can proceed once those contracts are fixed; full dense-log coverage remains incomplete until the other four reducers and their proof/display paths are qualified.

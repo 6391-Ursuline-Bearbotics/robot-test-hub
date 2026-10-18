@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 class OwnershipError(RuntimeError):
@@ -148,6 +148,16 @@ def open_catalog(root: Path) -> sqlite3.Connection:
             if version<=7:
                 db.execute("INSERT INTO schema_migrations VALUES(8,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
                 db.execute('PRAGMA user_version=8')
+            # Schema only: historical document discovery/decoding belongs to
+            # the bounded, owner-held pipeline worker, never catalog open/GET.
+            from .run_lookup import install_schema as run_lookup_schema, validate_schema as validate_run_lookup
+            if version<=8:run_lookup_schema(db)
+            try:validate_run_lookup(db)
+            except (ValueError,sqlite3.DatabaseError):
+                raise SchemaError('Catalog run lookup schema is incomplete or modified; preserve the data directory') from None
+            if version<=8:
+                db.execute("INSERT INTO schema_migrations VALUES(9,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+                db.execute('PRAGMA user_version=9')
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")

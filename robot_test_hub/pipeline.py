@@ -17,6 +17,9 @@ class Pipeline:
         from .report_lookup import has_schema, step
         if has_schema(self.db):
             step(self.db)
+        from .run_lookup import has_schema as has_run_lookup, tick as run_lookup_tick
+        if has_run_lookup(self.db):
+            run_lookup_tick(self.db)
         from .import_retry import step as retry_step
         retry_processed=retry_step(self.root,self.db)
         candidates=self.db.execute("""SELECT f.id,f.sha256,m.metadata_json

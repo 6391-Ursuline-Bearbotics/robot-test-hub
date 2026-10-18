@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from robot_test_hub.notebook import install_schema as notes_schema
 from robot_test_hub.runs import install_schema as runs_schema
+from robot_test_hub import run_lookup
 
 EPOCH=1791003600000000000
 RUN='a'*64
@@ -33,15 +34,17 @@ class RunNotesReviewTests(unittest.TestCase):
         self.db=sqlite3.connect(self.root/'catalog.sqlite3')
         self.addCleanup(self.db.close)
         runs_schema(self.db);notes_schema(self.db)
-        self.run={'run_id':RUN,'utc_intervals':[{'utc_start_ns':str(EPOCH),'utc_end_ns':str(EPOCH+1000),'uncertainty_ns':'0'},
+        self.run={'run_id':RUN,'robot_id':'synthetic-note-review-robot','utc_intervals':[{'utc_start_ns':str(EPOCH),'utc_end_ns':str(EPOCH+1000),'uncertainty_ns':'0'},
                 {'utc_start_ns':str(EPOCH+2000),'utc_end_ns':str(EPOCH+3000),'uncertainty_ns':'0'}]}
         self.catalog(REV,self.run)
 
     def catalog(self,revision,run):
         document={'revision':revision,'runs':[run],'mappings':[]}
         with self.db:
+            run_lookup.install_schema(self.db)
             self.db.execute('INSERT INTO run_catalog_revisions VALUES(?,?)',(revision,json.dumps(document)))
             self.db.execute('INSERT OR REPLACE INTO run_catalog_state VALUES(1,?)',(revision,))
+        run_lookup.tick(self.db)
 
     def note(self,identity,start,end=None,revision=1):
         end=start if end is None else end
@@ -123,6 +126,7 @@ class RunNotesReviewTests(unittest.TestCase):
         row=self.db.execute('SELECT document FROM run_catalog_revisions WHERE id=?',(REV,)).fetchone()
         document=json.loads(row[0]);document['runs'][0]['utc_intervals'][0]['utc_end_ns']=str(EPOCH+900)
         with self.db:self.db.execute('UPDATE run_catalog_revisions SET document=? WHERE id=?',(json.dumps(document),REV))
+        run_lookup.tick(self.db)
         with self.assertRaises(run_notes.RunNotesError) as caught:self.get(limit='3',cursor=cursor)
         self.assertEqual(caught.exception.status,409)
 

@@ -29,6 +29,10 @@ def insert_report(db, identity, body=None):
 
 
 def remove_lookup_schema(db):
+    for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'run_lookup_%'").fetchall():
+        db.execute('DROP TRIGGER "'+name+'"')
+    for table in ('run_lookup_intervals','run_lookup_runs','run_lookup_jobs','run_lookup_state'):
+        db.execute('DROP TABLE IF EXISTS '+table)
     db.execute("DROP TABLE import_retry_requests")
     for name in report_lookup.TRIGGER_SQL:
         db.execute('DROP TRIGGER "' + name + '"')
