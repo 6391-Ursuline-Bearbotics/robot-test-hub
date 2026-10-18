@@ -113,7 +113,11 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
             if self.path == '/api/v1/import-folder':
                 return self.send(200, json.dumps(service.folder_import_status()).encode())
             if self.path == "/":
+                return self.send(200, (Path(__file__).parent / "static/practice.html").read_bytes(), "text/html; charset=utf-8")
+            if self.path == "/admin":
                 return self.send(200, page, "text/html; charset=utf-8")
+            if urlsplit(self.path).path == '/api/v1/practice':
+                return self.practice_get()
             if self.path == "/notebook":
                 return self.send(200, notebook_page, "text/html; charset=utf-8")
             if self.path in ('/notebook.js','/notebook-sw.js','/review-history.js','/processing.js'):
@@ -419,6 +423,22 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
             except sqlite3.Error:
                 service.diagnostics.record("settings_write_failed", "Cannot save operator preference; check catalog/local storage")
                 self.send(503, b'{"error_code":"settings_write_failed","error":"Preference was not saved; check local storage"}')
+
+        def practice_get(self):
+            from . import practice
+            try:
+                query=parse_qs(urlsplit(self.path).query,max_num_fields=1)
+                if query.keys()-{'date'} or any(len(v)!=1 for v in query.values()):
+                    raise ValueError()
+                date=query.get('date',[None])[0]
+                if date is not None:
+                    import datetime as _dt
+                    _dt.date.fromisoformat(date)
+                return self.send(200,json.dumps(practice.day(service.root,date),allow_nan=False).encode())
+            except ValueError:
+                return self.send(400,b'{"error_code":"invalid_practice_query"}')
+            except (sqlite3.Error,RuntimeError,OSError):
+                return self.send(503,b'{"error_code":"practice_unavailable"}')
 
         def folder_import_post(self):
             self.close_connection=True

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Today's practice · 6391</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#101820;color:#e8eef4;--line:#304150;--panel:#17232e;--muted:#aebfcb;--gold:#e6b957;--ok:#7fd29a;--look:#f2c14e;--none:#9fb0bd}
+body{max-width:1160px;margin:auto;padding:24px}header{border-bottom:1px solid #34424f;padding-bottom:14px}.eyebrow{color:var(--gold);letter-spacing:.14em;font-size:12px;font-weight:700}h1{font-size:32px;margin:8px 0}a{color:#f2cf83}nav{display:flex;flex-wrap:wrap;gap:8px 20px}p{color:var(--muted);line-height:1.5}
+.strip{display:flex;flex-wrap:wrap;gap:6px 18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:16px 0;font-size:15px}.strip span b{color:#e8eef4}
+.marks{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}.marks button{font-size:18px;padding:16px 22px;border-radius:10px;border:1px solid #586f82;background:#26394a;color:#edf5fb;cursor:pointer;min-height:56px}.marks .primary{background:#8b6a1f;border-color:var(--gold);font-weight:700;font-size:22px;padding:16px 36px}button:focus-visible,a:focus-visible{outline:3px solid var(--gold);outline-offset:3px}
+.day{display:flex;align-items:center;gap:12px;margin:22px 0 6px}.day h2{margin:0;font-size:22px}.day button{background:#26394a;border:1px solid #586f82;border-radius:6px;color:#edf5fb;padding:8px 12px;cursor:pointer}.day button:disabled{opacity:.4;cursor:default}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-top:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--none);border-radius:12px;padding:16px}.card.ok{border-left-color:var(--ok)}.card.look{border-left-color:var(--look)}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.time{font-size:22px;font-weight:700}.chip{font-size:13px;font-weight:700;border-radius:999px;padding:4px 10px;white-space:nowrap}.chip.ok{background:#1d3b29;color:var(--ok)}.chip.look{background:#3d3214;color:var(--look)}.chip.unchecked{background:#26323c;color:var(--none)}
+.facts{color:var(--muted);font-size:14px;margin:6px 0}.headline{color:#e8eef4;font-size:16px;margin:10px 0}details{font-size:14px;color:var(--muted)}details li{margin:4px 0}.tag{display:inline-block;font-size:12px;border:1px solid #586f82;border-radius:4px;padding:1px 6px;margin-left:6px;color:var(--muted)}
+.empty{background:var(--panel);border:1px dashed var(--line);border-radius:12px;padding:22px}
+@media(max-width:600px){body{padding:16px}h1{font-size:26px}.marks button{flex:1 1 40%}.marks .primary{flex:1 1 100%}}
+</style></head><body>
+<header><div class="eyebrow">URSULINE BEARBOTICS / TEAM 6391</div><h1>Today's practice</h1>
+<nav aria-label="Hub navigation"><a href="/" aria-current="page">Today's practice</a><a href="/notebook">Driver notebook</a><a href="/runs">Run history</a><a href="/video">Practice video</a><a href="/admin">Transfers (admin)</a></nav></header>
+<div class="strip" role="status" aria-live="polite"><span id="logs">Logs: checking…</span><span id="robot"></span><span id="import"></span></div>
+<div class="marks" aria-label="Mark something that just happened"><button class="primary" id="mark-now" type="button">Mark event</button><button id="mark-10" type="button">10 s ago</button><button id="mark-30" type="button">30 s ago</button></div>
+<div class="day"><button id="prev" type="button" aria-label="Previous practice day">◀</button><h2 id="date">Loading…</h2><button id="next" type="button" aria-label="Next practice day">▶</button></div>
+<p id="summary"></p>
+<div class="cards" id="cards"></div>
+<p id="unknown"></p>
+<script>
+const el=id=>document.getElementById(id);
+let selected=null,data=null;
+function mark(ago){location.href='/notebook#mark='+ago+'&at='+Date.now()}
+el('mark-now').onclick=()=>mark(0);el('mark-10').onclick=()=>mark(10);el('mark-30').onclick=()=>mark(30);
+el('prev').onclick=()=>{if(data?.previous_day){selected=data.previous_day;load()}};
+el('next').onclick=()=>{if(data?.next_day){selected=data.next_day;load()}};
+const CHIP={ok:'Nothing flagged',look:'Look at this',unchecked:"Couldn't check"};
+function duration(s){if(s==null)return 'length unknown';if(s<60)return Math.round(s)+' s';const m=Math.floor(s/60),r=Math.round(s%60);return m+' min'+(r?' '+r+' s':'')}
+function dayTitle(iso){if(!iso)return 'No practice logs yet';const d=new Date(iso+'T12:00:00'),today=new Date();const same=(a,b)=>a.toDateString()===b.toDateString();const y=new Date(today);y.setDate(today.getDate()-1);const label=d.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:d.getFullYear()===today.getFullYear()?undefined:'numeric'});return same(d,today)?'Today · '+label:same(d,y)?'Yesterday · '+label:label}
+function add(parent,tag,text,cls){const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;parent.append(n);return n}
+function card(c){const a=document.createElement('article');a.className='card '+c.status;
+ const top=add(a,'div',null,'top');add(top,'span',new Date(c.local_start).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}),'time');add(top,'span',CHIP[c.status],'chip '+c.status);
+ const facts=[duration(c.duration_seconds),c.modes.join(' → ')||'mode unknown',c.battery_min_volts!=null?'battery low point '+c.battery_min_volts.toFixed(1)+' V':null,c.notes!=null?(c.notes===1?'1 note':c.notes+' notes'):null].filter(Boolean);
+ const f=add(a,'div',facts.join(' · '),'facts');
+ if(c.source_types.includes('SYNTHETIC'))add(f,'span','test data','tag');
+ if(!c.complete)add(f,'span','partial run','tag');
+ add(a,'p',c.headline,'headline');
+ const d=add(a,'details');add(d,'summary','Details');
+ if(c.findings.length){const ul=add(d,'ul');for(const s of c.findings)add(ul,'li',s)}
+ if(c.siblings.length)add(d,'p','Comparisons with the other modules describe this run only. They are not a pass/fail health result.');
+ add(d,'p','"Nothing flagged" means the checks that could run found nothing. It does not prove the robot is healthy.');
+ const link=add(d,'a','Open full run details');link.href='/runs#run='+encodeURIComponent(c.run_id);
+ return a}
+async function load(){try{const r=await fetch('/api/v1/practice'+(selected?'?date='+selected:''),{cache:'no-store'});if(!r.ok)throw Error();data=await r.json();selected=data.date;
+ el('date').textContent=dayTitle(data.date);el('prev').disabled=!data.previous_day;el('next').disabled=!data.next_day;
+ const n=data.cards.length,c=data.counts||{};
+ el('summary').textContent=n?`${n} run${n===1?'':'s'} · ${c.look||0} to look at · ${c.ok||0} with nothing flagged · ${c.unchecked||0} couldn't be checked`:'';
+ el('cards').replaceChildren(...data.cards.map(card));
+ if(!n){const e=add(el('cards'),'div',null,'empty');add(e,'p',data.date?'No runs on this day.':'No robot logs yet. After practice, collect logs or use Import logs on the Transfers (admin) page.')}
+ el('unknown').textContent=data.unknown_time_runs?`${data.unknown_time_runs} run(s) have no clock time and are not shown by day. See Run history.`:'';
+}catch(e){el('date').textContent='The hub is not responding';}}
+const LOG_WORDS={caught_up:'caught up',downloading:'downloading from robot',verifying:'checking downloaded files',discovering:'looking for new logs on the robot',waiting:'waiting for the robot to be disabled',attention:'needs attention (see Transfers)'};
+async function status(){try{const r=await fetch('/api/v1/status',{cache:'no-store'});if(!r.ok)throw Error();const s=await r.json();
+ const words=s.paused_by_operator?'paused by an operator':s.state==='paused'?'on hold: '+(s.reason||'').toLowerCase():LOG_WORDS[s.state]||s.reason||s.state;
+ el('logs').innerHTML='';add(el('logs'),'span','Logs: ');add(el('logs'),'b',words+(s.pending_files?` (${s.pending_files} waiting)`:''));
+ el('robot').textContent=s.source_type==='synthetic_demo'?'Demo mode: no real robot':'';
+}catch(e){el('logs').textContent='Logs: hub not responding'}
+ try{const r=await fetch('/api/v1/import-folder',{cache:'no-store'});const i=await r.json();el('import').textContent=i.state==='running'?`Importing logs: ${i.done} of ${i.total}`:i.state==='queued'?'Import starting…':''}catch(e){}}
+load();status();setInterval(status,3000);setInterval(()=>{if(!document.hidden)load()},30000);
+</script></body></html>

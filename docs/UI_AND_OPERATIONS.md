@@ -30,6 +30,20 @@ On enable, display `Paused — robot enabled; progress saved`. Retain the last e
 
 Keep the event action reachable by keyboard and touch. The user can leave text blank initially. Show where a note is saved/acknowledged. Collection pause does not disable logging, notes, or recording. Do not add a dashboard control that enables the robot.
 
+### Implemented: "Today's practice" home page (October 18, 2026)
+
+`/` is now the student-facing home page; the transfer dashboard above moved to `/admin`. The page shows:
+
+- a one-line strip in plain words ("Logs: caught up", "Logs: on hold: robot enabled", import progress);
+- **Mark event**, **10 s ago** and **30 s ago** buttons. These hand the click time to the notebook (`/notebook#mark=<seconds>&at=<epoch ms>`), so notes keep using the notebook's device-first durable save path. A handoff older than 2 minutes is refused rather than saved with a wrong time;
+- one card per run for the selected local day (default: most recent day with runs; arrows step between practice days). Each card shows start time, length, modes, battery low point when recorded, note count, a text chip (*Look at this* / *Nothing flagged* / *Couldn't check*) and one plain sentence for the most notable finding. **Details** lists every finding sentence, the limits wording, and links to `/runs#run=<id>`.
+
+Chip rules (`robot_test_hub/practice.py`): any finding or sibling outlier → *Look at this*; otherwise at least one check evaluated with no finding → *Nothing flagged*, with the count of checks that could not run; otherwise *Couldn't check*. Missing data never becomes *Nothing flagged*.
+
+**Sibling comparison (first part of P2).** For per-module metrics (steering settling time, steering error, oscillation crossings, drive speed error, longest drive error), a module is flagged when its value is at least 2× the median of the other modules and above an absolute floor per metric. It is labeled a descriptive comparison within the run, not a health result, and needs no approved baseline.
+
+Runs without a wall-clock time are counted below the cards and remain available in Run history.
+
 ## Screen 2: Run/time search
 
 Filters: robot, session, local date/time interval, test type, build/config, component, battery, finding status. Show the resolved absolute date and timezone for natural-language or relative dates. Return overlapping intervals, including uncertainty, instead of matching only run start time.

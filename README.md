@@ -10,6 +10,7 @@ Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the 
 
 ## Start here
 
+- [Today's practice home page: one card per run with plain-language findings](docs/UI_AND_OPERATIONS.md#implemented-todays-practice-home-page-october-18-2026)
 - [Import logs from a folder, USB drive or Google Drive (no robot connection needed)](docs/IMPORTER.md#import-a-folder-of-logs)
 - [Windows setup and daily Start / Check / Open / Stop shortcuts](docs/WINDOWS_SETUP.md)
 - [Verified complete-source ZIP and offline upgrade/rollback rehearsal](docs/RELEASE_ASSEMBLY.md)

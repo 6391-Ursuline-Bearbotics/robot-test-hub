@@ -69,6 +69,27 @@ class FolderImportHttpTests(unittest.TestCase):
         self.assertEqual(self.request('POST', {'folder': str(self.usb)}, {'X-Hub-Request': '0'})[0], 403)
         self.assertEqual(self.service.folder_import_status()['state'], 'idle')
 
+    def get(self, path):
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=5)
+        try:
+            connection.request('GET', path)
+            response = connection.getresponse()
+            return response.status, response.read()
+        finally:
+            connection.close()
+
+    def test_home_is_practice_page_and_dashboard_moves_to_admin(self):
+        status, body = self.get('/')
+        self.assertEqual(status, 200)
+        self.assertIn(b"Today's practice", body)
+        status, body = self.get('/admin')
+        self.assertEqual(status, 200)
+        self.assertIn(b'Import logs from a folder', body)
+        status, body = self.get('/api/v1/practice')
+        self.assertEqual((status, json.loads(body)['cards']), (200, []))
+        self.assertEqual(self.get('/api/v1/practice?date=yesterday')[0], 400)
+        self.assertEqual(self.get('/api/v1/practice?date=2026-10-03&x=1')[0], 400)
+
 
 if __name__ == '__main__':
     unittest.main()
