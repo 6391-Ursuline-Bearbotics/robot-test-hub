@@ -21,7 +21,7 @@ A simpler alternative to the rotating receiver. Add `"pull_source_config": "sour
 - Downloads go through `.part` files in `data/pull-staging/`. A file whose size changes during download is reported as still being written and is not imported.
 - Downloaded logs are imported exactly like a folder import, then the staged copies are removed (originals are archived by hash). Files already collected (same name and size) are not downloaded again. Nothing on the robot is changed or deleted.
 
-The host key must already be pinned; unknown keys are rejected. Tested over real loopback SSH/SFTP with synthetic logs only; it has not been run against a SystemCore or roboRIO.
+The easiest way to set this up is the **setup wizard** at `/admin/setup` (P3.2). It suggests the team address 10.63.91.2, reads the robot's SSH host key without logging in and shows its SHA-256 fingerprint, and pins it only after the mentor confirms it. It takes a login name and a private-key file path (no password is stored), runs a read-only test that lists the log folder, and saves `robot_known_hosts` and `robot_source.json` next to `hub.json`, setting `pull_source_config` and keeping `hub.json.previous`. Restart the hub afterwards. Saving needs a hub started from a launch profile (StartHub.cmd). Unknown host keys are always rejected. Tested over real loopback SSH/SFTP with synthetic logs only; it has not been run against a SystemCore or roboRIO.
 
 ### Historical 2026 logs (`wpilib-2026_akit-26`)
 

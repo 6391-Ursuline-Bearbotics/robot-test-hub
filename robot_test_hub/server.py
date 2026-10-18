@@ -126,6 +126,14 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.leaderboard_get()
             if urlsplit(self.path).path.startswith('/api/v1/bundles/'):
                 return self.bundle_get()
+            if urlsplit(self.path).path == '/admin/setup':
+                return self.send(200, (Path(__file__).parent / "static/setup.html").read_bytes(), "text/html; charset=utf-8")
+            if urlsplit(self.path).path == '/api/v1/setup':
+                from . import setup_wizard
+                path = getattr(service, 'config_path', None)
+                return self.send(200, json.dumps({'default_host': setup_wizard.default_host(), 'default_log_root': setup_wizard.DEFAULT_LOG_ROOT,
+                                                  'config_path_known': path is not None,
+                                                  'pull_configured': service.pull_configured()}).encode())
             if urlsplit(self.path).path == '/trends':
                 return self.send(200, (Path(__file__).parent / "static/trends.html").read_bytes(), "text/html; charset=utf-8")
             if urlsplit(self.path).path == '/api/v1/trends':
@@ -413,6 +421,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.folder_import_post()
             if self.path == '/api/v1/pull':
                 return self.pull_post()
+            if self.path in ('/api/v1/setup/host-key', '/api/v1/setup/test', '/api/v1/setup/save'):
+                return self.setup_post()
             if self.path.startswith(('/api/v1/roster', '/api/v1/crew')):
                 return self.crew_post()
             if self.path.startswith('/api/v1/matches/') and self.path.endswith('/counted'):
@@ -604,6 +614,33 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.send(400,b'{"error_code":"invalid_practice_query"}')
             except (sqlite3.Error,RuntimeError,OSError):
                 return self.send(503,b'{"error_code":"practice_unavailable"}')
+
+        def setup_post(self):
+            from . import setup_wizard
+            self.close_connection=True
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=8192:
+                    return self.reject_unread(400,b'{"error_code":"invalid_setup_request"}')
+                payload=json.loads(self.rfile.read(length))
+                if not isinstance(payload,dict):
+                    raise setup_wizard.SetupError('Invalid request')
+                if self.path.endswith('/host-key'):
+                    result=setup_wizard.fetch_host_key(payload.get('host'),payload.get('port',22))
+                elif self.path.endswith('/test'):
+                    result=setup_wizard.test_connection(payload,service.root/'setup-check')
+                else:
+                    path=getattr(service,'config_path',None)
+                    if path is None:
+                        raise setup_wizard.SetupError('Start the hub from a launch profile (StartHub.cmd) so the wizard knows where hub.json is')
+                    result=setup_wizard.save(payload,path)
+                return self.send(200,json.dumps(result).encode())
+            except setup_wizard.SetupError as exc:
+                return self.send(400,json.dumps({'error_code':'setup_problem','error':str(exc)}).encode())
+            except (ValueError,TypeError,KeyError):
+                return self.send(400,b'{"error_code":"setup_problem","error":"Could not read the request"}')
+            except OSError:
+                return self.send(503,b'{"error_code":"setup_problem","error":"Could not write the configuration files"}')
 
         def pull_post(self):
             self.close_connection=True
@@ -946,10 +983,12 @@ def main(argv=None) -> int:
                 raise ValueError('NT options require --source-config; no endpoint is inferred')
             from .demo import OfflineSource
             source = OfflineSource() if args.offline else DemoSource()
+        hub_config_path = args.config.resolve() if args.config is not None else None
         service = HubService(config, source,video_config=video_config,video_media_config=video_media_config,marker_config=marker_config,rewind_config=rewind_config)
         # A pending worker retains its service and therefore this OS lease even
         # after main returns. Release only once every service worker has closed.
         service.application_control_owner = application_control
+        service.config_path = hub_config_path
         httpd = create_http_server(service, source, config.port, application_control=application_control)
         httpd.timeout = 0.2
         for name in ("SIGINT", "SIGTERM", "SIGBREAK"):

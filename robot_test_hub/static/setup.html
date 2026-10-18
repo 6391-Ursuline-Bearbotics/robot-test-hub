@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Robot setup · 6391</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#101820;color:#e8eef4;--line:#304150;--panel:#17232e;--muted:#aebfcb;--gold:#e6b957;--ok:#7fd29a;--bad:#ffb7a5}
+body{max-width:820px;margin:auto;padding:24px}header{border-bottom:1px solid #34424f;padding-bottom:14px}.eyebrow{color:var(--gold);letter-spacing:.14em;font-size:12px;font-weight:700}h1{font-size:30px;margin:8px 0}a{color:#f2cf83}nav{display:flex;flex-wrap:wrap;gap:8px 20px}p{color:var(--muted);line-height:1.5}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}h2{font-size:17px;margin:0 0 8px}
+label{display:block;color:var(--muted);font-size:14px;margin:8px 0 4px}input[type=text],input[type=number]{width:100%;box-sizing:border-box;background:#101820;border:1px solid #586f82;border-radius:6px;color:#edf5fb;padding:10px}
+button{background:#26394a;border:1px solid #586f82;border-radius:6px;color:#edf5fb;padding:10px 16px;margin-top:10px;cursor:pointer;min-height:42px}button:disabled{opacity:.5;cursor:default}
+.fp{font-family:ui-monospace,Consolas,monospace;font-size:15px;background:#101820;border:1px solid var(--line);border-radius:6px;padding:10px;overflow-wrap:anywhere;color:#e8eef4}
+.msg{margin:8px 0 0}.msg.ok{color:var(--ok)}.msg.bad{color:var(--bad)}
+</style></head><body>
+<header><div class="eyebrow">URSULINE BEARBOTICS / TEAM 6391</div><h1>Robot setup: Collect now</h1>
+<nav aria-label="Hub navigation"><a href="/">Today's practice</a><a href="/admin">Transfers (admin)</a><a href="/admin/setup" aria-current="page">Robot setup</a></nav></header>
+<p>Set up downloading logs from the robot over the network after practice. Nothing here changes the robot. Do it once per laptop with the robot powered on and this laptop connected to the robot's network.</p>
+<p id="note" class="msg"></p>
+<section><h2>1. Robot address</h2><label for="host">Address</label><input id="host" type="text"><label for="port">SSH port</label><input id="port" type="number" value="22" min="1" max="65535"><button id="fetch" type="button">Find the robot</button><p id="fetch-msg" class="msg" role="status"></p></section>
+<section><h2>2. Confirm the robot's identity</h2><p>The robot proves who it is with a host key. Check this fingerprint against the robot (for example run <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> on it, or ask whoever set it up). Only confirm if it matches.</p><div id="fp" class="fp">Find the robot first.</div><label><input type="checkbox" id="confirm" disabled> This fingerprint matches our robot</label></section>
+<section><h2>3. Login</h2><label for="user">Robot login name</label><input id="user" type="text" value="systemcore"><label for="key">Private key file on this laptop (full path; the matching public key must be authorized on the robot)</label><input id="key" type="text" placeholder="C:\RobotHubPrivate\robot_key"><label for="root">Log folder on the robot</label><input id="root" type="text"></section>
+<section><h2>4. Test (read-only)</h2><button id="test" type="button" disabled>Test connection</button><p id="test-msg" class="msg" role="status"></p></section>
+<section><h2>5. Save</h2><p>Saves the pinned key and robot settings next to hub.json and turns on <b>Collect now</b>. Restart the hub afterwards (StopHub.cmd, then StartHub.cmd).</p><button id="save" type="button" disabled>Save settings</button><p id="save-msg" class="msg" role="status"></p></section>
+<script>
+const el=id=>document.getElementById(id);let hostKey=null;
+function msg(id,text,ok){const p=el(id);p.textContent=text;p.className='msg '+(ok===true?'ok':ok===false?'bad':'')}
+async function post(path,body){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Hub-Request':'1'},body:JSON.stringify(body)});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||'The hub could not do that.');return d}
+function values(){return Object.assign({},hostKey,{host:el('host').value.trim(),port:Number(el('port').value),username:el('user').value.trim(),private_key:el('key').value.trim(),log_root:el('root').value.trim(),confirmed:el('confirm').checked})}
+function refresh(){const ready=!!hostKey&&el('confirm').checked;el('test').disabled=!ready;el('save').disabled=!ready}
+el('fetch').onclick=async()=>{hostKey=null;el('confirm').checked=false;el('confirm').disabled=true;refresh();msg('fetch-msg','Contacting the robot…');
+ try{const d=await post('/api/v1/setup/host-key',{host:el('host').value.trim(),port:Number(el('port').value)});hostKey={key_type:d.key_type,key_base64:d.key_base64,fingerprint:d.fingerprint};el('fp').textContent=d.key_type+'  '+d.fingerprint;el('confirm').disabled=false;msg('fetch-msg','Found the robot. Check the fingerprint in step 2.',true)}
+ catch(e){el('fp').textContent='Find the robot first.';msg('fetch-msg',e.message,false)}};
+el('confirm').onchange=refresh;
+el('test').onclick=async()=>{msg('test-msg','Testing…');try{const d=await post('/api/v1/setup/test',values());msg('test-msg',`Connected. ${d.logs} log file(s) on the robot`+(d.newest?`, newest ${d.newest}`:'')+'.',true)}catch(e){msg('test-msg',e.message,false)}};
+el('save').onclick=async()=>{msg('save-msg','Saving…');try{await post('/api/v1/setup/save',values());msg('save-msg','Saved. Restart the hub, then use Collect now on the Transfers (admin) page.',true)}catch(e){msg('save-msg',e.message,false)}};
+(async()=>{try{const d=await (await fetch('/api/v1/setup',{cache:'no-store'})).json();el('host').value=d.default_host;el('root').value=d.default_log_root;
+ if(!d.config_path_known)msg('note','This hub was not started from a launch profile, so settings cannot be saved here. Start it with StartHub.cmd.',false);else if(d.pull_configured)msg('note','Collect now is already set up. Saving again replaces the robot settings (the old hub.json is kept as hub.json.previous).',true)}catch(e){msg('note','The hub is not responding.',false)}})();
+</script></body></html>
