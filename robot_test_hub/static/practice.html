@@ -10,13 +10,16 @@ body{max-width:1160px;margin:auto;padding:24px}header{border-bottom:1px solid #3
 .card{background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--none);border-radius:12px;padding:16px}.card.ok{border-left-color:var(--ok)}.card.look{border-left-color:var(--look)}
 .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.time{font-size:22px;font-weight:700}.chip{font-size:13px;font-weight:700;border-radius:999px;padding:4px 10px;white-space:nowrap}.chip.ok{background:#1d3b29;color:var(--ok)}.chip.look{background:#3d3214;color:var(--look)}.chip.unchecked{background:#26323c;color:var(--none)}
 .facts{color:var(--muted);font-size:14px;margin:6px 0}.headline{color:#e8eef4;font-size:16px;margin:10px 0}details{font-size:14px;color:var(--muted)}details li{margin:4px 0}.tag{display:inline-block;font-size:12px;border:1px solid #586f82;border-radius:4px;padding:1px 6px;margin-left:6px;color:var(--muted)}
-.allday{background:#2a2614;border:1px solid #8b7339;border-radius:10px;padding:10px 16px;margin:8px 0;color:#f2d890}.allday ul{margin:6px 0;padding-left:20px}.allday .note{font-size:13px;margin:4px 0;color:#d9c48a}.empty{background:var(--panel);border:1px dashed var(--line);border-radius:12px;padding:22px}
+.allday{background:#2a2614;border:1px solid #8b7339;border-radius:10px;padding:10px 16px;margin:8px 0;color:#f2d890}.allday ul{margin:6px 0;padding-left:20px}.allday .note{font-size:13px;margin:4px 0;color:#d9c48a}.match{grid-column:1/-1;border:1px solid #586f82;border-radius:14px;padding:12px;background:#132029}.match h3{margin:2px 4px 10px;font-size:18px}.match h3 small{font-weight:400;color:var(--muted);font-size:13px;margin-left:8px}.match .cards{margin-top:0}.crew{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:12px 0}.crew h2{font-size:18px;margin:0 0 8px}.crew-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.crew label{color:var(--muted);font-size:14px}select{background:#26394a;border:1px solid #586f82;border-radius:6px;color:#edf5fb;padding:8px;margin-left:4px;min-height:40px}.crew button,.fix button{background:#26394a;border:1px solid #586f82;border-radius:6px;color:#edf5fb;padding:9px 14px;cursor:pointer;min-height:40px}.who{font-size:14px;color:#cfe0ea;margin:4px 0}.fix{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}.empty{background:var(--panel);border:1px dashed var(--line);border-radius:12px;padding:22px}
 @media(max-width:600px){body{padding:16px}h1{font-size:26px}.marks button{flex:1 1 40%}.marks .primary{flex:1 1 100%}}
 </style></head><body>
 <header><div class="eyebrow">URSULINE BEARBOTICS / TEAM 6391</div><h1>Today's practice</h1>
-<nav aria-label="Hub navigation"><a href="/" aria-current="page">Today's practice</a><a href="/notebook">Driver notebook</a><a href="/runs">Run history</a><a href="/video">Practice video</a><a href="/admin">Transfers (admin)</a></nav></header>
+<nav aria-label="Hub navigation"><a href="/" aria-current="page">Today's practice</a><a href="/notebook">Driver notebook</a><a href="/runs">Run history</a><a href="/practice-time">Practice time</a><a href="/video">Practice video</a><a href="/admin">Transfers (admin)</a></nav></header>
 <div class="strip" role="status" aria-live="polite"><span id="logs">Logs: checking…</span><span id="robot"></span><span id="import"></span></div>
 <div class="marks" aria-label="Mark something that just happened"><button class="primary" id="mark-now" type="button">Mark event</button><button id="mark-10" type="button">10 s ago</button><button id="mark-30" type="button">30 s ago</button></div>
+<section class="crew" aria-labelledby="crew-heading"><h2 id="crew-heading">Who's on the controls?</h2>
+<div class="crew-row"><label>Driver <select id="crew-driver"></select></label><label>Operator <select id="crew-operator"></select></label><label>Coach <select id="crew-coach"></select></label><button id="crew-save" type="button">Save crew</button></div>
+<p id="crew-state" role="status"></p></section>
 <div class="day"><button id="prev" type="button" aria-label="Previous practice day">◀</button><h2 id="date">Loading…</h2><button id="next" type="button" aria-label="Next practice day">▶</button></div>
 <p id="summary"></p>
 <div id="allday" class="allday" hidden><b>Seen in most runs this day</b><ul id="allday-list"></ul><p class="note">Shown once here instead of on every card. These are robot-wide, so they are good topics for the whole team.</p></div>
@@ -39,18 +42,35 @@ function card(c){const a=document.createElement('article');a.className='card '+c
  const f=add(a,'div',facts.join(' · '),'facts');
  if(c.source_types.includes('SYNTHETIC'))add(f,'span','test data','tag');
  if(!c.complete)add(f,'span','partial run','tag');
+ const roles=c.crew?.roles||{};
+ add(a,'p',Object.keys(roles).length?['driver','operator','coach'].filter(r=>roles[r]).map(r=>`${r[0].toUpperCase()+r.slice(1)}: ${roles[r].name}`).join(' · ')+(c.crew.source==='corrected'?' (fixed later)':''):'Crew: unassigned','who');
  add(a,'p',c.headline,'headline');
  const d=add(a,'details');add(d,'summary','Details');
  if(c.findings.length){const ul=add(d,'ul');for(const s of c.findings)add(ul,'li',s)}
  if(c.siblings.length)add(d,'p','Comparisons with the other modules describe this run only. They are not a pass/fail health result.');
  add(d,'p','"Nothing flagged" means the checks that could run found nothing. It does not prove the robot is healthy.');
+ const fix=add(d,'div',null,'fix');add(fix,'span','Wrong crew? ');
+ const pick={};for(const role of ['driver','operator']){pick[role]=rosterSelect(roles[role]?.id);pick[role].setAttribute('aria-label',role+' for this run');fix.append(pick[role])}
+ const save=add(fix,'button','Fix crew');save.type='button';save.onclick=async()=>{const body={driver:pick.driver.value,operator:pick.operator.value,reason:'corrected on home page'};const r=await fetch('/api/v1/crew/runs/'+encodeURIComponent(c.run_id),{method:'POST',headers:{'Content-Type':'application/json','X-Hub-Request':'1'},body:JSON.stringify(body)});if(r.ok)load();else save.textContent='Could not save'};
  const link=add(d,'a','Open full run details');link.href='/runs#run='+encodeURIComponent(c.run_id);
  return a}
+let roster=[];
+function rosterSelect(selected){const s=document.createElement('select');const none=document.createElement('option');none.value='';none.textContent='(nobody)';s.append(none);for(const st of roster.filter(x=>x.active||x.id===selected)){const o=document.createElement('option');o.value=st.id;o.textContent=st.name;if(st.id===selected)o.selected=true;s.append(o)}return s}
+async function loadCrew(){try{roster=(await (await fetch('/api/v1/roster',{cache:'no-store'})).json()).students;const cur=(await (await fetch('/api/v1/crew',{cache:'no-store'})).json()).current;
+ for(const role of ['driver','operator','coach']){const s=rosterSelect(cur?.roles?.[role]);s.id='crew-'+role;el('crew-'+role).replaceWith(s)}
+ const names=id=>roster.find(x=>x.id===id)?.name||'?';
+ el('crew-state').textContent=!roster.length?'Add student names on the Transfers (admin) page first.':cur&&Object.keys(cur.roles).length?`Saved at ${new Date(Number(BigInt(cur.start_utc_ns)/1000000n)).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}: `+Object.entries(cur.roles).map(([r,id])=>`${r} ${names(id)}`).join(', ')+'. Runs from now on are credited to this crew.':'Nobody selected. New runs will be counted as Unassigned.'}catch(e){el('crew-state').textContent='Crew list unavailable.'}}
+el('crew-save').onclick=async()=>{const body={};for(const role of ['driver','operator','coach'])body[role]=el('crew-'+role).value;const r=await fetch('/api/v1/crew',{method:'POST',headers:{'Content-Type':'application/json','X-Hub-Request':'1'},body:JSON.stringify(body)});el('crew-state').textContent=r.ok?'Saved.':'Could not save the crew.';loadCrew()};
 async function load(){try{const r=await fetch('/api/v1/practice'+(selected?'?date='+selected:''),{cache:'no-store'});if(!r.ok)throw Error();data=await r.json();selected=data.date;
  el('date').textContent=dayTitle(data.date);el('prev').disabled=!data.previous_day;el('next').disabled=!data.next_day;
  const n=data.cards.length,c=data.counts||{};
  el('summary').textContent=n?`${n} run${n===1?'':'s'} · ${c.look||0} to look at · ${c.ok||0} with nothing flagged · ${c.unchecked||0} couldn't be checked`:'';
- el('cards').replaceChildren(...data.cards.map(card));
+ const nodes=[];let group=null;
+ for(const c of data.cards){
+  if(c.match&&group&&group.id===c.match.id){group.inner.append(card(c));continue}
+  if(c.match){const box=document.createElement('section');box.className='match';const h=add(box,'h3',c.match.label);add(h,'small',c.match.complete?'auto + teleop':'auto only');const inner=add(box,'div',null,'cards');inner.append(card(c));group={id:c.match.id,inner};nodes.push(box);continue}
+  group=null;nodes.push(card(c))}
+ el('cards').replaceChildren(...nodes);
  const all=data.seen_all_day||[];el('allday').hidden=!all.length;el('allday-list').replaceChildren(...all.map(x=>{const li=document.createElement('li');li.textContent=`${x.sentence} (${x.runs} of ${x.of} runs)`;return li}));
  if(!n){const e=add(el('cards'),'div',null,'empty');add(e,'p',data.date?'No runs on this day.':'No robot logs yet. After practice, collect logs or use Import logs on the Transfers (admin) page.')}
  el('unknown').textContent=data.unknown_time_runs?`${data.unknown_time_runs} run(s) have no clock time and are not shown by day. See Run history.`:'';
@@ -62,5 +82,5 @@ async function status(){try{const r=await fetch('/api/v1/status',{cache:'no-stor
  el('robot').textContent=s.source_type==='synthetic_demo'?'Demo mode: no real robot':'';
 }catch(e){el('logs').textContent='Logs: hub not responding'}
  try{const r=await fetch('/api/v1/import-folder',{cache:'no-store'});const i=await r.json();el('import').textContent=i.state==='running'?`Importing logs: ${i.done} of ${i.total}`:i.state==='queued'?'Import starting…':''}catch(e){}}
-load();status();setInterval(status,3000);setInterval(()=>{if(!document.hidden)load()},30000);
+loadCrew().then(load);status();setInterval(status,3000);setInterval(()=>{if(!document.hidden)load()},30000);
 </script></body></html>

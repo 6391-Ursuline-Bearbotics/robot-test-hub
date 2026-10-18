@@ -118,6 +118,10 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.send(200, page, "text/html; charset=utf-8")
             if urlsplit(self.path).path == '/api/v1/practice':
                 return self.practice_get()
+            if urlsplit(self.path).path in ('/api/v1/roster', '/api/v1/crew', '/api/v1/practice-time'):
+                return self.crew_get()
+            if self.path == '/practice-time':
+                return self.send(200, (Path(__file__).parent / "static/practice_time.html").read_bytes(), "text/html; charset=utf-8")
             if self.path == "/notebook":
                 return self.send(200, notebook_page, "text/html; charset=utf-8")
             if self.path in ('/notebook.js','/notebook-sw.js','/review-history.js','/processing.js'):
@@ -388,6 +392,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.reject_unread(403, b'{}')
             if self.path == '/api/v1/import-folder':
                 return self.folder_import_post()
+            if self.path.startswith(('/api/v1/roster', '/api/v1/crew')):
+                return self.crew_post()
             if self.path.startswith('/api/v1/imports/'):
                 return self.import_retry_post()
             if self.path.startswith('/api/v1/markers'):
@@ -423,6 +429,55 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
             except sqlite3.Error:
                 service.diagnostics.record("settings_write_failed", "Cannot save operator preference; check catalog/local storage")
                 self.send(503, b'{"error_code":"settings_write_failed","error":"Preference was not saved; check local storage"}')
+
+        def crew_get(self):
+            from . import crew
+            try:
+                url=urlsplit(self.path)
+                query=parse_qs(url.query,max_num_fields=1)
+                if url.path=='/api/v1/roster':
+                    body={'students':crew.roster(service.root)}
+                elif url.path=='/api/v1/crew':
+                    body={'current':crew.current(service.root),'roles':list(crew.ROLES)}
+                else:
+                    window=query.get('window',['week'])[0]
+                    if window not in ('week','season'):
+                        return self.send(400,b'{"error_code":"invalid_window"}')
+                    body=dict(crew.stick_time(service.root,since_utc_ns=crew.week_start_utc_ns() if window=='week' else None),window=window)
+                return self.send(200,json.dumps(body).encode())
+            except (sqlite3.Error,RuntimeError,OSError):
+                return self.send(503,b'{"error_code":"crew_unavailable"}')
+
+        def crew_post(self):
+            from . import crew
+            self.close_connection=True
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=4096:
+                    return self.reject_unread(400,b'{"error_code":"invalid_crew_request"}')
+                payload=json.loads(self.rfile.read(length))
+                if not isinstance(payload,dict):
+                    raise crew.CrewError('invalid_crew_request')
+                pieces=self.path.split('/')
+                if self.path=='/api/v1/roster':
+                    if payload.keys()!={'name'}:raise crew.CrewError('invalid_crew_request')
+                    return self.send(201,json.dumps(crew.add_student(service.root,payload['name'])).encode())
+                if len(pieces)==5 and pieces[3]=='roster':
+                    if payload.keys()!={'active'} or type(payload['active']) is not bool:raise crew.CrewError('invalid_crew_request')
+                    crew.set_active(service.root,pieces[4],payload['active'])
+                    return self.send(200,b'{"ok":true}')
+                if self.path=='/api/v1/crew':
+                    return self.send(201,json.dumps(crew.select_crew(service.root,payload)).encode())
+                if len(pieces)==6 and pieces[3:5]==['crew','runs']:
+                    reason=payload.pop('reason','')
+                    return self.send(201,json.dumps(crew.correct_run(service.root,pieces[5],payload,reason)).encode())
+                return self.send(404,b'{"error_code":"route_not_found"}')
+            except crew.CrewError as exc:
+                return self.send(exc.status,json.dumps({'error_code':exc.code}).encode())
+            except (ValueError,TypeError):
+                return self.send(400,b'{"error_code":"invalid_crew_request"}')
+            except sqlite3.Error:
+                return self.send(503,b'{"error_code":"crew_storage_unavailable"}')
 
         def practice_get(self):
             from . import practice

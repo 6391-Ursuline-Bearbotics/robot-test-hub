@@ -421,6 +421,12 @@ def day(root, date=None, *, tz=None):
                 trends = _short_run(db, run, start, seconds) + trends
             pending.append((run, start, report, siblings, measured, trends, rows))
         common = _common_robot_findings([item[4] for item in pending])
+        from . import matches
+        day_runs = [item[0] for item in pending]
+        found = matches.detect(day_runs, {run['run_id']: run_metrics.context_for(db, run['run_id']) for run in day_runs})
+        from . import crew
+        crews = crew.crew_for_runs(db, [(item[0]['run_id'], item[1]) for item in pending])
+        who = crew.names(db)
         for run, start, report, siblings, measured, trends, rows in pending:
             measured = [f for f in measured if not (f['kind'] == 'robot_measurement' and f['metric'] in common)]
             chip, line, sentences = card_status(report, siblings, measured, trends, metrics_available=bool(rows))
@@ -438,6 +444,10 @@ def day(root, date=None, *, tz=None):
                           'status': chip, 'headline': line, 'findings': sentences,
                           'siblings': siblings + [f for f in measured if f['kind'] == 'sibling_outlier'], 'trends': trends,
                           'source_types': run.get('source_types') or [],
+                          'match': found.get(run['run_id']),
+                          'crew': ({'roles': {role: {'id': sid, 'name': who.get(sid, 'Removed student')}
+                                              for role, sid in crews[run['run_id']]['roles'].items()},
+                                    'source': crews[run['run_id']]['source']} if run['run_id'] in crews else None),
                           'complete': run.get('completeness') == 'complete'})
     index = days.index(selected) if selected in days else None
     return {'schema_version': 1, 'date': selected, 'days': days[:60],

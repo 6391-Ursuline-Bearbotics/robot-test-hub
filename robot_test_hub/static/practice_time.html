@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Practice time · 6391</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#101820;color:#e8eef4;--line:#304150;--panel:#17232e;--muted:#aebfcb;--gold:#e6b957}
+body{max-width:1000px;margin:auto;padding:24px}header{border-bottom:1px solid #34424f;padding-bottom:14px}.eyebrow{color:var(--gold);letter-spacing:.14em;font-size:12px;font-weight:700}h1{font-size:32px;margin:8px 0}a{color:#f2cf83}nav{display:flex;flex-wrap:wrap;gap:8px 20px}p{color:var(--muted);line-height:1.5}
+.toggle{display:flex;gap:8px;margin:18px 0}.toggle button{background:#26394a;border:1px solid #586f82;border-radius:6px;color:#edf5fb;padding:10px 16px;cursor:pointer;min-height:44px}.toggle button[aria-pressed=true]{background:#8b6a1f;border-color:var(--gold);font-weight:700}
+.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:10px}th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}th{color:var(--muted);font-weight:600}td.num{text-align:right;font-variant-numeric:tabular-nums}
+@media(max-width:600px){body{padding:16px}h1{font-size:26px}}
+</style></head><body>
+<header><div class="eyebrow">URSULINE BEARBOTICS / TEAM 6391</div><h1>Practice time</h1>
+<nav aria-label="Hub navigation"><a href="/">Today's practice</a><a href="/notebook">Driver notebook</a><a href="/runs">Run history</a><a href="/practice-time" aria-current="page">Practice time</a><a href="/admin">Transfers (admin)</a></nav></header>
+<div class="toggle" role="group" aria-label="Time window"><button id="week" type="button" aria-pressed="true">This week</button><button id="season" type="button" aria-pressed="false">Season</button></div>
+<p>Time the robot was enabled while each student was selected, by role. Matches are auto + teleop with the match clock running (FMS or Driver Station practice match). Time with nobody selected is shown as Unassigned and is not credited to anyone.</p>
+<div class="scroll"><table><thead><tr><th scope="col">Student</th><th scope="col">Role</th><th scope="col">Enabled time</th><th scope="col">In matches</th><th scope="col">Runs</th><th scope="col">Matches</th><th scope="col">Last practiced</th></tr></thead><tbody id="rows"></tbody></table></div>
+<p id="state" role="status"></p>
+<script>
+const el=id=>document.getElementById(id);let windowName='week';
+const mins=s=>s<60?Math.round(s)+' s':(s/60).toFixed(1)+' min';
+function cell(tr,text,num){const td=document.createElement('td');td.textContent=text;if(num)td.className='num';tr.append(td)}
+async function load(){el('week').setAttribute('aria-pressed',windowName==='week');el('season').setAttribute('aria-pressed',windowName==='season');
+ try{const r=await fetch('/api/v1/practice-time?window='+windowName,{cache:'no-store'});if(!r.ok)throw Error();const d=await r.json();
+  const rows=d.students.map(s=>{const tr=document.createElement('tr');cell(tr,s.name);cell(tr,s.role[0].toUpperCase()+s.role.slice(1));cell(tr,mins(s.seconds),1);cell(tr,mins(s.match_seconds),1);cell(tr,s.runs,1);cell(tr,s.matches,1);cell(tr,s.last_utc_ns?new Date(Number(BigInt(s.last_utc_ns)/1000000n)).toLocaleDateString():'—');return tr});
+  const u=document.createElement('tr');cell(u,'Unassigned');cell(u,'—');cell(u,mins(d.unassigned.seconds),1);cell(u,'—',1);cell(u,d.unassigned.runs,1);cell(u,'—',1);cell(u,'—');rows.push(u);
+  el('rows').replaceChildren(...rows);el('state').textContent=d.students.length?'':'No crew has been credited in this window yet. Pick the crew on the Today\'s practice page before driving.';
+ }catch(e){el('state').textContent='Practice time is unavailable right now.'}}
+el('week').onclick=()=>{windowName='week';load()};el('season').onclick=()=>{windowName='season';load()};load();
+</script></body></html>

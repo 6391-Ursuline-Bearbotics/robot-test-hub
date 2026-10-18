@@ -15,7 +15,9 @@ import math
 import re
 import time
 
-METRICS_VERSION = "run-metrics-1"
+METRICS_VERSION = "run-metrics-2"
+# Driver Station match context recorded at the start of a run (when the log has it).
+CONTEXT_ALIASES = ('match_time', 'fms_attached', 'match_type', 'match_number', 'event_name')
 MODULE_POSITIONS = ('front-left', 'front-right', 'back-left', 'back-right')
 LOOP_PERIOD_MS = 20.0
 OVERRUN_MS = 25.0
@@ -43,6 +45,9 @@ def install_schema(db):
         run_id TEXT NOT NULL, metrics_version TEXT NOT NULL, robot_id TEXT, start_utc_ns TEXT,
         modes TEXT NOT NULL, duration_seconds REAL, dataset_sha256s TEXT NOT NULL,
         computed_utc_ns INTEGER NOT NULL, PRIMARY KEY (run_id, metrics_version))""")
+    db.execute("""CREATE TABLE IF NOT EXISTS run_context (
+        run_id TEXT NOT NULL, metrics_version TEXT NOT NULL, context_json TEXT NOT NULL,
+        PRIMARY KEY (run_id, metrics_version))""")
 
 
 def has_schema(db):
@@ -87,6 +92,7 @@ class _Accumulator:
         self.values = defaultdict(list)          # (component, metric) -> list of floats
         self.first, self.last = {}, {}
         self.cycles, self.previous_cycle = 0, None
+        self.context = None
         self.below = 0.0
         self.battery = None
         self.setpoint, self.measured = None, None
@@ -223,12 +229,16 @@ def compute(importer, job_ids, runs):
             if kind == 'cycle':
                 acc = target(int(row['timestamp_ns']))
                 if acc is not None:
+                    if acc.context is None:
+                        aliases = row.get('aliases', {})
+                        acc.context = {name: aliases[name].get('value') for name in CONTEXT_ALIASES if name in aliases}
                     acc.cycle(int(row['timestamp_ns']))
             elif kind == 'observation' and row.get('cycle_timestamp_ns') is not None:
                 acc = target(int(row['cycle_timestamp_ns']))
                 if acc is not None:
                     acc.observe(row)
-    return {run_id: acc.metrics() for run_id, acc in accumulators.items()}
+    return {run_id: acc.metrics() for run_id, acc in accumulators.items()}, \
+        {run_id: acc.context or {} for run_id, acc in accumulators.items()}
 
 
 def _start_utc(run):
@@ -252,7 +262,7 @@ def step(root, db, document, *, max_jobs=1):
         # Multi-segment runs: include every segment they need.
         runs = [pending[0]]
         jobs = sorted(set(pending[0]['segment_ids']))
-    results = compute(importer, jobs, runs)
+    results, contexts = compute(importer, jobs, runs)
     digests = {job: importer.get_job(job)['dataset_sha256'] for job in jobs}
     now = time.time_ns()
     with db:
@@ -260,6 +270,8 @@ def step(root, db, document, *, max_jobs=1):
             for component, metric, value, unit, count in results.get(run['run_id'], []):
                 db.execute('INSERT OR REPLACE INTO run_metrics VALUES (?,?,?,?,?,?,?)',
                            (run['run_id'], METRICS_VERSION, component, metric, value, unit, count))
+            db.execute('INSERT OR REPLACE INTO run_context VALUES (?,?,?)',
+                       (run['run_id'], METRICS_VERSION, json.dumps(contexts.get(run['run_id'], {}), sort_keys=True)))
             modes = sorted({p['mode'] for p in run.get('phases') or []})
             duration = (int(run['end_monotonic_ns']) - int(run['start_monotonic_ns'])) / 1e9
             db.execute('INSERT OR REPLACE INTO run_metrics_runs VALUES (?,?,?,?,?,?,?,?)',
@@ -276,6 +288,13 @@ def for_run(db, run_id):
     return [dict(component=c, metric=m, value=v, unit=u, sample_count=n) for c, m, v, u, n in db.execute(
         'SELECT component,metric,value,unit,sample_count FROM run_metrics WHERE run_id=? AND metrics_version=? ORDER BY component,metric',
         (run_id, METRICS_VERSION))]
+
+
+def context_for(db, run_id):
+    if not has_schema(db) or db.execute("SELECT 1 FROM sqlite_master WHERE name='run_context'").fetchone() is None:
+        return {}
+    row = db.execute('SELECT context_json FROM run_context WHERE run_id=? AND metrics_version=?', (run_id, METRICS_VERSION)).fetchone()
+    return json.loads(row[0]) if row else {}
 
 
 def history(db, robot_id, before_utc_ns, modes, metric_keys, *, limit=20, duration_seconds=None):

@@ -50,6 +50,13 @@ Runs without a wall-clock time are counted below the cards and remain available 
 - *Robot-wide rules of thumb* (stated in the sentence): battery below 7 V, 3 s or more below 9 V, any brownout, 25+ loops over 25 ms, CAN bus 95%+ busy. A rule that fires in 60% or more of a day's runs (and at least 3) appears once in a "Seen in most runs this day" box instead of on each card.
 - *Unusual compared with recent runs:* the last 20 runs with the same robot, modes and a length within ½–2×. A value is flagged only in the worse direction, beyond 3.5 scaled MADs and the metric's absolute floor, and outside the quoted 25th–75th percentile range. At least 5 earlier runs are required, and runs under 10 s are not trended. A run less than half the usual length for its mode is flagged as possibly disabled early.
 
+### Implemented: matches, crew and practice time (P1b 1–4, 8)
+
+- **Matches** (`matches.py`): an auto run whose match clock starts at 10 s or more, paired with a teleop run in the same boot that starts within 15 s of when auto was *scheduled* to end and whose clock starts at 60 s or more. With FMS attached, the label uses the logged type, number and event (for example "Qualification 6 · MOST1"); otherwise it reads "Practice match". The home page groups the two runs under one header. All seven real 2026 matches in the shakedown were detected and labeled correctly, including one whose auto was disabled after 4 s. The match context comes from `run-metrics-2` and needs the DS match fields, which the 2026 profile maps; Alpha 7 aliases do not include them yet.
+- **Roster** (`crew.py`, Transfers (admin) page): first names or nicknames, kept only in the local catalog (not in Git, the Drive log copies or summaries). Students can be hidden but not deleted, so old credit keeps its name.
+- **Crew**: "Who's on the controls?" on the home page saves a driver/operator/coach selection that starts when saved and lasts until the next one. Each run card shows its crew. **Fix crew** under Details saves a correction as a new revision; the original selection and earlier corrections are kept.
+- **Practice time** (`/practice-time`): enabled time, match time, runs, matches and last practiced per student and role, for this week or the season. Runs with nobody selected count as **Unassigned**.
+
 ## Screen 2: Run/time search
 
 Filters: robot, session, local date/time interval, test type, build/config, component, battery, finding status. Show the resolved absolute date and timezone for natural-language or relative dates. Return overlapping intervals, including uncertainty, instead of matching only run start time.
