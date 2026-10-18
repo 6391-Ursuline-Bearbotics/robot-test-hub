@@ -84,7 +84,13 @@ def _ns(value):
  if type(value) is int and 0<=value<1<<63:return value
  if type(value) is str and re.fullmatch('0|[1-9][0-9]{0,18}',value) and int(value)<1<<63:return int(value)
  raise StreamError('stream_dataset_invalid')
-def _sig(info):return [info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns]
+_WINDOWS_STAT=os.name=='nt'
+def _sig(info):
+ # Windows 3.12+ path stat exposes creation time as ctime, whereas fstat
+ # exposes metadata change time. Birthtime is the same cross-API token.
+ # Keep POSIX ctime, exact file identity, size and modification time intact.
+ stamp=getattr(info,'st_birthtime_ns',info.st_ctime_ns) if _WINDOWS_STAT else info.st_ctime_ns
+ return [info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,stamp]
 def _row(db,sql,args=()):
  cursor=db.execute(sql,args);record=cursor.fetchone()
  return dict(zip([v[0] for v in cursor.description],record)) if record is not None else None
@@ -176,7 +182,13 @@ class StreamRunner:
   lo,hi=_ns(run.get('start_monotonic_ns')),_ns(run.get('end_monotonic_ns'))
   if lo>hi:raise StreamError('stream_source_pins_invalid')
   pins=self._pins(run)
-  combined={**run,**context,'pipeline_version':'automatic-reports-8','row_selection':SELECTION,'start_monotonic_ns':str(lo),'end_monotonic_ns':str(hi),'stream_reducer_id':self._reducer_id(),'stream_chunk_bytes':self.limits.chunk_bytes,'stream_line_bytes':self.limits.line_bytes}
+  pipeline_version=getattr(self.reducer,'pipeline_version','automatic-reports-8')
+  if pipeline_version not in ('automatic-reports-8','automatic-reports-9'):raise StreamError('stream_source_pins_invalid')
+  if pipeline_version=='automatic-reports-9':
+   versions=getattr(self.reducer,'context_versions',{})
+   if any(key in context and context[key]!=value for key,value in versions.items()):raise StreamError('stream_source_pins_invalid')
+   context={**context,**versions}
+  combined={**run,**context,'pipeline_version':pipeline_version,'row_selection':SELECTION,'start_monotonic_ns':str(lo),'end_monotonic_ns':str(hi),'stream_reducer_id':self._reducer_id(),'stream_chunk_bytes':self.limits.chunk_bytes,'stream_line_bytes':self.limits.line_bytes}
   types={pin['source_type'] for pin in pins}
   source_type='synthetic' if 'SYNTHETIC' in types else 'simulation' if run.get('runtime_mode')=='SIM' else 'real' if run.get('runtime_mode')=='REAL' else 'historical'
   combined.update(original_import_source_types=sorted(types),stream_source_type_policy='import_origin_before_runtime_1')
@@ -285,7 +297,12 @@ class StreamRunner:
   if current!=expected:raise StreamError('stream_source_pins_invalid')
   for source in rt['sources']:
    for pin in source['pin']['files'].values():
-    if self._signature(self._path(pin['path']))!=pin['runtime_signature']:raise StreamError('stream_source_changed')
+    path=self._path(pin['path'])
+    if self._signature(path)!=pin['runtime_signature']:raise StreamError('stream_source_changed')
+    with self._file(path,'rb') as stream:
+     info=os.fstat(stream.fileno())
+     if _sig(info)!=pin['runtime_signature'] or info.st_ctime_ns!=rt['handle_change_times'].get(pin['path']):raise StreamError('stream_source_changed')
+    if self._signature(path)!=pin['runtime_signature']:raise StreamError('stream_source_changed')
  def _seal(self,rt,source):
   if not rt['chunk_rows']:return
   self._active(rt)
@@ -332,7 +349,11 @@ class StreamRunner:
   pin=source['pin']['files'][kind];path=self._path(pin['path']);read=0;rows=0;eof=False
   if self._signature(path)!=pin['runtime_signature']:raise StreamError('stream_source_changed')
   with self._file(path,'rb') as stream:
-   if _sig(os.fstat(stream.fileno()))!=pin['runtime_signature']:raise StreamError('stream_source_changed')
+   opened_info=os.fstat(stream.fileno())
+   if _sig(opened_info)!=pin['runtime_signature']:raise StreamError('stream_source_changed')
+   opened_change_time=opened_info.st_ctime_ns
+   change_times=rt.setdefault('handle_change_times',{})
+   if change_times.setdefault(pin['path'],opened_change_time)!=opened_change_time:raise StreamError('stream_source_changed')
    stream.seek(rt['offset'])
    while read<budget and rows<row_budget and time.monotonic()<deadline:
     block=stream.readline(min(budget-read,self.limits.line_bytes+1-len(rt['raw_buffer']))) if kind=='dataset' else stream.read(min(1024*1024,budget-read))
@@ -350,7 +371,8 @@ class StreamRunner:
      if len(rt['raw_buffer'])>self.limits.line_bytes:raise StreamError('stream_line_resource_limit')
      if block.endswith(b'\n'):
       self._accept_line(rt,source,bytes(rt['raw_buffer']),rt['offset']);rt['raw_buffer'].clear();rows+=1
-   if _sig(os.fstat(stream.fileno()))!=pin['runtime_signature']:raise StreamError('stream_source_changed')
+   closing_info=os.fstat(stream.fileno())
+   if _sig(closing_info)!=pin['runtime_signature'] or closing_info.st_ctime_ns!=opened_change_time:raise StreamError('stream_source_changed')
   if self._signature(path)!=pin['runtime_signature']:raise StreamError('stream_source_changed')
   if eof and (rt['offset']!=pin['size_bytes'] or rt['hash'].hexdigest()!=pin['sha256']):raise StreamError('stream_source_hash_mismatch')
   rt['verified_bytes']+=read

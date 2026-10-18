@@ -24,11 +24,11 @@ class Pipeline:
         from .run_lookup import has_schema as has_run_lookup, tick as run_lookup_tick
         if has_run_lookup(self.db):
             run_lookup_tick(self.db)
-        from .stream_analysis import has_schema as has_streams,StreamRunner
+        from .stream_analysis import has_schema as has_streams
         if has_streams(self.db):
             if self.stream_runner is None:
-                from .stream_quality import RecordingQualityReducer
-                self.stream_runner=StreamRunner(self.root,self.db,reducer=RecordingQualityReducer(),limits=self.stream_limits)
+                from .reports import StreamReportRunner
+                self.stream_runner=StreamReportRunner(self.root,self.db,limits=self.stream_limits)
             from .reports import advance_streams
             advance_streams(self.root,self.db,self.stream_runner)
         from .import_retry import step as retry_step

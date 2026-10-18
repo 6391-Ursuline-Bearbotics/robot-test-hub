@@ -1,6 +1,6 @@
 # Streaming analysis implementation plan
 
-Status: staged design, October 18, 2026. Stage S1 now has a local implementation described in [STREAMING_RUNTIME.md](STREAMING_RUNTIME.md), with executed evidence in [VALIDATION_CURRENT.md](VALIDATION_CURRENT.md). Stages S2–S4 remain planned, including the four other streaming evaluators and streamed incident proof. The maintained run lookup solves a separate serving problem. Neither it nor full-source recording quality establishes physical health.
+Status: staged design, October 18, 2026. Stages S1 and S2 now have local implementations described in [STREAMING_RUNTIME.md](STREAMING_RUNTIME.md), with executed evidence in [VALIDATION_CURRENT.md](VALIDATION_CURRENT.md). Stages S3–S4 remain planned, including tracking/steering, exact quantiles and streamed incident proof. The maintained run lookup solves a separate serving problem. Neither it nor full-source recording quality establishes physical health.
 
 ## Current limitation and compatibility boundary
 
@@ -8,7 +8,7 @@ Status: staged design, October 18, 2026. Stage S1 now has a local implementation
 
 `generate` invokes manifest verification and dataset iteration for each run. `Importer._check_dataset` hashes original, dataset, and manifest files, so verification and source scans repeat across runs. After selection, Evidence admission serializes its rows, Runner hashes and copies them, and analyzers construct additional arrays and sets. The steering adapter appends four mapped samples per cycle to the original rows; its own 50,000-row admission applies to that combined sequence. Raising the selector cap alone would leave these other memory and processing costs.
 
-The current five checks are recording quality, swerve tracking, Phoenix SDK observations, SystemCore observations, and recorded steering dynamics. Full-log recording quality is the first streaming consumer. The other four checks must explicitly remain unavailable for an unconverted streamed input; they cannot silently evaluate a short prefix or be described as complete dense-log coverage. REAL acquisition freshness remains unknown even after a streaming implementation.
+The current five checks are recording quality, swerve tracking, Phoenix SDK observations, SystemCore observations, and recorded steering dynamics. Full-log recording quality was the first streaming consumer. Pipeline 9 also converts the source-reviewed Phoenix/SystemCore status checks; tracking and steering explicitly remain unavailable for streamed input until converted; they cannot silently evaluate a short prefix or be described as complete dense-log coverage. REAL acquisition freshness remains unknown even after a streaming implementation.
 
 Preserve `automatic-reports-5`, `automatic-reports-6`, and `automatic-reports-7`, their exact selector strings, row ordering, pre-run inclusion, hazard semantics, declarations, saved context, original-to-input reconstruction, and existing job/report bytes. In particular, do not change the old selector's treatment of after-run clock regressions or its row limits while adding this path. Existing immutable cases continue to use the versions they saved.
 
@@ -21,6 +21,8 @@ Add a separate `automatic-reports-8` policy and a stream-specific evidence/runne
 Finish S1 only when a recording-quality finding after both old input boundaries is evaluated, a short run beyond a 250,000-line prefix is reached, cancellation/restart recovers safely, complete source hashes are checked before publication, and measured memory remains bounded as input grows. Merely constructing a spool, producing progress, or increasing limits does not complete S1.
 
 ### S2 — Shared cycle/lifecycle mapper and status reducers
+
+Local implementation: `automatic-reports-9` uses a distinct composite reducer and analyzer declarations. Saved pipeline-8 quality reports and pending checkpoints keep their original reducer and input identity. The worker dispatches exact persisted policy/reducer pairs. See [runtime contracts and limitations](STREAMING_RUNTIME.md); executed qualification remains separate in [VALIDATION_CURRENT.md](VALIDATION_CURRENT.md).
 
 Extract a new source-reviewed streaming mapper without changing the old adapter. Preserve original record indices/timestamps, held values, entry generations, source boundaries, schemas, source order, connection status, and enabled-state authority. The mapper carries only currently active required fields and the preceding compatible cycle. A gap, invalid observation, missing cycle, source transition, finish/start, entry reuse, or incompatible schema resets the affected contiguous state.
 
@@ -125,4 +127,4 @@ Use a real local server/browser to inspect pending/verifying/failed/ready progre
 
 ## Remaining decisions before implementation
 
-Choose concrete total work-disk/reserve defaults using the measured target machine, specify the deterministic chunk/chain encoding in tests, and decide new-case chunk transport. These are implementation policy decisions with documented defaults, not reasons to change legacy evidence. Source-backed streaming quality can proceed once those contracts are fixed; full dense-log coverage remains incomplete until the other four reducers and their proof/display paths are qualified.
+Choose concrete total work-disk/reserve defaults using the measured target machine, specify the deterministic chunk/chain encoding in tests, and decide new-case chunk transport. These are implementation policy decisions with documented defaults, not reasons to change legacy evidence. Source-backed streaming quality can proceed once those contracts are fixed; full dense-log coverage remains incomplete until tracking/steering and streamed proof/display paths are qualified.

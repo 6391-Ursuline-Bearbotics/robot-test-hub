@@ -17,8 +17,11 @@ from .phoenix_status import FIELDS as PHOENIX_FIELDS, phoenix_status_analyzer
 
 MAX_ROWS = 50000
 STREAM_VERSION = 'automatic-reports-8'
+CURRENT_STREAM_VERSION = 'automatic-reports-9'
 STREAM_SELECTION = 'full_source_scoped_rows_1'
 STREAM_FRAMEWORK = 'stream-analysis-1'
+STREAM_DISPATCH_SQL_STEP_LIMIT = 5_000_000
+STREAM_DISPATCH_SQL_STEP_INTERVAL = 1000
 
 
 def _quality(evidence, configuration):
@@ -248,8 +251,8 @@ def generate(root, db, document, *, max_rows=MAX_ROWS, pipeline_version=None):
     Large/problematic runs produce explicit unavailable reports, never truncated
     successful health reports. Raw originals and complete imported datasets stay.
     """
-    if pipeline_version == STREAM_VERSION:
-        return schedule_stream_reports(root,db,document)
+    if pipeline_version in (STREAM_VERSION,CURRENT_STREAM_VERSION):
+        return schedule_stream_reports(root,db,document,pipeline_version=pipeline_version)
     if type(max_rows) is not int or max_rows < 2:
         raise ValueError('max_rows must be at least two')
     version = VERSION if pipeline_version is None else pipeline_version
@@ -295,7 +298,7 @@ def generate(root, db, document, *, max_rows=MAX_ROWS, pipeline_version=None):
              'recorded-steering-observation':plan.get('steering_configuration',{}) if plan else {}})
         reports.append(report)
         if pipeline_version is None and context.get('row_limit_reached'):
-            _schedule_stream(root,db,run,document,snapshot,legacy_report=report)
+            _schedule_stream(root,db,run,document,snapshot,legacy_report=report,pipeline_version=CURRENT_STREAM_VERSION)
     return reports
 
 
@@ -350,15 +353,99 @@ def public_for_run(db,run_id,*,limit=5):
                   'basis':'latest_immutable_report_versions','trace_limit_per_module':500}
 
 
-def _stream_context(run,document,snapshot,legacy_report=None):
+def _stream_reducer(pipeline_version):
+    if pipeline_version==STREAM_VERSION:
+        from .stream_quality import RecordingQualityReducer
+        return RecordingQualityReducer()
+    if pipeline_version==CURRENT_STREAM_VERSION:
+        from .stream_status import RecordedStatusReducer
+        return RecordedStatusReducer()
+    raise ValueError('stream_report_policy_invalid')
+
+
+def _stream_reducer_identity(pipeline_version):
+    reducer=_stream_reducer(pipeline_version)
+    return reducer.reducer_id+'@'+reducer.version
+
+
+class StreamReportRunner:
+    """Dispatch persisted policies to fixed reducers without reinterpreting jobs."""
+    def __init__(self,root,db,*,limits=None):
+        from .stream_analysis import StreamRunner
+        self.db=db
+        self.runners={policy:StreamRunner(root,db,reducer=_stream_reducer(policy),limits=limits)
+                      for policy in (STREAM_VERSION,CURRENT_STREAM_VERSION)}
+    def schedule(self,run,context):
+        policy=context.get('pipeline_version',CURRENT_STREAM_VERSION)
+        if policy not in self.runners:raise ValueError('stream_report_policy_invalid')
+        reducer=_stream_reducer(policy)
+        if any(key in context and context[key]!=value for key,value in getattr(reducer,'context_versions',{}).items()):
+            raise ValueError('stream_report_policy_invalid')
+        return self.runners[policy].schedule(run,context)
+    def step(self,stream_id=None,**budget):
+        from .stream_analysis import StreamError
+        if self.db.in_transaction:raise ValueError('stream_worker_requires_owned_transaction')
+        import sqlite3
+        steps=0;exhausted=False
+        def progress():
+            nonlocal steps,exhausted
+            if exhausted:return 0
+            steps+=STREAM_DISPATCH_SQL_STEP_INTERVAL
+            exhausted=steps>STREAM_DISPATCH_SQL_STEP_LIMIT
+            return int(exhausted)
+        self.db.set_progress_handler(progress,STREAM_DISPATCH_SQL_STEP_INTERVAL)
+        try:
+            if stream_id is None:
+                # Exact state/report prefixes use the existing covering index.
+                # At most three active candidates are retained, never history.
+                candidate=self.db.execute("SELECT stream_id,created_utc_ns FROM analysis_stream_jobs WHERE state='ready' AND report_id IS NULL ORDER BY created_utc_ns,stream_id LIMIT 1").fetchone()
+                if candidate is None:
+                    candidates=[]
+                    for state in ('pending','verifying','running'):
+                        found=self.db.execute('SELECT stream_id,created_utc_ns FROM analysis_stream_jobs WHERE state=? AND report_id IS NULL ORDER BY created_utc_ns,stream_id LIMIT 1',(state,)).fetchone()
+                        if found is not None:candidates.append(found)
+                    candidate=min(candidates,key=lambda value:(value['created_utc_ns'],value['stream_id'])) if candidates else None
+                stream_id=candidate['stream_id'] if candidate is not None else None
+            row=(self.db.execute('SELECT stream_id,context_json FROM analysis_stream_jobs WHERE stream_id=?',(stream_id,)).fetchone() if stream_id is not None else None)
+        except sqlite3.DatabaseError:
+            if not exhausted:raise
+            # No complete candidate was selected: preserve every job and
+            # surface the global metadata failure to the owning worker.
+            raise StreamError('stream_sql_resource_limit') from None
+        finally:self.db.set_progress_handler(None,0)
+        if row is None:
+            if stream_id is not None:raise KeyError('stream_not_found')
+            return {'state':'idle','phase':'complete'}
+        try:
+            context=json.loads(row['context_json']);policy=context['pipeline_version']
+            if policy not in self.runners or context.get('stream_reducer_id')!=_stream_reducer_identity(policy):
+                raise ValueError('incompatible reducer')
+            reducer=_stream_reducer(policy)
+            if any(context.get(key)!=value for key,value in getattr(reducer,'context_versions',{}).items()):
+                raise ValueError('incompatible reducer versions')
+        except (ValueError,TypeError,KeyError):raise StreamError('stream_checkpoint_invalid') from None
+        return self.runners[policy].step(row['stream_id'],**budget)
+    def close(self):
+        complete=True
+        for runner in self.runners.values():
+            if runner.close() is not True:complete=False
+        return complete
+
+
+def _stream_context(run,document,snapshot,legacy_report=None,*,pipeline_version=STREAM_VERSION):
     from .wpilog import MAPPING_REVISION
     context={key:run[key] for key in ('run_id','robot_id','boot_id','runtime_mode',
         'start_monotonic_ns','end_monotonic_ns','completeness')}
-    context.update(pipeline_version=STREAM_VERSION,row_selection=STREAM_SELECTION,
+    context.update(pipeline_version=pipeline_version,row_selection=STREAM_SELECTION,
         run_catalog_revision=document['revision'],clock_mapping_revision=run['mapping_revision'],
         mapping_revision=MAPPING_REVISION,import_job_ids=list(run['segment_ids']),
         swerve_mapping_version=ROBOT_MAPPING_VERSION,swerve_freshness_policy='physical_acquisition_time_unknown')
     selected,plan=resolve_plan(run,snapshot);context.update(selected)
+    if pipeline_version==CURRENT_STREAM_VERSION:
+        from .stream_mapper import VERSION as mapper_version
+        from .stream_status import PHOENIX_VERSION,SYSTEM_VERSION
+        context.update(stream_mapper_version=mapper_version,stream_phoenix_status_version=PHOENIX_VERSION,
+                       stream_system_status_version=SYSTEM_VERSION)
     if legacy_report is not None:
         context['legacy_fallback_report_id']=legacy_report['report_id']
         context['legacy_fallback_reason']='report_resource_limit_reached'
@@ -366,20 +453,21 @@ def _stream_context(run,document,snapshot,legacy_report=None):
     return context
 
 
-def _schedule_stream(root,db,run,document,snapshot,legacy_report=None,runner=None):
+def _schedule_stream(root,db,run,document,snapshot,legacy_report=None,runner=None,*,pipeline_version=STREAM_VERSION):
     from .stream_analysis import StreamRunner
-    from .stream_quality import RecordingQualityReducer
     owned=runner is None
-    if owned:runner=StreamRunner(root,db,reducer=RecordingQualityReducer())
-    try:return runner.schedule(run,_stream_context(run,document,snapshot,legacy_report))
+    if isinstance(runner,StreamRunner) and runner._reducer_id()!=_stream_reducer_identity(pipeline_version):
+        raise ValueError('stream_report_reducer_invalid')
+    if owned:runner=StreamRunner(root,db,reducer=_stream_reducer(pipeline_version))
+    try:return runner.schedule(run,_stream_context(run,document,snapshot,legacy_report,pipeline_version=pipeline_version))
     finally:
         if owned:runner.close()
 
 
-def schedule_stream_reports(root,db,document,*,runner=None):
+def schedule_stream_reports(root,db,document,*,runner=None,pipeline_version=STREAM_VERSION):
     """Explicit stream admission never invokes tuple manifest/dataset helpers."""
     snapshot=review_snapshot(db)
-    return [_schedule_stream(root,db,run,document,snapshot,runner=runner) for run in document['runs']]
+    return [_schedule_stream(root,db,run,document,snapshot,runner=runner,pipeline_version=pipeline_version) for run in document['runs']]
 
 
 def publish_stream_report(db,stream_id,descriptor):
@@ -393,22 +481,41 @@ def publish_stream_report(db,stream_id,descriptor):
             or descriptor.get('full_source_verified') is not True or descriptor.get('profile')!=PROFILE):
         raise ValueError('stream_report_input_not_verified')
     provenance={key:copy.deepcopy(value) for key,value in descriptor.items() if key!='result'}
-    if provenance.get('context',{}).get('pipeline_version')!=STREAM_VERSION:
+    policy=provenance.get('context',{}).get('pipeline_version')
+    if policy not in (STREAM_VERSION,CURRENT_STREAM_VERSION):raise ValueError('stream_report_policy_invalid')
+    if provenance['context'].get('stream_reducer_id')!=_stream_reducer_identity(policy):
+        raise ValueError('stream_report_reducer_invalid')
+    if any(provenance['context'].get(key)!=value for key,value in getattr(_stream_reducer(policy),'context_versions',{}).items()):
         raise ValueError('stream_report_policy_invalid')
-    quality=copy.deepcopy(descriptor['result'])
+    status_checks=None
+    if policy==CURRENT_STREAM_VERSION:
+        payload=descriptor['result']
+        if payload.get('stream_result_format')!='stream-status-results-1':raise ValueError('stream_report_result_invalid')
+        status_checks=payload.get('checks')
+        if type(status_checks) is not dict or set(status_checks)!={'recording-quality','phoenix-status-observation','system-status-observation'}:
+            raise ValueError('stream_report_result_invalid')
+        if any(value.get('outcome') not in OUTCOMES for value in status_checks.values()):raise ValueError('stream_report_result_invalid')
+    quality=copy.deepcopy(descriptor['result'] if status_checks is None else status_checks['recording-quality'])
     if quality.get('outcome') not in OUTCOMES:raise ValueError('stream_report_result_invalid')
     definitions=[('recording-quality',quality_version),('swerve-tracking','stream-unconverted-1'),
         ('phoenix-status-observation','stream-unconverted-1'),('system-status-observation','stream-unconverted-1'),
         ('recorded-steering-observation','stream-unconverted-1')]
+    if status_checks is not None:
+        from .stream_status import PHOENIX_VERSION,SYSTEM_VERSION
+        definitions[2]=('phoenix-status-observation',PHOENIX_VERSION)
+        definitions[3]=('system-status-observation',SYSTEM_VERSION)
     checks=[]
     plan=provenance['context'].get('analysis_plan') or {}
     for analyzer_id,version in definitions:
         declaration=asdict(Declaration(analyzer_id,version,(PROFILE,),
-            eligible_windows='full verified source traversal; quality counters scoped to selected run' if analyzer_id=='recording-quality' else 'stream evaluator not converted'))
+            eligible_windows=('full verified source traversal; quality counters scoped to selected run' if analyzer_id=='recording-quality' else
+                              'full verified source traversal; recorded status scoped to selected run' if status_checks is not None and analyzer_id in status_checks else
+                              'stream evaluator not converted')))
         configuration=(plan.get('swerve_configuration',{}) if analyzer_id=='swerve-tracking' else
             plan.get('steering_configuration',{}) if analyzer_id=='recorded-steering-observation' else {})
         output=copy.deepcopy(quality) if analyzer_id=='recording-quality' else result('insufficient_data',
             unavailable=['stream_evaluator_not_converted'],coverage={'scope':'not_evaluated','input_format':'stream-evidence-1','physical_acquisition_time_qualified':False})
+        if status_checks is not None and analyzer_id in status_checks:output=copy.deepcopy(status_checks[analyzer_id])
         job_id=identity([STREAM_FRAMEWORK,declaration,provenance,configuration])
         output.update(job_id=job_id,analyzer_id=analyzer_id,analyzer_version=version,provenance=provenance,
             configuration=configuration,declaration=declaration)

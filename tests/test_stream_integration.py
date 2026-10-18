@@ -55,7 +55,8 @@ class StreamIntegrationTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM analysis_stream_jobs').fetchone()[0],0)
         default=reports.generate(self.root,self.db,self.document,max_rows=2)
         self.assertEqual(default,historical);self.assertEqual(self.db.execute('SELECT COUNT(*) FROM analysis_stream_jobs').fetchone()[0],1)
-        progress=self.drain(self.runner());self.assertEqual(progress['descriptor']['context']['legacy_fallback_report_id'],historical[0]['report_id'])
+        dispatch=reports.StreamReportRunner(self.root,self.db,limits={'min_free_bytes':0});self.addCleanup(dispatch.close)
+        progress=self.drain(dispatch);self.assertEqual(progress['descriptor']['context']['legacy_fallback_report_id'],historical[0]['report_id'])
         for report_id,raw in before.items():self.assertEqual(self.db.execute('SELECT result_json FROM analysis_reports WHERE report_id=?',(report_id,)).fetchone()[0],raw)
     def test_pipeline_advances_fallback_without_import_or_review_changes(self):
         from robot_test_hub.pipeline import Pipeline
