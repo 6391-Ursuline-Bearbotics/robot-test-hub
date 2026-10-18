@@ -126,6 +126,14 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.leaderboard_get()
             if urlsplit(self.path).path.startswith('/api/v1/bundles/'):
                 return self.bundle_get()
+            if urlsplit(self.path).path == '/api/v1/lan-notes':
+                lan = getattr(service, 'lan_notes', None)
+                if lan is None:
+                    return self.send(200, b'{"enabled":false}')
+                from . import qr
+                urls = lan.urls()
+                return self.send(200, json.dumps({'enabled': True, 'pin': lan.pin, 'port': lan.port, 'urls': urls,
+                                                  'qr_svg': qr.svg(urls[0]) if urls else None}).encode())
             if urlsplit(self.path).path == '/admin/setup':
                 return self.send(200, (Path(__file__).parent / "static/setup.html").read_bytes(), "text/html; charset=utf-8")
             if urlsplit(self.path).path == '/api/v1/setup':
@@ -1007,6 +1015,11 @@ def main(argv=None) -> int:
         # after main returns. Release only once every service worker has closed.
         service.application_control_owner = application_control
         service.config_path = hub_config_path
+        if config.lan_notes_port is not None:
+            from .lan_notes import LanNotes
+            service.lan_notes = LanNotes(Notebook(service.root / "catalog.sqlite3"), host=config.lan_notes_host, port=config.lan_notes_port)
+            service.lan_notes.start()
+            print(f"Phone notes on the practice network: port {config.lan_notes_port} (PIN on the admin page)", flush=True)
         httpd = create_http_server(service, source, config.port, application_control=application_control)
         httpd.timeout = 0.2
         for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
@@ -1037,6 +1050,8 @@ def main(argv=None) -> int:
         print('Hub source startup failed: check explicit source/NT settings, pinned sftp extra and Alpha 7 native installation',file=sys.stderr,flush=True)
         return 2
     finally:
+        if service is not None and getattr(service, 'lan_notes', None) is not None:
+            service.lan_notes.close()
         fully_closed = service is None or service.close()
         if not fully_closed:
             _pending_shutdown_services.append(service)

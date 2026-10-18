@@ -90,6 +90,12 @@ Glossary: the new student pages (home, practice time, board, trends) avoid the b
 
 Under a card's Details, each matching-part or trend finding has a **We fixed: …** button that asks what was fixed and stores it as an append-only repair record (`repairs.py`). The next three runs of the same robot and modes after that moment show a green line such as "After the fix "reseated back-right CAN cable": Back-right module wheel speed off target by 3.2 m/s → 0.40 m/s." It compares recorded values only and does not establish cause. Replay regression (P4.1) and an AI practice digest (P4.3) are not implemented.
 
+### Implemented: phone notes on the practice network with a PIN (P1.4)
+
+Opt in by adding `"lan_notes_port": 6392` to `hub.json` (optional `"lan_notes_host"`, default all interfaces) and restarting. A second listener then serves **only** the driver notebook and its note API (`lan_notes.py`); every other hub page and API returns 404 there. The admin page shows a 6-digit PIN that changes on every hub start, the phone URL(s) and a QR code. Addresses are ranked so the team's 10.63.91.x network comes first and virtual adapters last; the QR encoder (`qr.py`) was checked against an independent decoder for versions 1–10. A phone enters the PIN once and gets an HttpOnly session cookie. Five wrong PINs from one address block it for a minute. Notes save on the phone first and keep their original event time, as on the laptop; robot note delivery is not offered to phones. The traffic is plain HTTP on the team network: the PIN keeps other people on the network out, but does not protect against someone who can read the traffic. Windows may ask once to allow Python on private networks.
+
+Checked: PIN, cookie, rate limit and notebook-only surface in tests, and a phone-width browser check on loopback that saved a note visible to the hub. Not checked on a real phone over Wi-Fi.
+
 ## Screen 2: Run/time search
 
 Filters: robot, session, local date/time interval, test type, build/config, component, battery, finding status. Show the resolved absolute date and timezone for natural-language or relative dates. Return overlapping intervals, including uncertainty, instead of matching only run start time.

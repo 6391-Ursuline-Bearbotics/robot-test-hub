@@ -44,6 +44,8 @@ class Config:
     stream_max_spool_bytes: int = 8 * 1024**3
     stream_min_free_bytes: int = 2 * 1024**3
     pull_source_config: str | None = None
+    lan_notes_port: int | None = None
+    lan_notes_host: str = "0.0.0.0"
 
     def __post_init__(self):
         if type(self.schema_version) is not int or self.schema_version != 1:
@@ -65,6 +67,11 @@ class Config:
         if self.pull_source_config is not None and (not isinstance(self.pull_source_config, str)
                                                     or not self.pull_source_config.strip() or "\x00" in self.pull_source_config):
             raise ConfigError("pull_source_config must be null or the path of an SFTP source configuration")
+        if self.lan_notes_port is not None and (type(self.lan_notes_port) is not int or not 1024 <= self.lan_notes_port <= 65535
+                                                or self.lan_notes_port == self.port):
+            raise ConfigError("lan_notes_port must be null or a port 1024-65535 different from port")
+        if not isinstance(self.lan_notes_host, str) or not self.lan_notes_host or len(self.lan_notes_host) > 64:
+            raise ConfigError("lan_notes_host must be an address to listen on, such as 0.0.0.0")
         for key in ("analytics_enabled","analytics_share_summaries","analytics_pause_when_enabled"):
             if type(getattr(self,key)) is not bool:
                 raise ConfigError(key+" must be boolean")
