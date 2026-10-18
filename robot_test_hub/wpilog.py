@@ -5,13 +5,14 @@ observations. Wire units and table payload units are distinct throughout.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_EVEN
+from functools import lru_cache
 import json
 import math
 from pathlib import Path
 import re
 import struct
+from typing import NamedTuple
 
 PROFILE = "wpilib-2027.0.0-alpha-7_akit-27.0.0-alpha-6"
 EXTRACTOR_VERSION = "wpilog-python-1"
@@ -72,6 +73,7 @@ ODOMETRY = {
     f"/Drive/Module{i}/OdometryTimestamps": f"/Drive/Module{i}/OdometryDrivePositionsRad"
     for i in range(4)
 }
+ODOMETRY_POSITIONS = frozenset(ODOMETRY.values())
 ODOMETRY_ARRAY_TIMESTAMPS = {position: timestamp for timestamp, position in ODOMETRY.items()}
 ODOMETRY_ARRAY_TIMESTAMPS.update({f"/Drive/Module{i}/OdometryTurnPositions": f"/Drive/Module{i}/OdometryTimestamps" for i in range(4)})
 POSE_FIELDS = {"/Drive/Pose", "/Drive/PoseArray", "/RealOutputs/Odometry/Robot",
@@ -96,13 +98,16 @@ class ResourceLimit(ValueError):
     pass
 
 
-@dataclass(frozen=True)
-class Record:
+class Record(NamedTuple):
     index: int
     offset: int
     entry: int
     timestamp_us: int
     payload: bytes
+
+
+READ_CHUNK_BYTES = 1024 * 1024
+MAX_RECORD_HEADER_BYTES = 1 + 4 + 4 + 8
 
 
 def _read(stream, count, label):
@@ -117,7 +122,8 @@ def records(stream, max_record_bytes=MAX_RECORD_BYTES, truncated_tail=None):
 
     A dict passed as truncated_tail accepts one incomplete final record (a log cut
     off by power loss): its offset and byte count are stored there and iteration
-    ends. Otherwise incomplete framing raises FormatError.
+    ends. Otherwise incomplete framing raises FormatError. Records are parsed from
+    bounded read-ahead chunks; memory stays bounded by the record limit.
     """
     header = _read(stream, 12, "WPILOG header")
     if header[:6] != b"WPILOG":
@@ -129,29 +135,58 @@ def records(stream, max_record_bytes=MAX_RECORD_BYTES, truncated_tail=None):
         raise ResourceLimit("Extra header exceeds configured record limit")
     if _read(stream, size, "extra header") != b"AdvantageKit":
         raise UnsupportedProfile("Only the AdvantageKit extra header is qualified")
-    index = 0
+    from_bytes, limit_us = int.from_bytes, MAX_NS // 1000
+    buffer, pos, base, eof, index = b"", 0, stream.tell(), False, 0
+
+    def fill(needed):
+        # Returns the buffer holding at least `needed` unread bytes, unless EOF comes first.
+        nonlocal buffer, pos, base, eof
+        parts = [buffer[pos:]]
+        have = len(parts[0])
+        base += pos
+        while have < needed and not eof:
+            block = stream.read(max(READ_CHUNK_BYTES, needed - have))
+            if not block:
+                eof = True
+            parts.append(block)
+            have += len(block)
+        buffer, pos = b"".join(parts), 0
+
     while True:
-        offset = stream.tell()
-        first = stream.read(1)
-        if not first:
+        if len(buffer) - pos < MAX_RECORD_HEADER_BYTES and not eof:
+            fill(MAX_RECORD_HEADER_BYTES)
+        if pos >= len(buffer):
             return
-        flag = first[0]
+        offset = base + pos
+        flag = buffer[pos]
         if flag & 0x80:
             raise FormatError(f"Reserved record header flag at byte {offset}")
-        widths = ((flag & 3) + 1, ((flag >> 2) & 3) + 1, ((flag >> 4) & 7) + 1)
+        entry_end = pos + 1 + (flag & 3) + 1
+        size_end = entry_end + ((flag >> 2) & 3) + 1
+        header_end = size_end + ((flag >> 4) & 7) + 1
         try:
-            entry, size, timestamp = (int.from_bytes(_read(stream, n, "record header"), "little") for n in widths)
-            if timestamp > MAX_NS // 1000:
+            if header_end > len(buffer):
+                raise FormatError("Truncated record header")
+            entry = from_bytes(buffer[pos + 1:entry_end], "little")
+            size = from_bytes(buffer[entry_end:size_end], "little")
+            timestamp = from_bytes(buffer[size_end:header_end], "little")
+            if timestamp > limit_us:
                 raise FormatError("Wire timestamp cannot be represented as Alpha7 nanoseconds")
             if size > max_record_bytes:
                 raise ResourceLimit("Payload exceeds configured record limit")
-            payload = _read(stream, size, "record payload")
+            if header_end + size > len(buffer):
+                header_end -= pos
+                fill(header_end + size)
+                if header_end + size > len(buffer):
+                    raise FormatError("Truncated record payload")
+            payload = buffer[header_end:header_end + size]
         except FormatError as error:
             if truncated_tail is None or not str(error).startswith("Truncated"):
                 raise
             end = stream.seek(0, 2)
             truncated_tail.update(offset=offset, bytes=end - offset, reason=str(error))
             return
+        pos = header_end + size
         yield Record(index, offset, entry, timestamp, payload)
         index += 1
 
@@ -219,6 +254,7 @@ class Structs:
     def __init__(self, schemas):
         self.schemas = schemas
         self.cache = {}
+        self.plans = {}
 
     def layout(self, name, stack=()):
         if name in self.cache:
@@ -252,31 +288,46 @@ class Structs:
         self.cache[name] = fields, size
         return fields, size
 
-    def decode(self, name, payload):
+    def _plan(self, name):
+        # Precompiled unpackers for a validated layout; same field order and semantics.
         fields, size = self.layout(name)
+        steps = [(kind, field, count, width, array,
+                  struct.Struct("<" + PRIMITIVES[kind] * count) if kind in PRIMITIVES else None,
+                  kind.removeprefix("struct:"))
+                 for kind, field, count, width, array in fields]
+        self.plans[name] = plan = (size, steps)
+        return plan
+
+    def decode(self, name, payload):
+        size, steps = self.plans.get(name) or self._plan(name)
         if len(payload) != size:
             raise FormatError(f"Struct {name} payload size differs from recorded schema")
         result, pos = {}, 0
-        for kind, field, count, width, array in fields:
-            data = payload[pos:pos + width * count]
-            pos += len(data)
-            if kind in PRIMITIVES:
-                values = list(struct.unpack("<" + PRIMITIVES[kind] * count, data))
+        for kind, field, count, width, array, packer, nested in steps:
+            end = pos + width * count
+            if packer is not None:
+                values = packer.unpack(payload[pos:end])
+                result[field] = list(values) if array else values[0]
             elif kind == "char":
-                result[field] = _text(data.split(b"\0", 1)[0])
-                continue
+                result[field] = _text(payload[pos:end].split(b"\0", 1)[0])
             else:
-                values = [self.decode(kind.removeprefix("struct:"), data[i * width:(i + 1) * width]) for i in range(count)]
-            result[field] = values if array else values[0]
+                values = [self.decode(nested, payload[i:i + width]) for i in range(pos, end, width)]
+                result[field] = values if array else values[0]
+            pos = end
         return result
 
 
+SCALARS = {"boolean": "?", "int64": "q", "float": "f", "double": "d"}
+_SCALAR_STRUCTS = {kind: struct.Struct("<" + code) for kind, code in SCALARS.items()}
+
+
 def decode(kind, payload, structs):
-    scalar = {"boolean": "?", "int64": "q", "float": "f", "double": "d"}
-    if kind in scalar:
-        if len(payload) != struct.calcsize("<" + scalar[kind]):
+    unpacker = _SCALAR_STRUCTS.get(kind)
+    if unpacker is not None:
+        if len(payload) != unpacker.size:
             raise FormatError(f"Invalid {kind} payload length")
-        return struct.unpack("<" + scalar[kind], payload)[0]
+        return unpacker.unpack(payload)[0]
+    scalar = SCALARS
     if kind in ("string", "json", "structschema"):
         return _text(payload)
     if kind == "string[]":
@@ -309,7 +360,20 @@ def decode(kind, payload, structs):
     raise UnsupportedType(f"Unqualified field type: {kind}")
 
 
+MAX_SAFE_INTEGER = (1 << 53) - 1
+
+
 def _safe(value):
+    # Exact-type fast paths first; the isinstance chain below keeps subclass behavior.
+    kind = type(value)
+    if kind is float:
+        return value if math.isfinite(value) else None
+    if kind is list:
+        return [_safe(v) for v in value]
+    if kind is bool or kind is str or value is None:
+        return value
+    if kind is int:
+        return str(value) if abs(value) > MAX_SAFE_INTEGER else value
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, int) and not isinstance(value, bool) and abs(value) > (1 << 53) - 1:
@@ -322,6 +386,16 @@ def _safe(value):
 
 
 def _finite(value):
+    kind = type(value)
+    if kind is float:
+        return math.isfinite(value)
+    if kind is list or kind is dict:
+        for item in (value.values() if kind is dict else value):
+            if not _finite(item):
+                return False
+        return True
+    if kind is bool or kind is int or kind is str or value is None:
+        return True
     if isinstance(value, float):
         return math.isfinite(value)
     if isinstance(value, (list, dict)):
@@ -329,6 +403,7 @@ def _finite(value):
     return True
 
 
+@lru_cache(maxsize=16384)
 def category(field):
     for prefix, result in (("/RealOutputs/", "real_output"), ("/ReplayOutputs/", "replay_output"),
                            ("/RealMetadata/", "metadata"), ("/ReplayMetadata/", "replay_metadata"),
@@ -339,11 +414,20 @@ def category(field):
 
 
 def _unit(row):
+    raw = row["metadata_raw"]
+    # Entry metadata repeats on every record of an entry; parse each distinct string once.
+    return _cached_unit(raw) if type(raw) is str else _parse_unit(raw)
+
+
+def _parse_unit(raw):
     try:
-        metadata = json.loads(row["metadata_raw"])
+        metadata = json.loads(raw)
     except (ValueError, TypeError):
         metadata = None
     return metadata.get("unit") if isinstance(metadata, dict) and isinstance(metadata.get("unit"), str) else None
+
+
+_cached_unit = lru_cache(maxsize=16384)(_parse_unit)
 
 
 def extract(path: Path, profile=PROFILE):
@@ -389,7 +473,7 @@ def extract(path: Path, profile=PROFILE):
     if not found_timestamp:
         raise UnsupportedProfile("No qualified AdvantageKit /Timestamp entry")
     structs, active, generations, state = Structs(schemas), {}, {}, {}
-    cycle, timestamp_index, previous_timestamp = None, None, None
+    cycle, timestamp_index, previous_timestamp, lengths = None, None, None, None
     with Path(path).open("rb") as stream:
         for record in records(stream):
             base = {"record_index": record.index, "byte_offset": record.offset,
@@ -401,6 +485,7 @@ def extract(path: Path, profile=PROFILE):
                     if old_field is not None:
                         state.pop(old_field, None)
                     state.pop(control["field"], None)
+                    lengths = None
                 yield dict(base, kind="control", **control)
                 continue
             if record.entry not in active:
@@ -418,7 +503,8 @@ def extract(path: Path, profile=PROFILE):
                 if previous_timestamp is not None and value <= previous_timestamp:
                     raise FormatError("Nonadvancing cycle timestamp within one recording")
                 if cycle is not None:
-                    yield from _cycle_rows(cycle, timestamp_index, state)
+                    lengths = lengths if lengths is not None else _length_fields(state)
+                    yield from _cycle_rows(cycle, timestamp_index, state, lengths=lengths)
                 cycle, timestamp_index, previous_timestamp = value, record.index, value
             row = dict(base, **entry, kind="observation", entry_id=record.entry,
                        category=category(field), cycle_timestamp_ns=str(cycle) if cycle is not None else None,
@@ -437,7 +523,7 @@ def extract(path: Path, profile=PROFILE):
             if field in ODOMETRY and entry["type"] == "double[]":
                 row["unit"] = row["unit"] or "seconds"
                 row["unit_source"] = "explicit_profile_mapping" if _unit(entry) is None else "record_metadata"
-            if field in ODOMETRY.values() and entry["type"] == "double[]":
+            if field in ODOMETRY_POSITIONS and entry["type"] == "double[]":
                 row["unit"] = row["unit"] or "radians"
                 row["unit_source"] = "explicit_profile_mapping" if _unit(entry) is None else "record_metadata"
             if field in ODOMETRY_ARRAY_TIMESTAMPS:
@@ -446,10 +532,12 @@ def extract(path: Path, profile=PROFILE):
                 row["coordinate_frame"] = "2026-rebuilt-blue-origin"
                 row["coordinate_frame_source"] = "explicit_profile_mapping"
             _canonical(row)
+            if field not in state:
+                lengths = None
             state[field] = row
             yield row
         if cycle is not None:
-            yield from _cycle_rows(cycle, timestamp_index, state)
+            yield from _cycle_rows(cycle, timestamp_index, state, lengths=_length_fields(state))
 
 
 def _observation(record, entry, structs, cycle):
@@ -459,14 +547,15 @@ def _observation(record, entry, structs, cycle):
         value = decode(entry["type"], record.payload, structs)
     except UnsupportedType as error:
         value, unsupported = None, str(error)
+    finite = _finite(value)
     row = dict(record_index=record.index, byte_offset=record.offset,
                record_timestamp_ns=str(record.timestamp_us * 1000), **entry, kind="observation",
                entry_id=record.entry, category=category(field),
                cycle_timestamp_ns=str(cycle) if cycle is not None else None,
                unit=_unit(entry), value=_safe(value), decoded=unsupported is None,
-               validity="unsupported" if unsupported else ("valid" if _finite(value) else "nonfinite"),
+               validity="unsupported" if unsupported else ("valid" if finite else "nonfinite"),
                coordinate_frame=None)
-    if unsupported or not _finite(value):
+    if unsupported or not finite:
         row["raw_hex"] = record.payload.hex()
     if unsupported:
         row["unavailable_reason"] = unsupported
@@ -498,7 +587,7 @@ def _extract_akit26(path):
     if not found_data:
         raise UnsupportedProfile("No AdvantageKit data records")
     structs, active, generations, state, tail = Structs(schemas), {}, {}, {}, {}
-    cycle, timestamp_index = None, None
+    cycle, timestamp_index, lengths = None, None, None
     with path.open("rb") as stream:
         for record in records(stream, truncated_tail=tail):
             if record.entry == 0:
@@ -508,6 +597,7 @@ def _extract_akit26(path):
                     if old_field is not None:
                         state.pop(old_field, None)
                     state.pop(control["field"], None)
+                    lengths = None
                 yield dict(record_index=record.index, byte_offset=record.offset,
                            record_timestamp_ns=str(record.timestamp_us * 1000), kind="control", **control)
                 continue
@@ -518,9 +608,10 @@ def _extract_akit26(path):
                 if cycle is not None and timestamp < cycle:
                     raise FormatError("Nonadvancing record timestamp within one recording")
                 if cycle is not None:
-                    yield from _cycle_rows(cycle, timestamp_index, state, profile=PROFILE_AKIT26)
+                    lengths = lengths if lengths is not None else _length_fields(state)
+                    yield from _cycle_rows(cycle, timestamp_index, state, profile=PROFILE_AKIT26, lengths=lengths)
                 cycle, timestamp_index = timestamp, record.index
-            row = _observation(record, dict(active[record.entry]), structs, cycle)
+            row = _observation(record, active[record.entry], structs, cycle)
             field = row["field"]
             if field == "/Timestamp":
                 if row["value"] != record.timestamp_us:
@@ -532,7 +623,7 @@ def _extract_akit26(path):
             if field in ODOMETRY and row["type"] == "double[]":
                 row["unit_source"] = "explicit_profile_mapping" if row["unit"] is None else "record_metadata"
                 row["unit"] = row["unit"] or "seconds"
-            if field in ODOMETRY.values() and row["type"] == "double[]":
+            if field in ODOMETRY_POSITIONS and row["type"] == "double[]":
                 row["unit_source"] = "explicit_profile_mapping" if row["unit"] is None else "record_metadata"
                 row["unit"] = row["unit"] or "radians"
             if field in ODOMETRY_ARRAY_TIMESTAMPS:
@@ -541,10 +632,12 @@ def _extract_akit26(path):
                 row["coordinate_frame"] = "2026-rebuilt-blue-origin"
                 row["coordinate_frame_source"] = "explicit_profile_mapping"
             _canonical(row)
+            if field not in state:
+                lengths = None
             state[field] = row
             yield row
         if cycle is not None:
-            yield from _cycle_rows(cycle, timestamp_index, state, profile=PROFILE_AKIT26)
+            yield from _cycle_rows(cycle, timestamp_index, state, profile=PROFILE_AKIT26, lengths=_length_fields(state))
     if tail:
         yield {"kind": "quality", "cycle_timestamp_ns": str(cycle) if cycle is not None else None,
                "field": None, "reason": "Final record cut off (log ended mid-write, usually power loss)",
@@ -575,12 +668,14 @@ def _akit26_derived(state, timestamp_index):
     return derived
 
 
+CANONICAL_FACTORS = {"meters": (1, "meters"), "centimeters": (.01, "meters"),
+                     "meters per second": (1, "meters per second"), "radians": (1, "radians"), "seconds": (1, "seconds")}
+
+
 def _canonical(row):
     unit = row["unit"]
-    factors = {"meters": (1, "meters"), "centimeters": (.01, "meters"),
-               "meters per second": (1, "meters per second"), "radians": (1, "radians"), "seconds": (1, "seconds")}
-    if row["validity"] == "valid" and unit in factors:
-        factor, canonical_unit = factors[unit]
+    if row["validity"] == "valid" and unit in CANONICAL_FACTORS:
+        factor, canonical_unit = CANONICAL_FACTORS[unit]
         def convert(v):
             if isinstance(v, list):
                 return [convert(x) for x in v]
@@ -597,7 +692,12 @@ def _reference(row, timestamp_index):
             "updated_in_cycle": row["record_index"] >= timestamp_index}
 
 
-def _cycle_rows(cycle, timestamp_index, state, profile=PROFILE):
+def _length_fields(state):
+    # Nested-array length fields in state order; callers recompute after any key insertion/removal.
+    return [field for field in state if field.endswith("/length")]
+
+
+def _cycle_rows(cycle, timestamp_index, state, profile=PROFILE, lengths=None):
     aliases = {alias: _reference(state[field], timestamp_index) for alias, field in aliases_for(profile).items() if field in state}
     if profile == PROFILE_AKIT26:
         aliases.update(_akit26_derived(state, timestamp_index))
@@ -630,8 +730,9 @@ def _cycle_rows(cycle, timestamp_index, state, profile=PROFILE):
                    "sensor_availability": availability, "connection_sources": connection_sources,
                    "timestamp_source": _reference(time_row, timestamp_index),
                    "value_source": _reference(position_row, timestamp_index)}
-    for field, length_row in state.items():
-        if not field.endswith("/length") or length_row["type"] != "int64":
+    for field in (_length_fields(state) if lengths is None else lengths):
+        length_row = state[field]
+        if length_row["type"] != "int64":
             continue
         parent = field[:-7]
         length = length_row["value"]

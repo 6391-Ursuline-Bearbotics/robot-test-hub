@@ -79,8 +79,13 @@ def _temporary(root, suffix):
     return Path(name), os.fdopen(descriptor, "wb")
 
 
+# One reusable encoder; same bytes as json.dumps with these arguments.
+_ENCODER = json.JSONEncoder(ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
+DATASET_WRITE_BATCH_ROWS = 4096
+
+
 def _write_json(path, obj):
-    encoded = json.dumps(obj, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+    encoded = _ENCODER.encode(obj).encode("utf-8") + b"\n"
     with path.open("wb") as stream:
         stream.write(encoded)
         stream.flush()
@@ -128,8 +133,13 @@ class Importer:
     def iter_dataset(self, job_id, kind=None):
         job = self.get_job(job_id)
         self._check_dataset(job)
+        # A row of this kind always contains the kind as a JSON string; skipping lines
+        # without it avoids parsing them. The exact kind check below stays authoritative.
+        needle = json.dumps(kind) if isinstance(kind, str) and kind.isascii() else None
         with self._path(job["dataset_path"]).open(encoding="utf-8") as stream:
             for line in stream:
+                if needle is not None and needle not in line:
+                    continue
                 row = json.loads(line)
                 if kind is None or row["kind"] == kind:
                     yield row
@@ -260,6 +270,13 @@ class Importer:
                 raise UnsupportedProfile("Unsupported alias mapping revision")
             temporary, output = _temporary(self.root / "derived", ".jsonl.tmp")
             counts, unsupported, metadata, timestamp_min, timestamp_max = {}, set(), {}, None, None
+            dataset_hash, lines, encode = hashlib.sha256(), [], _ENCODER.encode
+
+            def flush_lines():
+                chunk = "".join(lines).encode("utf-8")
+                dataset_hash.update(chunk)
+                output.write(chunk)
+                lines.clear()
             with output:
                 for row in extract(self._path(raw_path), profile):
                     row["source_sha256"] = digest
@@ -275,13 +292,16 @@ class Importer:
                     if row["kind"] == "cycle":
                         timestamp_min = timestamp_min or row["timestamp_ns"]
                         timestamp_max = row["timestamp_ns"]
-                    output.write(json.dumps(row, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n")
+                    lines.append(encode(row) + "\n")
+                    if len(lines) >= DATASET_WRITE_BATCH_ROWS:
+                        flush_lines()
+                flush_lines()
                 output.flush()
                 os.fsync(output.fileno())
             if request_id is not None:
                 self._registered_raw(job_id,expected_sha256=digest)
             dataset_path = f"derived/{job_id}/signals.jsonl"
-            dataset_digest = _digest(temporary)[0]
+            dataset_digest = dataset_hash.hexdigest()
             _publish(temporary, self._path(dataset_path))
             temporary = None
             manifest = {"schema_version": 1, "job_id": job_id, "source_sha256": digest,

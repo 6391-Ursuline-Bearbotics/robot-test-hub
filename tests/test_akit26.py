@@ -55,6 +55,25 @@ class Akit26Tests(unittest.TestCase):
             list(records(stream, truncated_tail=tail))
         self.assertEqual(tail['bytes'], 11)
 
+    def test_read_ahead_chunk_boundaries_do_not_change_records(self):
+        from unittest.mock import patch
+        from robot_test_hub import wpilog
+        data = self.log.read_bytes()
+
+        class Trickle(io.BytesIO):  # short record reads like a pipe, not only at EOF
+            def read(self, size=-1):
+                return super().read(min(size, 3) if self.tell() >= 24 and size and size > 0 else size)
+
+        def parse(stream):
+            tail = {}
+            return [tuple(r) for r in wpilog.records(stream, truncated_tail=tail)], tail
+        expected = parse(io.BytesIO(data))
+        for chunk in (1, 5, 17, 64):
+            with self.subTest(chunk=chunk), patch.object(wpilog, 'READ_CHUNK_BYTES', chunk):
+                self.assertEqual(parse(io.BytesIO(data)), expected)
+                self.assertEqual(parse(Trickle(data)), expected)
+        self.assertEqual(expected[1]['offset'] + expected[1]['bytes'], len(data))
+
     def test_runs_metrics_and_student_findings(self):
         data = self.imported()
         with closing(open_catalog(data)) as db:

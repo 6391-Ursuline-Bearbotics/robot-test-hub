@@ -22,6 +22,8 @@ Results on the seven real matches (14 runs), shown on the home page:
 
 Not verified: thresholds are rules of thumb, not approved limits. 2027 SystemCore/Alpha 7 logs, the rotating receiver, SFTP collection and phone notes remain unexercised on hardware. Import speed is ~1–2.5 s per MB on the mentor laptop, so a full practice day will take several minutes. 2025 logs remain unsupported.
 
+Import speed-up (same dataset bytes): faster record parsing, cached unit/category lookups, precompiled struct decoding and one reused JSON encoder took `import_file` on two real 2026 logs from **1.93 to 1.24 s per MB (1.56x)**: 28.9 MB 55.8 → 36.3 s and 59.4 MB 115.5 → 72.6 s, with identical dataset/manifest SHA-256 for both logs and all synthetic fixtures. A whole `import_folder` run for one 28.9 MB log (import + indexing + checks) went from 99.7 to 82.8 s. Datasets are unchanged at ~35 bytes per raw byte (1.0 GB for 28.9 MB).
+
 # Full-source recorded status checkpoint — October 18, 2026
 
 Stage S2 adds a bounded cycle/lifecycle mapper and incremental recorded Phoenix/SystemCore checks under automatic-reports-9. Normal small-run automatic pipeline 7 remains unchanged. Automatic overflow now schedules 9; explicit 8 and pending 8 jobs retain their quality-only policy, reducer, declarations and saved results. Tracking and steering remain explicitly unavailable on streamed input. Overall robot health remains not assessed; SDK ages, fault labels/counters and voltage do not qualify physical freshness, event counts, reset diagnoses or battery health.
