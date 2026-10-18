@@ -88,7 +88,7 @@ Glossary: the new student pages (home, practice time, board, trends) avoid the b
 
 ### Implemented: before/after for fixes (P4.2)
 
-Under a card's Details, each matching-part or trend finding has a **We fixed: …** button that asks what was fixed and stores it as an append-only repair record (`repairs.py`). The next three runs of the same robot and modes after that moment show a green line such as "After the fix "reseated back-right CAN cable": Back-right module wheel speed off target by 3.2 m/s → 0.40 m/s." It compares recorded values only and does not establish cause. An AI practice digest (P4.3) is not implemented.
+Under a card's Details, each matching-part or trend finding has a **We fixed: …** button that asks what was fixed and stores it as an append-only repair record (`repairs.py`). The next three runs of the same robot and modes after that moment show a green line such as "After the fix "reseated back-right CAN cable": Back-right module wheel speed off target by 3.2 m/s → 0.40 m/s." It compares recorded values only and does not establish cause. **Practice summary (P4.3, without AI):** *Draft practice summary* on the home page builds a plain-text summary from the selected day: run counts, each match with its score estimate, cycles and driver, the "seen in most runs" items, the most frequent findings and any before/after lines. It is an editable text box with a Copy button and is never sent anywhere. No AI service is used; one could be added later as an explicitly configured, human-reviewed option.
 
 ### Implemented: phone notes on the practice network with a PIN (P1.4)
 
