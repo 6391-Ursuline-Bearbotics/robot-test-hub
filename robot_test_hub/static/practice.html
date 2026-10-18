@@ -84,6 +84,7 @@ async function status(){try{const r=await fetch('/api/v1/status',{cache:'no-stor
  const words=s.paused_by_operator?'paused by an operator':s.state==='paused'?'on hold: '+(s.reason||'').toLowerCase():LOG_WORDS[s.state]||s.reason||s.state;
  el('logs').innerHTML='';add(el('logs'),'span','Logs: ');add(el('logs'),'b',words+(s.pending_files?` (${s.pending_files} waiting)`:''));
  el('robot').textContent=s.source_type==='synthetic_demo'?'Demo mode: no real robot':'';
+ if(s.source_type==='offline_import_only'){el('logs').textContent='Logs: no robot connection. Import logs on the Transfers (admin) page.';el('robot').textContent=''}
 }catch(e){el('logs').textContent='Logs: hub not responding'}
  try{const r=await fetch('/api/v1/import-folder',{cache:'no-store'});const i=await r.json();el('import').textContent=i.state==='running'?`Importing logs: ${i.done} of ${i.total}`:i.state==='queued'?'Import starting…':''}catch(e){}}
 loadCrew().then(load);status();setInterval(status,3000);setInterval(()=>{if(!document.hidden)load()},30000);

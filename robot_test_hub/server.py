@@ -880,6 +880,7 @@ def main(argv=None) -> int:
     parser.add_argument('--nt-host',help='Explicit authoritative status endpoint; required with --source-config')
     parser.add_argument('--nt-port',type=int,help='Explicit authoritative NT port; required with --source-config')
     parser.add_argument('--wpilib-install',type=Path,help='Pinned Alpha 7 installation for native status reader')
+    parser.add_argument('--offline',action='store_true',help='No robot connection: logs come only from Import logs')
     parser.add_argument('--rewind-config',type=Path,help='Explicit private Limelight4 Rewind configuration; opts into run-end save requests')
     parser.add_argument('--video-config',type=Path,help='Private explicit video JSON; opts into independent recording')
     parser.add_argument('--marker-config',type=Path,help='Private explicit marker endpoint and boot-aware note delivery opt-in')
@@ -923,7 +924,8 @@ def main(argv=None) -> int:
         else:
             if args.nt_host is not None or args.nt_port is not None or args.wpilib_install is not None:
                 raise ValueError('NT options require --source-config; no endpoint is inferred')
-            source = DemoSource()
+            from .demo import OfflineSource
+            source = OfflineSource() if args.offline else DemoSource()
         service = HubService(config, source,video_config=video_config,video_media_config=video_media_config,marker_config=marker_config,rewind_config=rewind_config)
         # A pending worker retains its service and therefore this OS lease even
         # after main returns. Release only once every service worker has closed.
@@ -939,10 +941,10 @@ def main(argv=None) -> int:
         service.start()
         if application_control is not None:
             application_control.publish(httpd.server_address[1])
-        label=('DEMO TRANSFER â€” synthetic bytes; explicit marker connection enabled' if marker_config is not None
-               else 'DEMO ONLY â€” synthetic bytes, no robot connection') if isinstance(source,DemoSource) else 'LIVE READER â€” physical performance unqualified'
+        label=('OFFLINE — no robot connection; use Import logs' if getattr(source,'source_type','')=='offline_import_only' else None) or (('DEMO TRANSFER â€” synthetic bytes; explicit marker connection enabled' if marker_config is not None
+               else 'DEMO ONLY â€” synthetic bytes, no robot connection') if isinstance(source,DemoSource) else 'LIVE READER â€” physical performance unqualified')
         print(f"{label}: http://127.0.0.1:{config.port}", flush=True)
-        if not isinstance(source,DemoSource):
+        if not isinstance(source,DemoSource) and getattr(source,'source_type','')!='offline_import_only':
             print(f"Idle delay {config.idle_delay:g} s; freshness {config.freshness:g} s; chunk {config.chunk_size} bytes",flush=True)
         print(f"Checkpoints: {service.root}", flush=True)
         while not shutdown.is_set():

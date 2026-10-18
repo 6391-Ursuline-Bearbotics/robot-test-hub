@@ -69,7 +69,7 @@ def load_profile(path):
     try:
         value = _json(path)
         if (value.keys() - FIELDS or type(value.get('schema_version')) is not int
-                or value['schema_version'] != 1 or value.get('mode') not in ('live', 'demo')
+                or value['schema_version'] != 1 or value.get('mode') not in ('live', 'demo', 'offline')
                 or 'hub_config' not in value):
             raise ValueError()
         if value['mode'] == 'live':
@@ -125,11 +125,11 @@ def _inspect(profile):
             if not Path(marker.install).is_absolute():
                 raise LaunchError('Marker installation path must be absolute.')
             _local_path(marker.install, profile['marker_config'].parent)
-        if profile['mode'] == 'demo' and marker.runtime_mode != 'SIM':
+        if profile['mode'] in ('demo', 'offline') and marker.runtime_mode != 'SIM':
             raise LaunchError('Demo profiles permit only SIM marker delivery.')
     if 'video_config' in profile:
         video = load_video_config(profile['video_config'])
-        if profile['mode'] == 'demo' and video.source_type != 'SYNTHETIC':
+        if profile['mode'] in ('demo', 'offline') and video.source_type != 'SYNTHETIC':
             raise LaunchError('Demo profiles permit only synthetic recording inputs.')
         for executable in (video.executable, video.probe_executable):
             _local_path(executable, profile['video_config'].parent)
@@ -201,6 +201,8 @@ def server_arguments(path, profile):
     if profile['mode'] == 'live':
         for field in ('source_config', 'nt_host', 'nt_port', 'wpilib_install'):
             args.extend(['--' + field.replace('_', '-'), str(profile[field])])
+    if profile['mode'] == 'offline':
+        args.append('--offline')
     for field in ('marker_config', 'video_config', 'video_media_config', 'rewind_config'):
         if field in profile:
             args.extend(['--' + field.replace('_', '-'), str(profile[field])])
@@ -300,7 +302,7 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='command', required=True)
     create = sub.add_parser('configure', aliases=['create-profile'], help='Create an explicit private launch profile')
     create.add_argument('--profile', type=Path, required=True)
-    create.add_argument('--mode', choices=('live', 'demo'), required=True)
+    create.add_argument('--mode', choices=('live', 'demo', 'offline'), required=True)
     create.add_argument('--hub-config', required=True)
     for field in PATH_FIELDS[1:]:
         create.add_argument('--' + field.replace('_', '-'))

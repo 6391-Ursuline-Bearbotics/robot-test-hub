@@ -10,8 +10,14 @@ Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the 
 
 ## Start here
 
-- [Today's practice home page: one card per run with plain-language findings](docs/UI_AND_OPERATIONS.md#implemented-todays-practice-home-page-october-18-2026)
-- [Import logs from a folder, USB drive or Google Drive (no robot connection needed)](docs/IMPORTER.md#import-a-folder-of-logs)
+- [First practice: install, import logs and read results (10 steps)](docs/FIRST_PRACTICE.md)
+- [Today's practice home page, matches, crew, board and trends](docs/UI_AND_OPERATIONS.md#implemented-todays-practice-home-page-october-18-2026)
+- [Import logs from a folder, USB drive or Google Drive (2026 and 2027 logs)](docs/IMPORTER.md#import-a-folder-of-logs)
+- [Current validation, including the first real-log shakedown](docs/VALIDATION_CURRENT.md)
+- [Full design and document map](docs/README.md)
+
+<details><summary>All other guides</summary>
+
 - [Windows setup and daily Start / Check / Open / Stop shortcuts](docs/WINDOWS_SETUP.md)
 - [Verified complete-source ZIP and offline upgrade/rollback rehearsal](docs/RELEASE_ASSEMBLY.md)
 - [Offline installation exercise with a bundled synthetic log](docs/OFFLINE_EXERCISE.md)
@@ -23,7 +29,6 @@ Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the 
 - [Log flow commissioning checklist for the school](docs/LOG_FLOW_COMMISSIONING.md)
 - [Per-recording processing and import attention](docs/PROCESSING_STATUS.md)
 - [Optional direct Limelight 4 Rewind collection](docs/LIMELIGHT_REWIND.md)
-- [Full design and document map](docs/README.md)
 - [Implementation handoff](docs/IMPLEMENTATION.md): small tasks with dependencies, acceptance tests, and suggested model prompts
 - [Decisions and unresolved hardware questions](docs/DECISIONS.md)
 - [Contributor/agent instructions](AGENTS.md)
@@ -45,6 +50,8 @@ Optional [DuckDB/Parquet analytics](docs/COLUMNAR_ANALYTICS.md) now runs on the 
 - [Saved review revisions and repair-chain navigation](docs/REVIEW_HISTORY.md)
 - [Retained report history and complete trace navigation](docs/REPORT_HISTORY.md)
 - [Current reviewed software checkpoint](docs/VALIDATION_CURRENT.md)
+
+</details>
 
 ## Run the local demo
 

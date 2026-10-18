@@ -7,6 +7,27 @@ import time
 from .collector import LogFile, RobotStatus
 
 
+class OfflineSource:
+    """No robot connection at all: logs arrive only through Import logs.
+
+    Status is permanently unknown, so the collector never reads anything and the
+    pages say plainly that no robot is connected (not a simulated robot).
+    """
+    source_type = 'offline_import_only'
+
+    def status(self) -> RobotStatus:
+        return RobotStatus(None, 0.0, 'offline', 0)
+
+    def list_closed_files(self) -> list[LogFile]:
+        return []
+
+    def read(self, file_id: str, offset: int, length: int) -> bytes:
+        raise OSError('Offline hub has no robot source')
+
+    def cancel(self) -> None:
+        """Nothing to cancel."""
+
+
 class DemoSource:
     source_type = 'synthetic_demo'
     def __init__(self):
