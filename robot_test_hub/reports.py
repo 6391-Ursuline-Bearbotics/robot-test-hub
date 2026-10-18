@@ -11,7 +11,7 @@ from .analysis_plan import review_snapshot, resolve_plan
 from .swerve import (adapt_robot_swerve, swerve_analyzer, swerve_tracking, ROBOT_FIELDS,
                      ROBOT_MAPPING_VERSION, MODULE_POSITIONS)
 
-VERSION = 'automatic-reports-6'
+VERSION = 'automatic-reports-7'
 LEGACY_VERSION = 'automatic-reports-5'
 from .phoenix_status import FIELDS as PHOENIX_FIELDS, phoenix_status_analyzer
 
@@ -67,9 +67,39 @@ def _swerve(evidence,configuration):
     return output
 
 
+def _steering(evidence, configuration):
+    """Observe recorded logger dynamics without inventing physical sample freshness."""
+    from .steering import steering_observation
+    reasons=list(evidence.context.get('analysis_plan_unavailable',[]))
+    if evidence.context.get('analysis_plan') is None:reasons.append('analysis_plan_missing_or_ambiguous')
+    components=evidence.context.get('component_ids',{})
+    if set(components)!=set(MODULE_POSITIONS) or len(set(components.values()))!=4:
+        reasons.append('four_distinct_physical_components_required')
+    if evidence.context.get('row_limit_reached'):reasons.append('report_resource_limit_reached')
+    if evidence.context.get('source_nonadvancing_cycles'):reasons.append('source_cycle_order_unqualified')
+    reasons.extend(evidence.context.get('swerve_source_hazards',[]))
+    if reasons:return result('insufficient_data',unavailable=sorted(set(reasons)),coverage={'scope':'not_evaluated','physical_acquisition_freshness_qualified':False})
+    try:
+        mapped=adapt_robot_swerve(evidence,{i:components[position] for i,position in enumerate(MODULE_POSITIONS)},ideal_simulation_cycle_policy=False)
+    except ValueError:
+        return result('unsupported',unavailable=['recorded_swerve_schema_or_mapping_unsupported'])
+    lo,hi=int(evidence.context['start_monotonic_ns']),int(evidence.context['end_monotonic_ns'])
+    for position in MODULE_POSITIONS:
+        stamps=[r['timestamp_ns'] for r in mapped.rows if r.get('kind')=='swerve_sample' and r['module_position']==position]
+        if not stamps or min(stamps)!=lo or max(stamps)!=hi:
+            return result('insufficient_data',unavailable=['whole_run_swerve_state_coverage_required'],coverage={'scope':'not_evaluated','physical_acquisition_freshness_qualified':False})
+    output=steering_observation(mapped,configuration)
+    mapping_reasons=mapped.context.get('swerve_mapping_unavailable',[])
+    output['unavailable']=sorted(set(output['unavailable']+mapping_reasons))
+    if mapping_reasons:output['outcome']='insufficient_data'
+    output['coverage']['physical_acquisition_freshness_qualified']=False
+    output['coverage']['ideal_simulation_cycle_policy_applied']=False
+    return output
+
+
 ROW_SELECTION_V5 = 'source_order_required_schemas_lifecycle_held_state_phoenix_sdk_observations_and_run_cycles'
 ROW_SELECTION = 'source_order_required_schemas_lifecycle_held_state_phoenix_sdk_system_status_observations_and_run_cycles'
-SELECTOR_POLICIES = {LEGACY_VERSION: ROW_SELECTION_V5, 'automatic-reports-6': ROW_SELECTION}
+SELECTOR_POLICIES = {LEGACY_VERSION: ROW_SELECTION_V5, 'automatic-reports-6': ROW_SELECTION, VERSION: ROW_SELECTION}
 
 
 def selector_policy(pipeline_version, row_selection):
@@ -77,7 +107,7 @@ def selector_policy(pipeline_version, row_selection):
     if type(pipeline_version) is not str or pipeline_version not in SELECTOR_POLICIES or SELECTOR_POLICIES[pipeline_version] != row_selection:
         raise ValueError('unsupported_report_selector')
     fields = set(ROBOT_FIELDS.values()) | CONNECTION_FIELDS | PHOENIX_FIELDS
-    if pipeline_version == 'automatic-reports-6':
+    if pipeline_version in ('automatic-reports-6', 'automatic-reports-7'):
         from .system_status import FIELDS
         fields |= set(FIELDS)
     return fields
@@ -94,6 +124,9 @@ def analyzers(*, pipeline_version=None):
     if version != LEGACY_VERSION:
         from .system_status import system_status_analyzer
         selected.append(system_status_analyzer())
+    if version == 'automatic-reports-7':
+        from .steering import steering_analyzer
+        selected.append(Analyzer(steering_analyzer().declaration,_steering))
     return selected
 
 
@@ -253,7 +286,8 @@ def generate(root, db, document, *, max_rows=MAX_ROWS, pipeline_version=None):
         evidence = Evidence(profiles[0] if len(profiles)==1 else 'mixed-unqualified', hashes, tuple(rows), context,
             context['mapping_revision'], '+'.join(sorted({j['extractor_version'] for j in jobs})), source_type)
         reports.append(runner.report(analyzers(pipeline_version=version), evidence,
-            {'swerve-tracking':plan['swerve_configuration'] if plan else {}}))
+            {'swerve-tracking':plan['swerve_configuration'] if plan else {},
+             'recorded-steering-observation':plan.get('steering_configuration',{}) if plan else {}}))
     return reports
 
 
@@ -280,13 +314,19 @@ def public_check(check, *, trace_limit=500):
     coverage=check.get('coverage',{})
     for module in coverage.get('modules',[]):
         trace=module.get('evidence_trace',[])
-        module.update(evidence_trace=trace[:trace_limit],evidence_trace_total=len(trace),
-                      evidence_trace_truncated=len(trace)>trace_limit)
+        module.update(evidence_trace=trace[:trace_limit],
+                      evidence_trace_total=max(len(trace),module.get('evidence_trace_total',len(trace))),
+                      evidence_trace_truncated=module.get('evidence_trace_truncated',False) or len(trace)>trace_limit)
     for finding in check.get('findings',[]):
         for key in ('intervals_ns','source_references'):
             if isinstance(finding.get(key),list):
                 values=finding[key];finding[key]=values[:500]
-                finding[key+'_total']=len(values);finding[key+'_truncated']=len(values)>500
+                available=max(len(values),finding.get(key+'_available',len(values)))
+                total=max(available,finding.get(key+'_total',available))
+                finding[key+'_available']=available
+                finding[key+'_total']=total
+                finding[key+'_omitted']=total-len(finding[key])
+                finding[key+'_truncated']=finding.get(key+'_truncated',False) or total>len(finding[key])
     return check
 
 

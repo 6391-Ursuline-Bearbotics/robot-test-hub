@@ -226,7 +226,7 @@ class PhoenixPipelineTests(unittest.TestCase):
         before=db.execute('SELECT report_id,result_json FROM analysis_reports ORDER BY report_id').fetchall()
         for row in before:
             report=json.loads(row['result_json']);check=next(c for c in report['checks'] if c['analyzer_id']=='phoenix-status-observation')
-            self.assertEqual(check['outcome'],'finding');self.assertEqual(check['provenance']['context']['pipeline_version'],'automatic-reports-6')
+            self.assertEqual(check['outcome'],'finding');self.assertEqual(check['provenance']['context']['pipeline_version'],'automatic-reports-7')
             self.assertEqual(check['findings'][0]['source_references'][0]['status_ok']['source_sha256'],hashlib.sha256(original).hexdigest())
             self.assertTrue(check['findings'][0]['source_references'][0]['status_ok']['before_run'])
         pipeline.tick();self.assertEqual([tuple(r) for r in before],[tuple(r) for r in db.execute('SELECT report_id,result_json FROM analysis_reports ORDER BY report_id')])

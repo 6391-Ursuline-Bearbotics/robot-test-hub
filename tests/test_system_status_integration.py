@@ -51,12 +51,12 @@ class SystemStatusIntegrationTests(unittest.TestCase):
         raw=with_status(protocol_recording());self.import_bytes(raw)
         result=Pipeline(self.root,self.db).tick();self.assertEqual(result['runs'],1)
         document=json.loads(self.db.execute('SELECT result_json FROM analysis_reports').fetchone()[0])
-        self.assertEqual(len(document['checks']),4)
+        self.assertEqual(len(document['checks']),5)
         self.assertEqual([c['analyzer_id'] for c in document['checks']],
-            ['recording-quality','swerve-tracking','phoenix-status-observation','system-status-observation'])
-        check=document['checks'][-1]
+            ['recording-quality','swerve-tracking','phoenix-status-observation','system-status-observation','recorded-steering-observation'])
+        check=next(c for c in document['checks'] if c['analyzer_id']=='system-status-observation')
         self.assertEqual(check['outcome'],'finding',check)
-        self.assertEqual(check['provenance']['context']['pipeline_version'],'automatic-reports-6')
+        self.assertEqual(check['provenance']['context']['pipeline_version'],'automatic-reports-7')
         self.assertEqual(check['provenance']['context']['row_selection'],reports.ROW_SELECTION)
         self.assertTrue(any(metric['name']=='recorded_battery_voltage_min' and metric['unit']=='volts' and metric['value']==11.8 for metric in check['metrics']))
         self.assertFalse(check['coverage']['physical_acquisition_time_qualified'])
@@ -68,7 +68,7 @@ class SystemStatusIntegrationTests(unittest.TestCase):
     def test_system_status_review_is_an_executable_allowlisted_case(self):
         self.import_bytes(with_status(protocol_recording()));Pipeline(self.root,self.db).tick()
         report=json.loads(self.db.execute('SELECT result_json FROM analysis_reports').fetchone()[0])
-        check=report['checks'][-1]
+        check=next(c for c in report['checks'] if c['analyzer_id']=='system-status-observation')
         review=ReviewStore(self.db).review_finding({'id':'system-incident','job_id':check['job_id'],'finding_index':0,
             'disposition':'unresolved','reviewer':'Invented fixture','rationale':'Recorded status only'})
         captured=regression_evidence.capture(self.root,review_id=review['id'],review_revision=1)
@@ -87,7 +87,7 @@ class SystemStatusIntegrationTests(unittest.TestCase):
     def test_legacy_missing_status_is_unavailable_not_a_health_pass(self):
         self.import_bytes(protocol_recording());Pipeline(self.root,self.db).tick()
         for row in self.db.execute('SELECT result_json FROM analysis_reports'):
-            document=json.loads(row[0]);check=document['checks'][-1]
+            document=json.loads(row[0]);check=next(c for c in document['checks'] if c['analyzer_id']=='system-status-observation')
             self.assertEqual(check['analyzer_id'],'system-status-observation')
             self.assertEqual(check['outcome'],'insufficient_data');self.assertFalse(check['findings'])
             self.assertEqual(document['overall_health'],'not_assessed')
@@ -109,7 +109,7 @@ class SystemStatusIntegrationTests(unittest.TestCase):
         Pipeline(self.root,self.db).tick()
         for report_id,value in before.items():self.assertEqual(self.db.execute('SELECT result_json FROM analysis_reports WHERE report_id=?',(report_id,)).fetchone()[0],value)
         newest=reports.generate(self.root,self.db,RunCatalog(self.db).current())
-        self.assertTrue(all(len(report['checks'])==4 for report in newest))
+        self.assertTrue(all(len(report['checks'])==5 for report in newest))
         self.assertTrue(set(before).isdisjoint(report['report_id'] for report in newest))
         current=regression_evidence.capture(self.root,review_id=review['id'],review_revision=1)
         self.assertEqual(current,captured)
@@ -131,7 +131,7 @@ class SystemStatusIntegrationTests(unittest.TestCase):
         allowed=regression.run_case(folder,allow_analyzer_version_change=True)
         self.assertEqual(allowed['state'],'passed');self.assertTrue(allowed['analyzer_version_changed'])
         self.assertEqual(allowed['stored_analyzer_version'],'automatic-reports-5')
-        self.assertEqual(allowed['current_analyzer_version'],'automatic-reports-6')
+        self.assertEqual(allowed['current_analyzer_version'],'automatic-reports-7')
         self.assertIn('system_status',allowed['evaluator_module_sha256'])
         evidence=json.loads((folder/'evidence.json').read_text())
         self.assertEqual(evidence['context']['pipeline_version'],'automatic-reports-5')

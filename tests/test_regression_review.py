@@ -170,14 +170,14 @@ class RegressionReviewTests(unittest.TestCase):
     def test_real_recording_quality_version_bump_preserves_old_selector_proof(self):
         from robot_test_hub import regression,reports
         folder,saved=self.exported(pipeline_version='automatic-reports-5')
-        with patch.object(reports,'VERSION','automatic-reports-6'):
+        with patch.object(reports,'VERSION','automatic-reports-7'):
             refused=regression.run_case(folder)
             self.assertEqual(refused['state'],'unavailable')
             self.assertEqual(refused['code'],'regression_analyzer_version_changed')
             accepted=regression.run_case(folder,allow_analyzer_version_change=True)
         self.assertEqual(accepted['state'],'passed')
         self.assertEqual(accepted['stored_analyzer_version'],'automatic-reports-5')
-        self.assertEqual(accepted['current_analyzer_version'],'automatic-reports-6')
+        self.assertEqual(accepted['current_analyzer_version'],'automatic-reports-7')
         self.assertNotEqual(accepted['current_job_id'],saved['job_id'])
 
     def test_missing_null_ambiguous_or_boolean_metrics_fail_without_health_claims(self):

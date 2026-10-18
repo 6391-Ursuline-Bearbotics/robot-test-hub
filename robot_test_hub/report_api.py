@@ -116,7 +116,10 @@ def detail(db,run,report):
         value=_json(raw)
         for module in modules:
             target=value['coverage']['modules'][module[0]]
-            target.update(evidence_trace=_trace(db,report,index,module[0],0,500),evidence_trace_total=module[5],evidence_trace_truncated=module[5]>500)
+            target.update(evidence_trace=_trace(db,report,index,module[0],0,500),
+                evidence_trace_available=module[5],
+                evidence_trace_total=max(module[5],target.get('evidence_trace_total',module[5])),
+                evidence_trace_truncated=target.get('evidence_trace_truncated',False) or module[5]>500)
         for f in findings:
             for key in ('intervals_ns','source_references'):
                 path=f'$.checks[{index}].findings[{f[0]}].{key}'
@@ -126,7 +129,11 @@ def detail(db,run,report):
                 if any(v is None for _,v in rows):raise ValueError('oversized_report_finding')
                 target=value['findings'][f[0]]
                 target[key]=[_json(v) if t in ('object','array') else v for t,v in rows]
-                target[key+'_total']=count;target[key+'_truncated']=count>500
+                total=max(count,target.get(key+'_total',count))
+                target[key+'_available']=count
+                target[key+'_total']=total
+                target[key+'_omitted']=total-len(rows)
+                target[key+'_truncated']=target.get(key+'_truncated',False) or total>len(rows)
         # Context projection is shared, while original SQL count receipts remain.
         original=[(m['evidence_trace_total'],m['evidence_trace_truncated']) for m in value.get('coverage',{}).get('modules',[])]
         finding_counts=[{k:f[k] for k in ('intervals_ns_total','intervals_ns_truncated','source_references_total','source_references_truncated') if k in f} for f in value.get('findings',[])]

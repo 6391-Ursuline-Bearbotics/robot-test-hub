@@ -34,6 +34,8 @@ The local review API accepts `POST /api/v1/review/analysis-plans`; its snapshot 
 
 Recorded configuration must agree with the selected context throughout the run. A recorded build hash must also agree; a missing build hash remains visibly human-declared and unverified. Human-declared information remains distinguishable from values actually observed in a log. Unknown fields, invalid values, ambiguous scope and incomplete coverage fail explicitly.
 
+The optional `steering_configuration` field adds independent [recorded steering dynamics](STEERING_DYNAMICS.md). Set it through the Recorded steering policy JSON field; blank keeps the field absent. REAL recorded-state dynamics do not change the fresh tracking/baseline policy above. Policies and original source references stay pinned in each saved job and private executable case.
+
 ## Evidence and limits
 
 The source-reviewed mapping uses recorded `SwerveModuleVelocity` and `Rotation2d` schemas, the final optimized/cosine-scaled/desaturated commands, measured states and all three connection fields per module. Schema and entry lifecycle controls and necessary pre-run held observations are part of the input evidence. An unchanged AdvantageKit value retains its original record reference.

@@ -33,7 +33,7 @@ MAX_MANIFEST_BYTES = 4 * 1024**2
 MAX_LINE_BYTES = 1024**2
 MAX_VM_STEPS = 5000000
 # Selector support is separate from a candidate evaluator/presentation version.
-SUPPORTED_SELECTOR_VERSIONS = ('automatic-reports-5','automatic-reports-6')
+SUPPORTED_SELECTOR_VERSIONS = ('automatic-reports-5','automatic-reports-6','automatic-reports-7')
 HASH = re.compile(r'[0-9a-f]{64}\Z')
 REFERENCE = re.compile(r'[A-Za-z0-9_-]{1,128}\Z')
 
@@ -253,6 +253,8 @@ def _reconstruct(root, db, stack, review, job, provenance):
     reference['rows_digest'] = identity(evidence.rows)
     if json.loads(canonical(reference)) != provenance: _fail()
     expected_configuration = plan['swerve_configuration'] if job['analyzer_id'] == 'swerve-tracking' and plan else {}
+    if job['analyzer_id'] == 'recorded-steering-observation' and plan:
+        expected_configuration=plan.get('steering_configuration',{})
     if job['configuration'] != expected_configuration: _fail()
     _unchanged(opened)
     return {'review':review, 'job':job, 'framework_version':FRAMEWORK_VERSION,

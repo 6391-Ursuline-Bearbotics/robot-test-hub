@@ -26,7 +26,7 @@ Outcome values: `evaluated_no_finding`, `finding`, `insufficient_data`, `unsuppo
 | Swerve drive tracking | Enabled valid data; optimized command and measured velocity | Time-weighted RMSE, p95 absolute error, sustained lag; normalize by requested motion |
 | Recorded Phoenix SDK status | Exact raw IO status profile and held source records | Explicit recorded SDK status warnings; physical acquisition freshness remains unqualified |
 | Recorded SystemCore status | Seventeen exact AdvantageKit input fields; typed source/lifecycle/run coverage | Recorded true fault flags, exact counter changes and descriptive voltage; see [SYSTEM_STATUS.md](SYSTEM_STATUS.md) |
-| Swerve steering | Meaningful steering demand/speed, wrapped commanded/measured angles | Wrapped error, settling time, oscillation, encoder discontinuity |
+| Recorded swerve steering | Source-pinned logger states, meaningful demand and stable targets | Wrapped error, censored settling, signed-error crossings and recorded angle changes; [definitions and limits](STEERING_DYNAMICS.md) |
 | Swerve effort/thermal | Matched speed/acceleration/voltage/workload windows | Stator/supply effort, temperature rise, per-module historical deviation |
 | Electrical | Valid voltage/current plus battery/load context | Brownout events, sag under comparable load, disconnect/reset clusters |
 | Autonomous | Phase/path ID, command/estimate and timing | Timeouts, phase duration, path tracking error and endpoint error |
@@ -34,7 +34,7 @@ Outcome values: `evaluated_no_finding`, `finding`, `insufficient_data`, `unsuppo
 | Intake/indexer | Goal/command/current/velocity and recovery events | Jam rate per operating time, recovery duration/success, repeated retries |
 | Vision | Observations, rejection reasons/uncertainties | Accepted/rejected fraction by cause, observation age, correction size |
 
-The implemented automatic registry contains recording quality, swerve tracking, Phoenix status observations and SystemCore status observations. The other rows describe remaining analyzer work. Recorded true fault flags can produce warnings without a statistical baseline; their physical meaning still needs qualification. Matched-load sag/reset diagnosis, effort/thermal, dedicated steering dynamics and other subsystem analysis remain separate work. Baseline-dependent comparisons remain unavailable until a meaningful cohort exists.
+The implemented automatic registry contains recording quality, swerve tracking, Phoenix status observations, SystemCore status observations and recorded steering observations. The other rows describe remaining analyzer work. Recorded true fault flags can produce warnings without a statistical baseline; their physical meaning still needs qualification. Matched-load sag/reset diagnosis, effort/thermal, physical steering qualification and other subsystem analysis remain separate work. Baseline-dependent comparisons remain unavailable until a meaningful cohort exists.
 
 ## Swerve details
 

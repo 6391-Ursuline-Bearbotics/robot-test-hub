@@ -14,7 +14,7 @@ def validate_plan(value):
     if not isinstance(value,dict):raise ValueError('analysis_plan_object_required')
     required={'id','robot_id','start_utc_ns','end_utc_ns','reviewer','rationale','build_hash','config_hash',
               'test_id','surface','battery_id','wheel_radius_m','swerve_configuration'}
-    optional={'revision','expected_revision','approved_baseline_id','ideal_simulation_cycle_policy'}
+    optional={'revision','expected_revision','approved_baseline_id','ideal_simulation_cycle_policy','steering_configuration'}
     if not required<=set(value) or set(value)-required-optional:raise ValueError('invalid_analysis_plan_fields')
     value=copy.deepcopy(value)
     for key in ('id','robot_id','test_id','battery_id'):
@@ -44,6 +44,9 @@ def validate_plan(value):
     if config['threshold_revision'] is not None and (type(config['threshold_revision']) is not str or
             not re.fullmatch('[A-Za-z0-9_-]{1,128}',config['threshold_revision'])):raise ValueError('invalid_threshold_revision')
     value['swerve_configuration']=config
+    if 'steering_configuration' in value:
+        from .steering import steering_configuration
+        value['steering_configuration']=steering_configuration(value['steering_configuration'])
     value.setdefault('revision',1);value.setdefault('expected_revision',None)
     if type(value['revision']) is not int or not 1<=value['revision']<=1000000:raise ValueError('invalid_plan_revision')
     previous=value['expected_revision']
