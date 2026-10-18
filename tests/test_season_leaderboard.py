@@ -42,7 +42,7 @@ class SeasonTests(unittest.TestCase):
         _, result = self.detect([
             (0, '/Intake/Goal', 'IDLE'), (1, '/Intake/Goal', 'INTAKE'), (2, '/Intake/Goal', 'INTAKE'),
             (0, '/Climb/Done', False), (5, '/Climb/Done', True), (6, '/Climb/Done', True),
-            (0, '/Practice/Events/ScoreCount', 0), (3, '/Practice/Events/ScoreCount', 2),
+            (3, '/Practice/Events/ScoreCount', 2),
             (0, '/Shooter/Temp', 40.0), (4, '/Shooter/Temp', 61.0), (5, '/Shooter/Temp', 62.0),
             (6, '/Shooter/Temp', 45.0), (7, '/Shooter/Temp', 65.0)])
         self.assertEqual(result['counts'], {'Intake': 1, 'Shoot': 0, 'Climb': 1, 'Score': 2, 'Hot': 2})

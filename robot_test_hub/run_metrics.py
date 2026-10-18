@@ -15,9 +15,13 @@ import math
 import re
 import time
 
-METRICS_VERSION = "run-metrics-2"
+METRICS_VERSION = "run-metrics-3"
 # Driver Station match context recorded at the start of a run (when the log has it).
 CONTEXT_ALIASES = ('match_time', 'fms_attached', 'match_type', 'match_number', 'event_name')
+# The same Driver Station fields in any AdvantageKit log (2026 and 2027 Alpha 7 use these names).
+CONTEXT_FIELDS = {'/DriverStation/MatchTime': 'match_time', '/DriverStation/FMSAttached': 'fms_attached',
+                  '/DriverStation/MatchType': 'match_type', '/DriverStation/MatchNumber': 'match_number',
+                  '/DriverStation/EventName': 'event_name'}
 MODULE_POSITIONS = ('front-left', 'front-right', 'back-left', 'back-right')
 LOOP_PERIOD_MS = 20.0
 OVERRUN_MS = 25.0
@@ -217,6 +221,7 @@ def compute(importer, job_ids, runs):
         if not spans:
             continue
         cache = {}
+        held = {}  # last logged Driver Station match values, including from before a run starts
 
         def target(t):
             if t not in cache:
@@ -231,9 +236,12 @@ def compute(importer, job_ids, runs):
                 if acc is not None:
                     if acc.context is None:
                         aliases = row.get('aliases', {})
-                        acc.context = {name: aliases[name].get('value') for name in CONTEXT_ALIASES if name in aliases}
+                        acc.context = dict(held)
+                        acc.context.update({name: aliases[name].get('value') for name in CONTEXT_ALIASES if name in aliases})
                     acc.cycle(int(row['timestamp_ns']))
             elif kind == 'observation' and row.get('cycle_timestamp_ns') is not None:
+                if row.get('field') in CONTEXT_FIELDS and row.get('validity') == 'valid':
+                    held[CONTEXT_FIELDS[row['field']]] = row.get('value')
                 acc = target(int(row['cycle_timestamp_ns']))
                 if acc is not None:
                     acc.observe(row)

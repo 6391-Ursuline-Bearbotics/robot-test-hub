@@ -64,7 +64,7 @@ Runs without a wall-clock time are counted below the cards and remain available 
 - **Match records** (`leaderboard.py`): crew, auto and teleop counts, cycles, average and best cycle, and the score estimate. The home page match header shows the score line and a **Don't count this match** button, which asks for a reason, is stored as a revision and can be undone.
 - **Practice board** (`/board`, for a TV): the latest match result (with "New crew best!" or the crew's best so far), then boards by driver + operator crew: best match, most cycles, fastest average cycle (3+ cycles), most improved this week, and most consistent over the last 5 matches. It refreshes every 10 s. `?names=0` shows "Crew 1, 2…" instead of names and `?window=season` switches the window. Matches marked not counted are left out.
 
-Not yet done: the robot-side `PracticeEvents.record(...)` counter helper (robot repository, under its own AGENTS.md) and the 2027 season file.
+The 2027 definition (`seasons/2027.json`) uses the robot-side `PracticeEvents` counters (see [ROBOT_INTEGRATION.md](ROBOT_INTEGRATION.md#practice-event-counters-p1b)). It is unit-tested in both repositories but has not run on a real 2027 match log. Match context is read from the Driver Station fields directly, so 2027 Alpha 7 logs also get match detection (`run-metrics-3`).
 
 ### Implemented: "Get the data" bundle (P1.3)
 

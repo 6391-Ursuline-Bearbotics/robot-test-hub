@@ -76,6 +76,8 @@ class Detector:
             key = (name, field)
             before = self.previous.get(key)
             mode, hit = action['detect'], False
+            if mode == 'counter' and before is None:
+                before = 0  # counters start at zero each boot and are first logged at their first event
             if mode == 'counter' and type(value) is int and type(before) is int:
                 for _ in range(max(0, min(value - before, 1000))):
                     self.events.append((t_ns, name))

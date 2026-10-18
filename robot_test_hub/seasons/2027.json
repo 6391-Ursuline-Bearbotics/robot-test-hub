@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "season": 2027,
+  "game": "REBUILT",
+  "profiles": ["wpilib-2027.0.0-alpha-7_akit-27.0.0-alpha-6"],
+  "notes": "Robot code from the 2027 repository logs PracticeEvents counters (frc.robot.hub.PracticeEvents) when the indexer starts FEED and when the intake starts INTAKE. A volley is one FEED, not a count of game pieces.",
+  "actions": {
+    "Intake": {"label": "intake started", "signal": "/RealOutputs/PracticeEvents/IntakeCount", "detect": "counter"},
+    "Shoot": {"label": "shooting volley", "signal": "/RealOutputs/PracticeEvents/ShootCount", "detect": "counter"}
+  },
+  "timed_tasks": {
+    "Cycle": {"label": "intake to shot", "from": "Intake", "to": "Shoot", "min_seconds": 2, "max_seconds": 30}
+  },
+  "score_proxy": {"label": "volleys", "points": {"Shoot": 1}}
+}

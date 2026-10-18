@@ -43,6 +43,14 @@ On write failure, surface the failure and stop claiming coverage. If a valid rec
 
 Acceptance: multiple enable/disable cycles, metadata/schema changes, restart/crash, reader validation, and replay of every segment. Compare original continuous behavior outputs against segmented/reassembled replay. Test marker events at boundaries. Measure logger queues and loop time before calling rotation hardware-ready.
 
+### Competition default: rotating receiver off (P0.4)
+
+The robot repository's rotating receiver (`frc.robot.hub.RotatingLogReceiver`) is selected only when the JVM property `frc.testHubRecordingDir` is set to an absolute directory (`RecordingOptions.directory`). Without it, REAL logging uses AdvantageKit's normal `WPILOGWriter` to USB. This one property is the switch. **Leave it unset at competitions** until physical load and rotation have been measured on the bench. At events, collect logs from the USB stick and use [Import logs](IMPORTER.md#import-a-folder-of-logs).
+
+## Practice event counters (P1b)
+
+`frc.robot.hub.PracticeEvents.record("<Action>")` (robot repository) logs `PracticeEvents/<Action>Count` as an int64 that only increases within a boot. The hub's season file detects these with `"detect": "counter"`, so two actions between logger samples are still both counted. Recording only logs and never changes goals or outputs. The 2027 code records `Shoot` when the indexer goal starts `FEED` and `Intake` when the intake goal starts `INTAKE`/`CLUMP_INTAKE`. `robot_test_hub/seasons/2027.json` uses those counters. Names are 1–32 letters/digits starting with a letter; call it from the robot thread.
+
 ## Instrumentation priorities
 
 | Area | Already available / verify | Add or clarify |
