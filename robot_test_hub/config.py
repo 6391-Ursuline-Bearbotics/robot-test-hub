@@ -43,6 +43,7 @@ class Config:
     backup_retry: float = 60.0
     stream_max_spool_bytes: int = 8 * 1024**3
     stream_min_free_bytes: int = 2 * 1024**3
+    pull_source_config: str | None = None
 
     def __post_init__(self):
         if type(self.schema_version) is not int or self.schema_version != 1:
@@ -61,6 +62,9 @@ class Config:
             source_root, export_root = Path(self.data_dir).resolve(), Path(self.log_export_destination).resolve()
             if source_root == export_root or source_root.is_relative_to(export_root) or export_root.is_relative_to(source_root):
                 raise ConfigError("log_export_destination must be disjoint from data_dir")
+        if self.pull_source_config is not None and (not isinstance(self.pull_source_config, str)
+                                                    or not self.pull_source_config.strip() or "\x00" in self.pull_source_config):
+            raise ConfigError("pull_source_config must be null or the path of an SFTP source configuration")
         for key in ("analytics_enabled","analytics_share_summaries","analytics_pause_when_enabled"):
             if type(getattr(self,key)) is not bool:
                 raise ConfigError(key+" must be boolean")
@@ -99,7 +103,7 @@ class Config:
         # Opt in for launch profiles; preserve existing CLI invocation-relative
         # semantics unless requested. Explicit CLI paths retain their meaning.
         if resolve_paths and path is not None:
-            for key in ("data_dir", "backup_destination", "log_export_destination"):
+            for key in ("data_dir", "backup_destination", "log_export_destination", "pull_source_config"):
                 value = values.get(key)
                 if isinstance(value, str) and value.strip():
                     values[key] = str((path.resolve().parent / value).resolve())

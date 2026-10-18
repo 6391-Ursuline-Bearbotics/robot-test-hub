@@ -157,6 +157,8 @@ class HubService:
         self.health = {"collector": {"state": "starting"}, "status": {"state": "starting"}, 'indexer':{'state':'starting'}}
         self.folder_import = {'state': 'idle', 'folder': None, 'total': 0, 'done': 0, 'counts': {}, 'failures': [], 'runs': None}
         self.folder_import_request = None
+        self.pull_status = {'state': 'idle'}
+        self.pull_request = None
         self.analytics_cache={"schema_version":1,"enabled":config.analytics_enabled,"state":"starting" if config.analytics_enabled else "disabled","error_code":None,"latest_report_id":None,"converted_files":0,"pending_files":0,"retry_files":0}
         self.health["analytics"]={"state":self.analytics_cache["state"]}
         self.health["log_export"] = {"state": self.log_export_cache["state"]}
@@ -264,6 +266,7 @@ class HubService:
             pipeline=Pipeline(self.root,db,stream_limits=Limits(max_spool_bytes=self.config.stream_max_spool_bytes,min_free_bytes=self.config.stream_min_free_bytes))
             while not self.stop.is_set():
                 self._run_folder_import(db)
+                self._run_pull(db)
                 pipeline.tick()
                 self.stop.wait(0.5)
         except Exception as exc:
@@ -456,6 +459,52 @@ class HubService:
             self.folder_import = {'state': 'queued', 'folder': str(path), 'total': len(paths), 'done': 0,
                                   'counts': {}, 'failures': [], 'runs': None}
             return dict(self.folder_import)
+
+    def pull_configured(self):
+        return self.config.pull_source_config is not None
+
+    def request_pull(self, include_newest=False, profile=None):
+        if not self.pull_configured():
+            raise ValueError('pull_not_configured')
+        if type(include_newest) is not bool or (profile is not None and (not isinstance(profile, str) or len(profile) > 256)):
+            raise ValueError('invalid_pull_request')
+        with self.cache_lock:
+            if self.stop.is_set() or self.closed:
+                raise RuntimeError('service_stopping')
+            if self.pull_request is not None or self.pull_status.get('state') in ('queued', 'running'):
+                raise RuntimeError('pull_already_running')
+            self.pull_request = (include_newest, profile)
+            self.pull_status = {'state': 'queued', 'include_newest': include_newest}
+            return dict(self.pull_status)
+
+    def pull_state(self):
+        with self.cache_lock:
+            return json.loads(json.dumps(dict(self.pull_status, configured=self.pull_configured())))
+
+    def _run_pull(self, db):
+        from .pull import PullError, collect
+        from .sftp_source import SFTPConfig
+        with self.cache_lock:
+            request, self.pull_request = self.pull_request, None
+            if request is None:
+                return
+            self.pull_status = {'state': 'running', 'include_newest': request[0], 'file': None, 'copied': 0, 'size': 0}
+
+        def progress(name, copied, size):
+            with self.cache_lock:
+                self.pull_status.update(file=name, copied=copied, size=size)
+        try:
+            config = SFTPConfig.load(self.config.pull_source_config)
+            result = collect(self.root, db, config, include_newest=request[0], profile=request[1], progress=progress)
+            with self.cache_lock:
+                self.pull_status = dict(result, state='complete', include_newest=request[0])
+        except PullError as exc:
+            with self.cache_lock:
+                self.pull_status = {'state': 'unreachable', 'message': str(exc)}
+        except Exception as exc:
+            with self.cache_lock:
+                self.pull_status = {'state': 'failed', 'message': 'Collect now stopped; downloaded logs are kept'}
+            self.diagnostics.record('pull_failed', 'Collect now stopped; downloaded logs are kept', exception=exc)
 
     def folder_import_status(self):
         with self.cache_lock:

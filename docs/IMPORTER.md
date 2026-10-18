@@ -12,6 +12,17 @@ Use this after practice, at events, or any day the automatic collector misbehave
 
 The log profile defaults to the pinned Alpha 7 profile and is never inferred from file contents. Logs from another library version are recorded as `unsupported` and kept in the archive for a later importer revision; they are not guessed at.
 
+### Collect now (pull after practice, P0.2)
+
+A simpler alternative to the rotating receiver. Add `"pull_source_config": "source.json"` to the hub configuration, pointing at the same SFTP source file the live mode uses (host, user, pinned `known_hosts`, private key and `log_root`, the robot's log folder). The admin page then shows **Collect logs from the robot now**. Use it after practice while the robot is disabled:
+
+- It lists the flat `*.wpilog` files in `log_root` (oldest first, by modification time, then by name).
+- It downloads every file **except the newest**, which the robot program may still be writing. The newest is included only when the operator ticks *The robot program is stopped*.
+- Downloads go through `.part` files in `data/pull-staging/`. A file whose size changes during download is reported as still being written and is not imported.
+- Downloaded logs are imported exactly like a folder import, then the staged copies are removed (originals are archived by hash). Files already collected (same name and size) are not downloaded again. Nothing on the robot is changed or deleted.
+
+The host key must already be pinned; unknown keys are rejected. Tested over real loopback SSH/SFTP with synthetic logs only; it has not been run against a SystemCore or roboRIO.
+
 ### Historical 2026 logs (`wpilib-2026_akit-26`)
 
 Last season's roboRIO logs (WPILib 2026, AdvantageKit 26) import with `--profile wpilib-2026_akit-26` (or `ImportLogs.cmd -LogProfile wpilib-2026_akit-26`). The profile was built against real September 2026 match logs, and its rules come from those files:

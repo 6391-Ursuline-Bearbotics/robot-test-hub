@@ -112,6 +112,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.media_get()
             if self.path == '/api/v1/import-folder':
                 return self.send(200, json.dumps(service.folder_import_status()).encode())
+            if self.path == '/api/v1/pull':
+                return self.send(200, json.dumps(service.pull_state()).encode())
             if self.path == "/":
                 return self.send(200, (Path(__file__).parent / "static/practice.html").read_bytes(), "text/html; charset=utf-8")
             if self.path == "/admin":
@@ -409,6 +411,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.reject_unread(403, b'{}')
             if self.path == '/api/v1/import-folder':
                 return self.folder_import_post()
+            if self.path == '/api/v1/pull':
+                return self.pull_post()
             if self.path.startswith(('/api/v1/roster', '/api/v1/crew')):
                 return self.crew_post()
             if self.path.startswith('/api/v1/matches/') and self.path.endswith('/counted'):
@@ -600,6 +604,22 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.send(400,b'{"error_code":"invalid_practice_query"}')
             except (sqlite3.Error,RuntimeError,OSError):
                 return self.send(503,b'{"error_code":"practice_unavailable"}')
+
+        def pull_post(self):
+            self.close_connection=True
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=1024:
+                    return self.reject_unread(400,b'{"error_code":"invalid_pull_request"}')
+                payload=json.loads(self.rfile.read(length))
+                if not isinstance(payload,dict) or payload.keys()-{'include_newest','profile'}:
+                    raise ValueError('invalid_pull_request')
+                return self.send(202,json.dumps(service.request_pull(payload.get('include_newest',False),payload.get('profile'))).encode())
+            except RuntimeError as exc:
+                return self.send(409 if str(exc)=='pull_already_running' else 503,json.dumps({'error_code':str(exc)}).encode())
+            except (ValueError,TypeError) as exc:
+                code=str(exc) if str(exc) in ('pull_not_configured','invalid_pull_request') else 'invalid_pull_request'
+                return self.send(400,json.dumps({'error_code':code}).encode())
 
         def folder_import_post(self):
             self.close_connection=True
