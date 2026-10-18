@@ -76,6 +76,10 @@ Each run card's Details has **Get the data**, which downloads `/api/v1/bundles/<
 
 Not verified: importing this layout in the AdvantageScope GUI (desktop control was not available). Automatic seeking is not claimed. A bundle for a real 32 MB match log is built in about 3 s.
 
+### Implemented: Trends page (P2.4)
+
+`/trends` shows one small chart per measurement and part over the last 60 measured runs, split by robot and modes (auto with auto, teleop with teleop). Gold points are exactly the runs the home page called "Unusual compared with recent runs" (same rule, using only earlier runs). A run without the measurement is a gap. Charts with unusual runs sort first, and there is a filter by part. No approved baseline is needed; the approved-cohort reports remain a separate layer.
+
 ## Screen 2: Run/time search
 
 Filters: robot, session, local date/time interval, test type, build/config, component, battery, finding status. Show the resolved absolute date and timezone for natural-language or relative dates. Return overlapping intervals, including uncertainty, instead of matching only run start time.

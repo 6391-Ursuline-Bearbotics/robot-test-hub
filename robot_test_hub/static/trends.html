@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trends · 6391</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#101820;color:#e8eef4;--line:#304150;--panel:#17232e;--muted:#aebfcb;--gold:#e6b957;--look:#f2c14e;--series:#6fa8dc}
+body{max-width:1160px;margin:auto;padding:24px}header{border-bottom:1px solid #34424f;padding-bottom:14px}.eyebrow{color:var(--gold);letter-spacing:.14em;font-size:12px;font-weight:700}h1{font-size:32px;margin:8px 0}a{color:#f2cf83}nav{display:flex;flex-wrap:wrap;gap:8px 20px}p{color:var(--muted);line-height:1.5}
+.filters{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:16px 0}select{background:#26394a;border:1px solid #586f82;border-radius:6px;color:#edf5fb;padding:8px;min-height:40px}label{color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+.trend{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}.trend.flag{border-color:var(--look)}
+.trend h2{font-size:15px;margin:0}.trend .sub{font-size:13px;color:var(--muted);margin:2px 0 6px}.latest{font-size:20px;font-weight:700}.flagtext{color:var(--look);font-size:13px}
+svg{width:100%;height:70px;display:block}.axis{stroke:var(--line)}.line{fill:none;stroke:var(--series);stroke-width:2}.dot{fill:var(--series)}.dot.unusual{fill:var(--look);stroke:#101820;stroke-width:1.5}
+@media(max-width:600px){body{padding:16px}h1{font-size:26px}}
+</style></head><body>
+<header><div class="eyebrow">URSULINE BEARBOTICS / TEAM 6391</div><h1>Trends</h1>
+<nav aria-label="Hub navigation"><a href="/">Today's practice</a><a href="/runs">Run history</a><a href="/trends" aria-current="page">Trends</a><a href="/practice-time">Practice time</a><a href="/board">Practice board</a><a href="/admin">Transfers (admin)</a></nav></header>
+<p>Each chart is one measurement over recent runs of the same kind (auto with auto, teleop with teleop). Gold dots were unusual compared with the runs before them. Gaps mean the run did not have that measurement. These are comparisons, not pass/fail health results.</p>
+<div class="filters"><label>Part <select id="component"><option value="">All parts</option></select></label><label><input type="checkbox" id="only"> Only charts with unusual runs</label></div>
+<p id="state" role="status">Loading…</p>
+<div class="grid" id="grid"></div>
+<script>
+const el=id=>document.getElementById(id);let data=null;
+function fmt(v,u){if(v==null)return '—';const d=Math.abs(v)>=20?0:Math.abs(v)>=1?1:2;return v.toFixed(d)+(u==='count'?'':' '+u)}
+function spark(points){const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 300 70');svg.setAttribute('preserveAspectRatio','none');
+ const vals=points.map(p=>p.value).filter(v=>v!=null);const lo=Math.min(...vals),hi=Math.max(...vals),span=hi-lo||1;
+ const x=i=>points.length<2?150:6+i*(288/(points.length-1)),y=v=>62-(v-lo)/span*54;
+ let d='';points.forEach((p,i)=>{if(p.value==null){d+=' ';return}d+=(d===''||d.endsWith(' ')?'M':'L')+x(i).toFixed(1)+' '+y(p.value).toFixed(1)});
+ const path=document.createElementNS(ns,'path');path.setAttribute('d',d.trim().replace(/ M/g,' M'));path.setAttribute('class','line');svg.append(path);
+ points.forEach((p,i)=>{if(p.value==null)return;const c=document.createElementNS(ns,'circle');c.setAttribute('cx',x(i));c.setAttribute('cy',y(p.value));c.setAttribute('r',p.unusual?5:2.5);c.setAttribute('class','dot'+(p.unusual?' unusual':''));const t=document.createElementNS(ns,'title');t.textContent=new Date(Number(BigInt(p.start_utc_ns)/1000000n)).toLocaleString()+': '+p.value.toFixed(2);c.append(t);svg.append(c)});
+ svg.setAttribute('role','img');svg.setAttribute('aria-label','Trend of '+points.length+' runs');return svg}
+function render(){const only=el('only').checked;const groups=data.groups.filter(g=>!only||g.unusual_count);
+ el('grid').replaceChildren(...groups.map(g=>{const a=document.createElement('article');a.className='trend'+(g.unusual_count?' flag':'');
+  const h=document.createElement('h2');h.textContent=g.label+': '+g.metric_label;a.append(h);
+  const sub=document.createElement('div');sub.className='sub';sub.textContent=g.modes.join(' + ')+' runs · '+g.points.filter(p=>p.value!=null).length+' with data';a.append(sub);
+  const last=[...g.points].reverse().find(p=>p.value!=null);const l=document.createElement('div');l.className='latest';l.textContent='Latest: '+fmt(last?.value,g.unit);a.append(l);
+  if(g.unusual_count){const f=document.createElement('div');f.className='flagtext';f.textContent=g.unusual_count+' unusual run'+(g.unusual_count===1?'':'s');a.append(f)}
+  a.append(spark(g.points));return a}));
+ el('state').textContent=groups.length?'':'No trends yet. A chart appears once a measurement exists for at least two runs of the same kind.'}
+async function load(){try{const c=el('component').value;const r=await fetch('/api/v1/trends'+(c?'?component='+encodeURIComponent(c):''),{cache:'no-store'});if(!r.ok)throw Error();data=await r.json();
+ if(el('component').options.length===1)for(const comp of data.components){const o=document.createElement('option');o.value=comp;o.textContent=comp==='robot'?'Robot (battery, loop, CAN)':comp;el('component').append(o)}
+ render()}catch(e){el('state').textContent='Trends are unavailable right now.'}}
+el('component').onchange=load;el('only').onchange=()=>data&&render();load();
+</script></body></html>

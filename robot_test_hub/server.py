@@ -124,6 +124,17 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.leaderboard_get()
             if urlsplit(self.path).path.startswith('/api/v1/bundles/'):
                 return self.bundle_get()
+            if urlsplit(self.path).path == '/trends':
+                return self.send(200, (Path(__file__).parent / "static/trends.html").read_bytes(), "text/html; charset=utf-8")
+            if urlsplit(self.path).path == '/api/v1/trends':
+                from . import trends
+                try:
+                    query=parse_qs(urlsplit(self.path).query,max_num_fields=1)
+                    if query.keys()-{'component'}:
+                        return self.send(400,b'{"error_code":"invalid_trend_query"}')
+                    return self.send(200,json.dumps(trends.series(service.root,component=query.get('component',[None])[0])).encode())
+                except (sqlite3.Error,OSError):
+                    return self.send(503,b'{"error_code":"trends_unavailable"}')
             if urlsplit(self.path).path == '/board':
                 return self.send(200, (Path(__file__).parent / "static/board.html").read_bytes(), "text/html; charset=utf-8")
             if self.path == '/practice-time':
