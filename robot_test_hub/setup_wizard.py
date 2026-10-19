@@ -21,7 +21,8 @@ import re
 import socket
 import stat
 
-DEFAULT_LOG_ROOT = '/home/systemcore/logs'
+# The 27_AK_Skeleton robot code writes REAL logs with WPILOGWriter("/U/logs").
+DEFAULT_LOG_ROOT = '/U/logs'
 HOST = re.compile(r'[A-Za-z0-9.-]{1,253}')
 USER = re.compile(r'[a-z_][a-z0-9_-]{0,31}')
 
@@ -80,7 +81,7 @@ def _validate(values):
         raise SetupError('Private key must be the full path of an existing key file on this laptop')
     root = values.get('log_root') or DEFAULT_LOG_ROOT
     if not isinstance(root, str) or not root.startswith('/') or '..' in root.split('/') or root == '/':
-        raise SetupError('Log folder must be a specific absolute folder on the robot, like /home/systemcore/logs')
+        raise SetupError('Log folder must be a specific absolute folder on the robot, like /U/logs')
     for field in ('key_type', 'key_base64', 'fingerprint'):
         if not isinstance(values.get(field), str) or not values[field]:
             raise SetupError('Fetch and confirm the robot host key first')

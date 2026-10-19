@@ -49,6 +49,9 @@ The robot repository's rotating receiver (`frc.robot.hub.RotatingLogReceiver`) i
 
 ## Practice event counters (P1b)
 
+The team's current robot code is `27_AK_Skeleton` (WPILib 2027 Alpha 7, AdvantageKit 27.0.0-alpha-6, matching the hub's default profile). Its Test Hub support is in [danursuline/27_AK_Skeleton PR #8](https://github.com/danursuline/27_AK_Skeleton/pull/8): build identity, status, opt-in rotating recording, note markers, swerve diagnostics, `first.robot.hub.PracticeEvents` and the headless `replayLog` task. Its REAL logs go to `/U/logs`, which is the setup wizard's default robot log folder. The same pieces also exist in `2027-6391-Rebuilt-V3` (`codex/test-hub-recording`).
+
+
 `frc.robot.hub.PracticeEvents.record("<Action>")` (robot repository) logs `PracticeEvents/<Action>Count` as an int64 that only increases within a boot. The hub's season file detects these with `"detect": "counter"`, so two actions between logger samples are still both counted. Recording only logs and never changes goals or outputs. The 2027 code records `Shoot` when the indexer goal starts `FEED` and `Intake` when the intake goal starts `INTAKE`/`CLUMP_INTAKE`. `robot_test_hub/seasons/2027.json` uses those counters. Names are 1–32 letters/digits starting with a letter; call it from the robot thread.
 
 ## Instrumentation priorities
