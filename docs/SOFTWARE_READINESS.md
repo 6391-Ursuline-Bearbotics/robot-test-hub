@@ -1,3 +1,11 @@
+# Current checkpoint — October 22, 2026
+
+The October 15 audit below is historical. Later source and executed evidence are recorded in [VALIDATION_CURRENT.md](VALIDATION_CURRENT.md). In particular, historical 2026 import, folder/USB import, the student home page, descriptive run metrics/sibling/trend comparisons, crew/practice views, opt-in phone notes and the setup wizard now exist. The October 18 record describes a private real-2026-log shakedown; the current repair did not repeat that exercise or operate hardware. Those additions must not be mistaken for physical qualification of 2027 collection.
+
+The Collect now path obeys matching live REAL status/SFTP admission, continuous disabled idle permission and cancellation. It captures manual snapshots with weak remote metadata identity; it cannot prove source closure or resume mutable partials. Offline use remains folder/USB import. The separate automatic immutable-manifest collector retains its stronger closed-source/resume contract. Setup guidance and offline controls passed an actual headless Edge check; full local suite evidence and remaining limits are in the current validation record.
+
+The next dense-log software dependency is S3 in [STREAMING_ANALYSIS.md](STREAMING_ANALYSIS.md): bounded tracking/steering reducers and exact weighted percentiles. Current streamed quality/Phoenix/SystemCore checks do not implement them. Streaming incident proof, the remaining subsystem analyzers/video integrations and supervised school commissioning also remain open. No overall completion or robot-health claim follows from a passing local suite.
+
 # Software and commissioning audit — October 15, 2026
 
 This audit inspected production code and targeted test coverage at published 9fc1235. It did not run hardware, establish physical health or prove the full goal complete. The prior frozen local suite ran 932 tests: 911 passed, 21 optional skips; exact-head hosted CI is recorded separately in VALIDATION_CURRENT.md.
