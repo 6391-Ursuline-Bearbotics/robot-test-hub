@@ -28,7 +28,7 @@ class StreamWindowsIdentityTests(unittest.TestCase):
    self.assertNotEqual(stream_analysis._sig(self.info(ctime=10)),stream_analysis._sig(self.info(ctime=40)))
  def prepare(self):
   temp=tempfile.TemporaryDirectory(prefix='stream Windows identity ');self.addCleanup(temp.cleanup)
-  root=Path(temp.name);db=open_catalog(root);self.addCleanup(db.close)
+  root=Path(temp.name).resolve();db=open_catalog(root);self.addCleanup(db.close)
   job=Importer(root,db).import_file(PUBLIC,source_type='SYNTHETIC');self.assertEqual(job['state'],'succeeded')
   run=rebuild_from_imports(root,db)['runs'][0]
   runner=stream_analysis.StreamRunner(root,db,reducer=RecordingQualityReducer(),limits={'min_free_bytes':0});self.addCleanup(runner.close)
