@@ -127,8 +127,12 @@ class StreamIntegrationTests(unittest.TestCase):
             restored_runner.close()
     def test_schema_nine_upgrade_installs_only_stream_metadata(self):
         self.db.close()
-        from robot_test_hub import stream_tracking_store
+        from robot_test_hub import stream_tracking_store, stream_retry
         with closing(sqlite3.connect(self.root/'catalog.sqlite3')) as db,db:
+            for name, statement in reversed(tuple(stream_retry.SCHEMA_SQL.items())):
+                ddl = statement.lstrip()
+                kind = 'INDEX' if ddl.startswith('CREATE INDEX') else 'TRIGGER' if ddl.startswith('CREATE TRIGGER') else 'TABLE'
+                db.execute('DROP '+kind+' IF EXISTS '+name)
             for name, statement in stream_tracking_store.SQL.items():
                 ddl = statement.lstrip()
                 kind = 'INDEX' if ddl.startswith('CREATE INDEX') else 'TRIGGER' if ddl.startswith('CREATE TRIGGER') else 'TABLE'
@@ -139,7 +143,7 @@ class StreamIntegrationTests(unittest.TestCase):
         with patch.object(Importer,'_check_dataset',side_effect=AssertionError('startup scan')),patch.object(stream_analysis.StreamRunner,'step',side_effect=AssertionError('startup work')):
             self.db=open_catalog(self.root)
         self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0],SCHEMA_VERSION)
-        self.assertEqual([row[0] for row in self.db.execute('SELECT version FROM schema_migrations WHERE version>=10 ORDER BY version')],[10,11])
+        self.assertEqual([row[0] for row in self.db.execute('SELECT version FROM schema_migrations WHERE version>=10 ORDER BY version')],[10,11,12])
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM analysis_stream_jobs').fetchone()[0],0)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM analysis_tracking_samples').fetchone()[0],0)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM analysis_tracking_finalization').fetchone()[0],0)

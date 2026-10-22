@@ -441,6 +441,8 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.notes_import_post()
             if self.path.startswith('/api/v1/imports/'):
                 return self.import_retry_post()
+            if self.path.startswith('/api/v1/runs/') and '/streams/' in self.path:
+                return self.stream_retry_post()
             if self.path.startswith('/api/v1/markers'):
                 return self.marker_request(post=True)
             if self.path in ('/api/v1/video/alignments','/api/v1/video/map','/api/v1/video/associate','/api/v1/video/preservations'):
@@ -732,6 +734,56 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
                 return self.send(400,b'{"schema_version":1,"error_code":"invalid_import_retry"}')
             except sqlite3.Error:
                 return self.send(503,b'{"schema_version":1,"error_code":"import_retry_storage_unavailable"}')
+
+        def stream_retry_post(self):
+            from .stream_retry import RetryError, enqueue
+            import re
+            self.close_connection=True
+            match=re.fullmatch('/api/v1/runs/([A-Za-z0-9_-]{1,128})/streams/([a-f0-9]{64})/retry',self.path)
+            if match is None:
+                return self.reject_unread(400,b'{"schema_version":1,"error_code":"invalid_stream_retry"}')
+            consumed=False
+            try:
+                lengths=self.headers.get_all('Content-Length',[])
+                if (len(lengths)!=1 or self.headers.get_all('Transfer-Encoding')
+                    or len(self.headers.get_all('Origin',[]))>1 or self.headers.get_all('X-Hub-Request',[])!=['1']
+                    or self.headers.get_all('Content-Type',[])!=['application/json']):
+                    raise RetryError(400,'invalid_stream_retry')
+                length=int(lengths[0])
+                if not 0<length<=4096:raise RetryError(400,'invalid_stream_retry')
+                raw=self.rfile.read(length);consumed=True
+                if len(raw)!=length:raise RetryError(400,'invalid_stream_retry')
+                payload=strict_json(raw)
+                fields={'request_id','stream_id','expected_generation','expected_state','expected_updated_utc_ns'}
+                if (type(payload) is not dict or set(payload)!=fields or payload['stream_id']!=match[2]
+                    or type(payload['request_id']) is not str or not re.fullmatch('[A-Za-z0-9_-]{1,128}',payload['request_id'])
+                    or payload['expected_state'] not in ('failed','canceled')):
+                    raise RetryError(400,'invalid_stream_retry')
+                for key in ('expected_generation','expected_updated_utc_ns'):
+                    value=payload[key]
+                    if type(value) is not str or not re.fullmatch('0|[1-9][0-9]{0,18}',value) or not 0<=int(value)<(1<<63):
+                        raise RetryError(400,'invalid_stream_retry')
+                generation=int(payload['expected_generation'])
+                if generation<1:raise RetryError(400,'invalid_stream_retry')
+                with service.settings_lock:
+                    if service.closed or service.stop.is_set():raise RetryError(503,'service_stopping')
+                    with service.cache_lock:
+                        indexer_state=service.health.get('indexer',{}).get('state')
+                    if indexer_state!='running':raise RetryError(503,'stream_retry_indexer_unavailable')
+                    with closing(sqlite3.connect((service.root/'catalog.sqlite3').as_uri()+'?mode=rw',uri=True,timeout=2)) as db:
+                        db.row_factory=sqlite3.Row
+                        result=enqueue(db,match[2],dict(payload,expected_generation=generation),run_id=match[1])
+                result=dict(result,request=dict(result['request']))
+                for key in ('expected_generation','result_generation'):
+                    if result['request'][key] is not None:result['request'][key]=str(result['request'][key])
+                return self.send(202,json.dumps(result,allow_nan=False).encode())
+            except RetryError as exc:
+                body=json.dumps({'schema_version':1,'error_code':exc.code}).encode()
+                return self.send(exc.status,body) if consumed else self.reject_unread(exc.status,body)
+            except (ValueError,TypeError,KeyError,OverflowError,RecursionError):
+                return self.send(400,b'{"schema_version":1,"error_code":"invalid_stream_retry"}')
+            except sqlite3.Error:
+                return self.send(503,b'{"schema_version":1,"error_code":"stream_retry_storage_unavailable"}')
 
         def video_investigation_error(self, exc):
             if isinstance(exc, InvestigationError):

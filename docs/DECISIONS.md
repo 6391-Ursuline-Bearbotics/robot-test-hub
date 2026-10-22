@@ -4,6 +4,7 @@
 
 | Decision | Reason / consequence |
 | --- | --- |
+| Explicit fresh-attempt stream retries | Schema 12 preserves terminal generations and durable exact-attempt receipts. Only canceled or remediable storage failures are eligible; the owned worker starts empty and reverifies unchanged source pins. Retained evidence remains quota charged and backed up; refresh never retries. See [runtime contract](STREAMING_RUNTIME.md#explicit-fresh-attempt-retry). |
 | Private executable analyzer cases separate from reference bundles | Exact review/input/configuration pins and genuine original-log reimport proof precede fresh allowlisted execution. Dense streamed cases use a separate format with fixed policies 8–11 and retained human/run/catalog declarations; no tuple reinterpretation or unrelated season-original export. Explicit expectations can fail; a passed analyzer case is neither robot-code replay nor physical repair validation. |
 | Deterministic full-source release and synthetic rehearsal | Read committed local Git blobs; verify exact inventory before fresh extraction. Exclusive manifest-last publication preserves conflicting/partial outputs. Checksums are integrity receipts, not signatures. Upgrade/rollback executes trusted extracted versions only against disposable synthetic evidence. |
 | Portable full-snapshot summary explorer | Saved HTML embeds existing summary evidence and fixed CSP-hashed code, with exact UTC candidates and bounded pages. Filters preserve cohort boundaries; presentation upgrades reuse numeric caches and retain old report bytes. |

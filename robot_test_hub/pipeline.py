@@ -85,7 +85,11 @@ class Pipeline:
                 from .reports import StreamReportRunner
                 self.stream_runner=StreamReportRunner(self.root,self.db,limits=self.stream_limits)
             from .reports import advance_streams
-            return advance_streams(self.root,self.db,self.stream_runner)
+            from .stream_retry import step as retry_step
+            retry_step(self.db,self.stream_runner)
+            progress=advance_streams(self.root,self.db,self.stream_runner)
+            retry_step(self.db,self.stream_runner,claim=False)
+            return progress
         return {'state':'idle','phase':'complete'}
 
     def close(self):

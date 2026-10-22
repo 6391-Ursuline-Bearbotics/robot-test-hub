@@ -188,6 +188,11 @@ def _integrity(db):
             validate_catalog_work(db)
         except (ValueError,sqlite3.DatabaseError):
             raise BackupError('Catalog tracking work schema is incomplete or modified') from None
+    if version>=12:
+        from .stream_retry import validate_catalog as validate_stream_retry
+        try:validate_stream_retry(db)
+        except (ValueError,TypeError,KeyError,sqlite3.DatabaseError):
+            raise BackupError('Catalog stream retry lineage is incomplete or modified') from None
     return version
 
 
@@ -244,16 +249,34 @@ def _references(db):
     if 'analysis_stream_chunks' in tables:
         # Only committed chunk rows belong to the coherent SQLite snapshot.
         # Incomplete unreferenced staging files are reconstructed on resume.
-        for row in db.execute('SELECT j.stream_id,j.generation FROM analysis_stream_jobs j WHERE j.final_manifest_path IS NOT NULL OR EXISTS(SELECT 1 FROM analysis_stream_chunks c WHERE c.stream_id=j.stream_id AND c.generation=j.generation) ORDER BY j.stream_id'):
+        generations='SELECT stream_id,generation,final_manifest_path FROM analysis_stream_jobs'
+        if 'analysis_stream_history' in tables:
+            generations+=' UNION ALL SELECT stream_id,generation,final_manifest_path FROM analysis_stream_history'
+        reserved_markers=(" OR EXISTS(SELECT 1 FROM analysis_stream_reservations r WHERE r.stream_id=j.stream_id AND r.generation=j.generation AND r.path='analysis/streams/'||j.stream_id||'/g'||j.generation||'/.owner')" if 'analysis_stream_history' in tables else '')
+        for row in db.execute("SELECT j.stream_id,j.generation FROM ("+generations+") j WHERE j.final_manifest_path IS NOT NULL OR EXISTS(SELECT 1 FROM analysis_stream_chunks c WHERE c.stream_id=j.stream_id AND c.generation=j.generation)"+reserved_markers+" ORDER BY j.stream_id,j.generation"):
             stream_id=_identity(row['stream_id']);generation=row['generation']
             if type(generation) is not int or generation<1:raise BackupError('Catalog analysis stream generation is invalid')
             marker=json.dumps(dict(stream_id=stream_id,generation=generation),sort_keys=True,separators=(',',':'),allow_nan=False).encode()
             add(f'analysis/streams/{stream_id}/g{generation}/.owner',hashlib.sha256(marker).hexdigest(),len(marker),kind='derived')
         for row in db.execute('SELECT path,sha256,size_bytes FROM analysis_stream_chunks ORDER BY stream_id,generation,ordinal'):
             add(row['path'],row['sha256'],row['size_bytes'],kind='derived')
-        for row in db.execute('SELECT final_manifest_path,final_manifest_sha256,final_manifest_size_bytes FROM analysis_stream_jobs WHERE final_manifest_path IS NOT NULL ORDER BY stream_id'):
+        manifests='SELECT stream_id,generation,final_manifest_path,final_manifest_sha256,final_manifest_size_bytes FROM analysis_stream_jobs'
+        if 'analysis_stream_history' in tables:
+            manifests+=' UNION ALL SELECT stream_id,generation,final_manifest_path,final_manifest_sha256,final_manifest_size_bytes FROM analysis_stream_history'
+        for row in db.execute('SELECT * FROM ('+manifests+') WHERE final_manifest_path IS NOT NULL ORDER BY stream_id,generation'):
             add(row['final_manifest_path'],row['final_manifest_sha256'],row['final_manifest_size_bytes'],kind='derived')
     return [refs[key] for key in sorted(refs)]
+
+
+def _historical_extras(db):
+    """Reserved terminal bytes are retained evidence, never resumable chunks."""
+    if db.execute("SELECT 1 FROM sqlite_master WHERE name='analysis_stream_history'").fetchone() is None:return []
+    return db.execute("""SELECT r.path,r.size_bytes FROM analysis_stream_reservations r
+        JOIN analysis_stream_history h ON h.stream_id=r.stream_id AND h.generation=r.generation
+        WHERE r.path!='analysis/streams/'||r.stream_id||'/g'||r.generation||'/.owner'
+        AND NOT EXISTS(SELECT 1 FROM analysis_stream_chunks c WHERE c.path=r.path)
+        AND (h.final_manifest_path IS NULL OR h.final_manifest_path!=r.path)
+        ORDER BY r.stream_id,r.generation,r.path""")
 
 
 def _load_manifest(root):
@@ -318,6 +341,12 @@ def verify(generation_dir):
         allowed.update(item["path"] for item in manifest["files"] if item["kind"] == "quarantine"
                        and (item["path"].startswith("quarantine/") or item["path"].startswith("partial/") and item["path"].endswith(".invalid"))
                        and not item["prefix"])
+        for path,reserved in _historical_extras(db):
+            item=indexed.get(path)
+            if item is not None:
+                if item['kind']!='quarantine' or item['prefix'] or item['size']>reserved:
+                    raise BackupError('Historical reserved evidence exceeds its allowance')
+                allowed.add(path)
         if indexed.keys() - allowed:
             raise BackupError("Manifest includes unsupported unreferenced files")
         if "hub-config.json" in indexed:
@@ -416,6 +445,17 @@ class Backup:
                         reference = dict(reference, size=size)
                         _copy(source, _path(image, reference["path"]), sha, size)
                         files.append(reference)
+                    with _open(catalog) as db:
+                        for relative,reserved in _historical_extras(db):
+                            self._check_stop()
+                            source=_path(self.source,relative)
+                            if not source.exists():continue  # Reservation can precede file creation.
+                            if not source.is_file() or source.stat().st_size>reserved:
+                                raise BackupError('Historical reserved evidence exceeds its allowance')
+                            sha,size=_digest(source)
+                            if size>reserved:raise BackupError('Historical reserved evidence exceeds its allowance')
+                            _copy(source,_path(image,relative),sha,size)
+                            files.append(dict(path=relative,sha256=sha,size=size,kind='quarantine',prefix=False))
                     # Failed integrity/identity evidence is preserved separately and never
                     # labeled verified/resumable; these files have no structured path refs yet.
                     preserved = []

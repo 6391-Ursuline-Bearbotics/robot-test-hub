@@ -323,7 +323,7 @@ class TrackingOriginalTests(unittest.TestCase):
         self.assertIsNone(db.execute("SELECT 1 FROM analysis_stream_unique WHERE stream_id='rollback-probe'").fetchone())
     def test_new_schema_and_quota_exhaustion_fail_visible(self):
         root,db,document=self.fixture()
-        self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],11)
+        self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],12)
         work.validate_schema(db)
         runner=self.runner(root,db,max_spool_bytes=1)
         scheduled=reports.schedule_stream_reports(root,db,document,runner=runner,pipeline_version='automatic-reports-10')[0]

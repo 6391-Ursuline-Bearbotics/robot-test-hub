@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 class OwnershipError(RuntimeError):
@@ -177,6 +177,14 @@ def open_catalog(root: Path) -> sqlite3.Connection:
             if version<=10:
                 db.execute("INSERT INTO schema_migrations VALUES(11,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
                 db.execute('PRAGMA user_version=11')
+            from .stream_retry import install_schema as stream_retry_schema, validate_schema as validate_stream_retry
+            if version<=11:stream_retry_schema(db)
+            try:validate_stream_retry(db)
+            except (ValueError,sqlite3.DatabaseError):
+                raise SchemaError('Catalog stream retry schema is incomplete or modified; preserve the data directory') from None
+            if version<=11:
+                db.execute("INSERT INTO schema_migrations VALUES(12,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+                db.execute('PRAGMA user_version=12')
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")

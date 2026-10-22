@@ -243,6 +243,8 @@ class StreamRunner:
     self._quota()
  def _quota(self,extra=0,free_extra=None):
   used=self.db.execute('SELECT COALESCE(SUM(spool_bytes),0) FROM analysis_stream_jobs').fetchone()[0]
+  if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='analysis_stream_history'").fetchone():
+   used+=self.db.execute('SELECT COALESCE(SUM(spool_bytes),0) FROM analysis_stream_history').fetchone()[0]
   pages=self.db.execute('PRAGMA page_count').fetchone()[0]*self.db.execute('PRAGMA page_size').fetchone()[0]
   if getattr(self.reducer,'pipeline_version',None) in ('automatic-reports-10','automatic-reports-11'):
    # Ordered covering-index reads require no SQLite sorting. Reserve a bounded

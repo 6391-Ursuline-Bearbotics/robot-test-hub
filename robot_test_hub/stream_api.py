@@ -14,6 +14,11 @@ COUNTERS=('generation','source_count','source_ordinal','verified_source_count','
     'replay_bytes','scanned_rows','selected_rows','selected_bytes','chunk_count','spool_bytes')
 STATES=frozenset(('pending','running','verifying','selecting','finalizing','ready','failed','canceled'))
 SOURCES=frozenset(('synthetic','real','simulation','historical','unknown','unqualified'))
+ATTEMPT_LIMIT=3
+REQUEST_FIELDS=('id','stream_id','run_id','expected_generation','expected_state','expected_updated_utc_ns',
+    'state','error_code','created_utc_ns','updated_utc_ns','result_generation','result_state','result_updated_utc_ns')
+PUBLIC_COLUMNS=','.join((f"CASE WHEN {key} IS NULL OR length(CAST({key} AS BLOB))<=128 THEN {key} ELSE X'00' END AS {key}"
+    if key in ('stream_id','run_id','state','phase','source_type','error_code','report_id') else key) for key in COLUMNS)
 
 
 def _unavailable(identity,limit,offset):
@@ -63,6 +68,39 @@ def _public(row,identity):
     return item
 
 
+def _retry_projection(db,raw,public,available):
+    """Bounded metadata only: never decode saved source/context documents."""
+    public.update(retry_availability='unavailable',retry=dict(eligible=False,reason='stream_retry_unavailable',pins=None),
+                  previous_attempts=[],previous_attempt_total=None,retry_requests=[],retry_request_total=None,
+                  attempt_display_limit=ATTEMPT_LIMIT)
+    if not available:return
+    from .stream_retry import eligibility,project_request
+    policy=eligibility(raw)
+    if policy.get('pins') is not None:
+        policy={**policy,'pins':{**policy['pins'],'expected_generation':str(policy['pins']['expected_generation'])}}
+    sid=raw['stream_id']
+    total=db.execute('SELECT COUNT(*) FROM analysis_stream_history WHERE stream_id=?',(sid,)).fetchone()[0]
+    old=db.execute('SELECT '+PUBLIC_COLUMNS+' FROM analysis_stream_history WHERE stream_id=? ORDER BY generation DESC LIMIT ?',
+                   (sid,ATTEMPT_LIMIT)).fetchall()
+    history=[_public(row,raw['run_id']) for row in old]
+    if any(int(item['generation'])>=raw['generation'] or item['state'] not in ('failed','canceled') for item in history):
+        raise ValueError('invalid_stream_retry_history')
+    request_total=db.execute('SELECT COUNT(*) FROM analysis_stream_retry_requests WHERE stream_id=?',(sid,)).fetchone()[0]
+    select=','.join((key if key in ('expected_generation','result_generation') else
+        f"CASE WHEN {key} IS NULL OR length(CAST({key} AS BLOB))<=128 THEN {key} ELSE X'00' END AS {key}") for key in REQUEST_FIELDS)
+    cursor=db.execute('SELECT '+select+' FROM analysis_stream_retry_requests WHERE stream_id=? ORDER BY created_utc_ns DESC,id DESC LIMIT ?',
+                      (sid,ATTEMPT_LIMIT))
+    requests=[]
+    for row in cursor.fetchall():
+        receipt=project_request(dict(zip(REQUEST_FIELDS,row)))
+        if receipt['stream_id']!=sid or receipt['run_id']!=raw['run_id']:raise ValueError('invalid_stream_retry_receipt')
+        for key in ('expected_generation','result_generation'):
+            if receipt[key] is not None:receipt[key]=str(receipt[key])
+        requests.append(receipt)
+    public.update(retry_availability='available',retry=policy,previous_attempts=history,previous_attempt_total=total,
+                  retry_requests=requests,retry_request_total=request_total)
+
+
 def page(db,identity,query):
     if type(identity) is not str or not re.fullmatch('[A-Za-z0-9_-]{1,128}',identity):
         raise ValueError('invalid_stream_progress_query')
@@ -85,9 +123,18 @@ def page(db,identity,query):
             # Keep unknown identities distinct from known runs awaiting work.
             from .run_lookup import select_run
             select_run(db,identity,budget=False)
-        rows=db.execute('SELECT '+','.join(COLUMNS)+' FROM analysis_stream_jobs WHERE run_id=? ORDER BY rowid DESC LIMIT ? OFFSET ?',
+        rows=db.execute('SELECT '+PUBLIC_COLUMNS+' FROM analysis_stream_jobs WHERE run_id=? ORDER BY rowid DESC LIMIT ? OFFSET ?',
             (identity,limit,offset)).fetchall()
-        items=[_public(row,identity) for row in rows]
+        retry_available=False
+        if db.execute('PRAGMA user_version').fetchone()[0]>=12:
+            from .stream_retry import validate_schema as validate_retry
+            validate_retry(db)
+            retry_available=True
+        items=[]
+        for row in rows:
+            item=_public(row,identity)
+            _retry_projection(db,dict(zip(COLUMNS,row)),item,retry_available)
+            items.append(item)
         return dict(schema_version=1,run_id=identity,availability='available',reason=None,
             items=items,total=total,returned=len(items),limit=limit,offset=offset,
             next_offset=offset+limit if offset+limit<total else None,basis='live_worker_progress')
