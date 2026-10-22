@@ -96,7 +96,7 @@ def _validate(values):
 
 def test_connection(values, folder):
     """Read-only: log in with the pinned key and count .wpilog files in the log folder."""
-    from .pull import connect, listing
+    from .pull import connect, NAME
     from .sftp_source import SFTPConfig
     clean = _validate(values)
     folder = Path(folder)
@@ -111,7 +111,17 @@ def test_connection(values, folder):
         except Exception as exc:
             raise SetupError('Login failed: check the username and that this key is authorized on the robot') from exc
         try:
-            items = listing(sftp, clean['log_root'])
+            # Explicit setup action reads directory metadata only, never log bytes.
+            # It cannot issue a bulk-transfer permission or call collect().
+            entries = (sftp.listdir_iter(clean['log_root'], read_aheads=1)
+                       if hasattr(sftp, 'listdir_iter') else iter(sftp.listdir_attr(clean['log_root'])))
+            items = []
+            for index, entry in enumerate(entries):
+                if index >= 4096:
+                    raise SetupError('Log folder is too large for this setup test')
+                if NAME.fullmatch(entry.filename) and stat.S_ISREG(entry.st_mode or 0):
+                    items.append((entry.filename, int(entry.st_size), int(entry.st_mtime or 0)))
+            items.sort(key=lambda item: (item[2], item[0]))
         except OSError as exc:
             raise SetupError(f"Logged in, but could not read {clean['log_root']} on the robot") from exc
         finally:

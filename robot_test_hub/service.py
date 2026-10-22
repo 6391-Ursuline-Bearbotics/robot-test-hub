@@ -17,6 +17,66 @@ from .diagnostics import Diagnostics
 from .storage import DataRootOwner, open_catalog
 
 
+class PullPermissionError(RuntimeError):
+    pass
+
+
+class PullGate:
+    """Continuous observed idle interval; a token cannot survive revocation."""
+    def __init__(self, service, clock=time.monotonic):
+        self.service, self.clock = service, clock
+        self.lock = threading.RLock()
+        self.previous = None
+        self.since = None
+        self.epoch = 0
+        self.preference = service.preference_generation
+        self.identity = None
+
+    def observe(self, status):
+        now = self.clock()
+        with self.lock:
+            fresh = lambda s: (s is not None and type(s.observed_at) in (int, float)
+                and math.isfinite(s.observed_at) and 0 <= now-s.observed_at <= self.service.config.freshness)
+            identity = (status.boot_id, status.generation)
+            allowed = (fresh(status) and status.enabled is False and status.transfer_allowed is True
+                and status.sequence is not None and status.boot_id != 'unknown'
+                and not self.service.paused.is_set() and not self.service.stop.is_set())
+            if (not allowed or not fresh(self.previous) or identity != self.identity
+                    or self.preference != self.service.preference_generation
+                    or (self.since is not None and now < self.since)):
+                self.since = None
+                self.epoch += 1
+            self.preference = self.service.preference_generation
+            self.identity = identity
+            self.previous = status
+            if allowed and self.since is None:
+                self.since = now
+            if self.service.stop.is_set():
+                reason = 'Hub is stopping; collection canceled.'
+            elif self.service.paused.is_set():
+                reason = 'Paused by operator. Resume collection to start a new idle wait.'
+            elif not allowed:
+                reason = 'Waiting for fresh live disabled status and transfer permission. Use Import logs if status is unavailable.'
+            elif now-self.since < self.service.config.idle_delay:
+                reason = 'Waiting for the continuous disabled idle delay.'
+            else:
+                reason = None
+            return (identity, self.epoch, self.preference), reason
+
+    def permission(self):
+        token, reason = self.observe(self.service.cached_source.status())
+        if reason:
+            raise PullPermissionError(reason)
+        gate = self
+        class Permission:
+            def check(self):
+                gate.service._pull_configuration()
+                current, reason = gate.observe(gate.service.cached_source.status())
+                if reason or current != token:
+                    raise PullPermissionError(reason or 'Robot status changed; collect again after the idle delay.')
+        return Permission()
+
+
 class CachedSource:
     def __init__(self, source: Source, bulk_lock=None, camera_network=None):
         self.source = source
@@ -159,6 +219,7 @@ class HubService:
         self.folder_import_request = None
         self.pull_status = {'state': 'idle'}
         self.pull_request = None
+        self._pull_gate = PullGate(self)
         self.analytics_cache={"schema_version":1,"enabled":config.analytics_enabled,"state":"starting" if config.analytics_enabled else "disabled","error_code":None,"latest_report_id":None,"converted_files":0,"pending_files":0,"retry_files":0}
         self.health["analytics"]={"state":self.analytics_cache["state"]}
         self.health["log_export"] = {"state": self.log_export_cache["state"]}
@@ -242,10 +303,12 @@ class HubService:
         try:
             while not self.stop.is_set():
                 self.cached_source.update(self.source.status())
+                self._pull_gate.observe(self.cached_source.status())
                 self.rewind.observe(self.cached_source.status())
                 self.stop.wait(self.config.status_interval)
         except Exception as exc:
             self.cached_source.update(RobotStatus(None, 0, "unknown", -1))
+            self._pull_gate.observe(self.cached_source.status())
             self.rewind.observe(self.cached_source.status())
             self._health("status", "failed", "status_worker_failed")
             self.diagnostics.record("status_worker_failed", "Status worker failed; collection blocked. Restart the hub after checking the source adapter", exception=exc)
@@ -463,41 +526,104 @@ class HubService:
     def pull_configured(self):
         return self.config.pull_source_config is not None
 
+    def _pull_configuration(self):
+        from .sftp_source import SFTPConfig, SFTPSource
+        from .source_status import StatusInbox
+        from .status_bridge import StatusBridge
+        if not isinstance(self.source, SFTPSource):
+            raise ValueError('pull_requires_live_status')
+        provider = self.source.status_provider
+        if isinstance(provider, StatusBridge) and provider.host != self.source.config.host:
+            raise ValueError('pull_source_mismatch')
+        inbox = provider.inbox if isinstance(provider, StatusBridge) else provider
+        if (not isinstance(inbox, StatusInbox) or inbox.runtime_mode != 'REAL'
+                or inbox.robot_id != self.source.config.robot_id):
+            raise ValueError('pull_requires_live_status')
+        config = SFTPConfig.load(self.config.pull_source_config)
+        fields = ('host', 'port', 'username', 'known_hosts', 'private_key', 'robot_id', 'log_root')
+        if any(getattr(config, k) != getattr(self.source.config, k) for k in fields):
+            raise ValueError('pull_source_mismatch')
+        return config
+
+    @contextmanager
+    def _pull_bulk_slot(self, permission):
+        while True:
+            permission.check()
+            if self.camera_network.is_set():
+                self.stop.wait(.02)
+                continue
+            if self.bulk_lock.acquire(timeout=.02):
+                break
+        try:
+            permission.check()
+            yield
+        finally:
+            self.bulk_lock.release()
+
     def request_pull(self, include_newest=False, profile=None):
         if not self.pull_configured():
             raise ValueError('pull_not_configured')
         if type(include_newest) is not bool or (profile is not None and (not isinstance(profile, str) or len(profile) > 256)):
             raise ValueError('invalid_pull_request')
+        self._pull_configuration()
         with self.cache_lock:
             if self.stop.is_set() or self.closed:
                 raise RuntimeError('service_stopping')
-            if self.pull_request is not None or self.pull_status.get('state') in ('queued', 'running'):
+            if self.pull_request is not None or self.pull_status.get('state') in ('queued', 'waiting', 'running'):
                 raise RuntimeError('pull_already_running')
             self.pull_request = (include_newest, profile)
             self.pull_status = {'state': 'queued', 'include_newest': include_newest}
             return dict(self.pull_status)
 
     def pull_state(self):
+        capable, message = False, None
+        if self.pull_configured():
+            try:
+                self._pull_configuration()
+                capable = True
+            except (ValueError, OSError):
+                message = 'Collect now requires a matching live NT/SFTP profile. Offline: use Import logs from a folder.'
         with self.cache_lock:
-            return json.loads(json.dumps(dict(self.pull_status, configured=self.pull_configured())))
+            return json.loads(json.dumps(dict(self.pull_status, configured=self.pull_configured(), capable=capable,
+                                              configuration_message=message)))
 
     def _run_pull(self, db):
-        from .pull import PullError, collect
-        from .sftp_source import SFTPConfig
+        from .pull import PermissionLost, PullError, collect
         with self.cache_lock:
-            request, self.pull_request = self.pull_request, None
+            request = self.pull_request
             if request is None:
                 return
+        try:
+            config = self._pull_configuration()
+            permission = self._pull_gate.permission()
+        except PullPermissionError as exc:
+            with self.cache_lock:
+                self.pull_status = {'state': 'waiting', 'message': str(exc), 'include_newest': request[0]}
+            return
+        except (ValueError, OSError):
+            with self.cache_lock:
+                self.pull_request = None
+                self.pull_status = {'state': 'failed', 'message': 'Live robot/source configuration does not match. Check the launch profile; offline use Import logs.'}
+            return
+        with self.cache_lock:
+            self.pull_request = None
             self.pull_status = {'state': 'running', 'include_newest': request[0], 'file': None, 'copied': 0, 'size': 0}
 
         def progress(name, copied, size):
             with self.cache_lock:
                 self.pull_status.update(file=name, copied=copied, size=size)
         try:
-            config = SFTPConfig.load(self.config.pull_source_config)
-            result = collect(self.root, db, config, include_newest=request[0], profile=request[1], progress=progress)
+            result = collect(self.root, db, config, include_newest=request[0], profile=request[1], progress=progress,
+                             permission=permission, bulk_slot=lambda: self._pull_bulk_slot(permission))
             with self.cache_lock:
-                self.pull_status = dict(result, state='complete', include_newest=request[0])
+                self.pull_status = dict(result, include_newest=request[0])
+                if result.get('state') == 'interrupted':
+                    self.pull_status.update(state='canceled' if self.stop.is_set() or self.paused.is_set() else 'paused',
+                        message='Collection interrupted. Retained snapshots are kept. Collect again after fresh disabled status and the idle delay; offline use Import logs.')
+        except PermissionLost:
+            with self.cache_lock:
+                self.pull_status = {'state': 'canceled' if self.stop.is_set() or self.paused.is_set() else 'paused',
+                    'message': 'Live permission changed before capture started. Collect again after fresh disabled status and the idle delay.'}
         except PullError as exc:
             with self.cache_lock:
                 self.pull_status = {'state': 'unreachable', 'message': str(exc)}
@@ -598,6 +724,10 @@ class HubService:
         if self.closed:
             return True
         self.stop.set()
+        with self.cache_lock:
+            if self.pull_request is not None:
+                self.pull_request = None
+                self.pull_status = {'state': 'canceled', 'message': 'Hub stopped before collection started.'}
         cancel = getattr(self.source, "cancel", None)
         if cancel is not None:
             try:

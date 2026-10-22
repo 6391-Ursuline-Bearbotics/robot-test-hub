@@ -681,7 +681,7 @@ def create_http_server(service: HubService, source: DemoSource, port: int, *, ap
             except RuntimeError as exc:
                 return self.send(409 if str(exc)=='pull_already_running' else 503,json.dumps({'error_code':str(exc)}).encode())
             except (ValueError,TypeError) as exc:
-                code=str(exc) if str(exc) in ('pull_not_configured','invalid_pull_request') else 'invalid_pull_request'
+                code=str(exc) if str(exc) in ('pull_not_configured','invalid_pull_request','pull_requires_live_status','pull_source_mismatch') else 'invalid_pull_request'
                 return self.send(400,json.dumps({'error_code':code}).encode())
 
         def folder_import_post(self):
