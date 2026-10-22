@@ -317,6 +317,22 @@ class HubService:
                 if self.health["status"]["state"] != "failed":
                     self.health["status"] = {"state": "stopped", "error_code": None}
 
+    def _stream_acceleration_allowed(self, now):
+        """Local scheduling only: cached authority never grants source reads."""
+        if self.stop.is_set() or self.paused.is_set():return False
+        from .demo import OfflineSource
+        if isinstance(self.source,OfflineSource):return True
+        status=self.cached_source.status()
+        observed=status.observed_at
+        return (status.enabled is False and type(observed) in (int,float) and math.isfinite(observed)
+                and 0<=now-observed<=self.config.freshness)
+
+    @staticmethod
+    def _stream_wait(progress, elapsed, allowed):
+        # Target25% stream wall-work duty; this is not a process CPU/DS guarantee.
+        active=progress.get('state') in ('pending','verifying','running','ready')
+        return max(.025,3*max(0.,elapsed)) if active and allowed else .5
+
     def _pipeline_worker(self):
         from .pipeline import Pipeline
         db=None
@@ -326,12 +342,29 @@ class HubService:
         try:
             db=open_catalog(self.root)
             from .stream_analysis import Limits
-            pipeline=Pipeline(self.root,db,stream_limits=Limits(max_spool_bytes=self.config.stream_max_spool_bytes,min_free_bytes=self.config.stream_min_free_bytes))
+            pipeline=Pipeline(self.root,db,stream_limits=Limits(max_spool_bytes=self.config.stream_max_spool_bytes,min_free_bytes=self.config.stream_min_free_bytes),stream_on_tick=False)
+            maintenance_due=stream_due=time.monotonic()
+            last_stream_finished=None
             while not self.stop.is_set():
-                self._run_folder_import(db)
-                self._run_pull(db)
-                pipeline.tick()
-                self.stop.wait(0.5)
+                now=time.monotonic()
+                if now>=maintenance_due:
+                    self._run_folder_import(db)
+                    if self.stop.is_set():break
+                    self._run_pull(db)
+                    if self.stop.is_set():break
+                    pipeline.tick()
+                    # Coalesce delayed work; never replay a burst of missed ticks.
+                    maintenance_due=time.monotonic()+.5
+                if self.stop.is_set():break
+                now=time.monotonic()
+                if not self._stream_acceleration_allowed(now) and last_stream_finished is not None:
+                    stream_due=max(stream_due,last_stream_finished+.5)
+                if now>=stream_due:
+                    started=time.monotonic()
+                    progress=pipeline.advance_stream()
+                    finished=time.monotonic();last_stream_finished=finished
+                    stream_due=finished+self._stream_wait(progress,finished-started,self._stream_acceleration_allowed(finished))
+                self.stop.wait(max(0.,min(maintenance_due,stream_due)-time.monotonic()))
         except Exception as exc:
             failed=True
             self._health('indexer','failed','indexer_failed')

@@ -8,13 +8,15 @@ from .analysis_plan import review_snapshot
 
 
 class Pipeline:
-    def __init__(self, root, db, *, stream_limits=None):
+    def __init__(self, root, db, *, stream_limits=None, stream_on_tick=True):
         self.root,self.db=root,db
         self.importer=Importer(root,db)
         self.last_signature=None
         self.stream_runner=None
         self.stream_limits=stream_limits
         self.closed=False
+        if type(stream_on_tick) is not bool:raise ValueError("stream_on_tick must be boolean")
+        self.stream_on_tick=stream_on_tick
 
     def tick(self):
         if self.closed:raise RuntimeError('Pipeline is closed')
@@ -24,13 +26,7 @@ class Pipeline:
         from .run_lookup import has_schema as has_run_lookup, tick as run_lookup_tick
         if has_run_lookup(self.db):
             run_lookup_tick(self.db)
-        from .stream_analysis import has_schema as has_streams
-        if has_streams(self.db):
-            if self.stream_runner is None:
-                from .reports import StreamReportRunner
-                self.stream_runner=StreamReportRunner(self.root,self.db,limits=self.stream_limits)
-            from .reports import advance_streams
-            advance_streams(self.root,self.db,self.stream_runner)
+        if self.stream_on_tick:self.advance_stream()
         from .import_retry import step as retry_step
         retry_processed=retry_step(self.root,self.db)
         candidates=self.db.execute("""SELECT f.id,f.sha256,m.metadata_json
@@ -79,6 +75,18 @@ class Pipeline:
                 return {'state':'idle','imports':len(imports),'measured_runs':computed}
             self.metrics_document=None
         return {'state':'idle','imports':len(imports)}
+
+    def advance_stream(self):
+        """One bounded stream turn without import/retry/catalog maintenance."""
+        if self.closed:raise RuntimeError('Pipeline is closed')
+        from .stream_analysis import has_schema as has_streams
+        if has_streams(self.db):
+            if self.stream_runner is None:
+                from .reports import StreamReportRunner
+                self.stream_runner=StreamReportRunner(self.root,self.db,limits=self.stream_limits)
+            from .reports import advance_streams
+            return advance_streams(self.root,self.db,self.stream_runner)
+        return {'state':'idle','phase':'complete'}
 
     def close(self):
         """Keep the worker owner alive until stream resources actually close."""
