@@ -308,8 +308,12 @@ def _review_links(review):
     return links
 
 
-def export_case(root, *, review_id, review_revision, expectations, output):
-    """Capture a selected saved review using read-only archive projection."""
+def export_case(root, *, review_id, review_revision, expectations, output, case_format=FORMAT):
+    """Capture the explicitly selected case format; historical default stays fixed."""
+    if case_format != FORMAT:
+        from . import stream_regression
+        if case_format != stream_regression.FORMAT:_fail('regression_evidence_unsupported')
+        return stream_regression.export_case(root,review_id=review_id,review_revision=review_revision,expectations=expectations,output=output)
     root = _local(root)
     output = _local(output,exists=False)
     repository = Path(__file__).resolve().parents[1]
@@ -414,7 +418,17 @@ def _load(folder):
     return data['case.json'],data['evidence.json'],data['saved-job.json'],total
 
 
+def _case_format(folder):
+    manifest=_parse(_read(_local(folder)/'manifest.json',4*1024*1024))
+    return manifest.get('format') if type(manifest) is dict else None
+
+
 def verify_case(folder):
+    selected=_case_format(folder)
+    if selected != FORMAT:
+        from . import stream_regression
+        if selected != stream_regression.FORMAT:_fail('regression_evidence_unsupported')
+        return stream_regression.verify_case(folder)
     case,evidence,job,total = _load(folder)
     from .analysis import identity
     return dict(schema_version=1,verified=True,case_id=identity(case),analyzer_id=case['analyzer_id'],stored_analyzer_version=case['analyzer_version'],source_type=evidence['source_type'],original_count=len(case['source_hashes']),original_bytes=total,robot_replay_executed=False,overall_health='not_assessed',reference_scope=case['reference_scope'],review_links=case['review_links'])
@@ -432,7 +446,13 @@ def _code_identity():
     return dict(python_version=platform.python_version(),python_implementation=sys.implementation.name,evaluator_module_sha256=hashes)
 
 
-def run_case(folder, *, allow_analyzer_version_change=False):
+def run_case(folder, *, allow_analyzer_version_change=False, candidate=None):
+    selected=_case_format(folder)
+    if selected != FORMAT:
+        from . import stream_regression
+        if selected != stream_regression.FORMAT:_fail('regression_evidence_unsupported')
+        return stream_regression.run_case(folder,allow_analyzer_version_change=allow_analyzer_version_change,candidate=candidate)
+    if candidate is not None:_fail('regression_evidence_unsupported')
     if type(allow_analyzer_version_change) is not bool:
         _fail()
     case,evidence,saved,total = _load(folder)
@@ -484,20 +504,22 @@ def main(argv=None):
     export.add_argument('--review-revision',type=int,required=True)
     export.add_argument('--expectations',type=Path,required=True)
     export.add_argument('--output',type=Path,required=True)
+    export.add_argument('--format',choices=(FORMAT,'offline-stream-analyzer-regression-1'),default=FORMAT)
     for action in ('verify','run'):
         command=commands.add_parser(action)
         command.add_argument('--case',type=Path,required=True)
         if action=='run':
             command.add_argument('--allow-analyzer-version-change',action='store_true')
             command.add_argument('--json',action='store_true')
+            command.add_argument('--candidate')
     args = parser.parse_args(argv)
     try:
         if args.action=='export':
-            report=export_case(args.data_dir,review_id=args.review_id,review_revision=args.review_revision,expectations=args.expectations,output=args.output)
+            report=export_case(args.data_dir,review_id=args.review_id,review_revision=args.review_revision,expectations=args.expectations,output=args.output,case_format=args.format)
         elif args.action=='verify':
             report=verify_case(args.case)
         else:
-            report=run_case(args.case,allow_analyzer_version_change=args.allow_analyzer_version_change)
+            report=run_case(args.case,allow_analyzer_version_change=args.allow_analyzer_version_change,candidate=args.candidate)
         print(json.dumps(report,sort_keys=True,separators=(',',':'),allow_nan=False))
         return 0 if report.get('verified') is True or report.get('state')=='passed' else 1
     except Exception as exc:
@@ -505,13 +527,14 @@ def main(argv=None):
         known = {'invalid_regression_case','regression_resource_limit','unsafe_regression_path','regression_integrity',
                  'invalid_regression_expectations','unsafe_regression_output','invalid_regression_reference',
                  'regression_evidence_unsupported','regression_evidence_integrity','regression_evidence_unavailable',
-                 'regression_evidence_resource_limit'}
+                 'regression_evidence_resource_limit','regression_cleanup_pending','regression_operation_failed'}
         code = exc.code if isinstance(exc,(RegressionError,EvidenceError)) and exc.code in known else 'regression_operation_failed'
         guidance = ('Choose a fresh private local directory outside archives and Git.' if code=='unsafe_regression_output' else
                     'Review the explicit expected outcome, unique metric selectors and inclusive bounds.' if code=='invalid_regression_expectations' else
                     'Use a supported pinned importer and input selector; this case was not executed.' if code=='regression_evidence_unsupported' else
                     'This case exceeds the supported resource bounds; preserve its originals.' if code in ('regression_resource_limit','regression_evidence_resource_limit') else
                     'Check the exact saved review ID and revision.' if code=='invalid_regression_reference' else
+                    'Proof cleanup did not complete. Ownership is retained only while this process remains alive; preserve remaining private work files after process exit.' if code=='regression_cleanup_pending' else
                     'Preserve the case and source archive; check case integrity and private local storage.')
         print(json.dumps(dict(schema_version=1,state='unavailable',code=code,guidance=guidance,robot_replay_executed=False,overall_health='not_assessed'),sort_keys=True))
         return 1

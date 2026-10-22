@@ -121,8 +121,9 @@ def _write_json(path, obj):
 
 class Importer:
     """Uses a catalog already opened/owned by the caller. No network/source reads."""
-    def __init__(self, root: Path, db: sqlite3.Connection):
+    def __init__(self, root: Path, db: sqlite3.Connection, *, resource_guard=None):
         self.root, self.db = Path(root).resolve(), db
+        self.resource_guard = resource_guard
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _path(self, relative):
@@ -184,6 +185,7 @@ class Importer:
                 for block in iter(lambda: stream.read(1024 * 1024), b""):
                     digest.update(block)
                     size += len(block)
+                    if self.resource_guard is not None:self.resource_guard.before_write("raw",len(block))
                     output.write(block)
                 after = os.fstat(stream.fileno())
                 if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns) or size != before.st_size:
@@ -300,6 +302,7 @@ class Importer:
             temporary, output = _temporary(self.root / "derived", ".jsonl.tmp")
             counts, unsupported, metadata, timestamp_min, timestamp_max = {}, set(), {}, None, None
             dataset_hash, lines, encode = hashlib.sha256(), [], _ENCODER.encode
+            guarded_batch_bytes = 0
             extractor_version = _extractor_for(profile)
             compressed = extractor_version == EXTRACTOR_VERSION_GZIP
             # Deterministic gzip (no name, mtime 0) so identical input gives identical bytes.
@@ -308,6 +311,7 @@ class Importer:
 
             def flush_lines():
                 chunk = "".join(lines).encode("utf-8")
+                if self.resource_guard is not None:self.resource_guard.before_write("decoded",len(chunk))
                 if sink is not None:
                     sink.write(chunk)
                 else:
@@ -315,26 +319,37 @@ class Importer:
                     output.write(chunk)
                 lines.clear()
             with output:
-                for row in extract(self._path(raw_path), profile):
-                    row["source_sha256"] = digest
-                    row["extractor_version"] = extractor_version
-                    row["profile"] = profile
-                    row["mapping_revision"] = mapping_revision
-                    counts[row["kind"]] = counts.get(row["kind"], 0) + 1
-                    if row["kind"] == "observation":
-                        if row["category"] == "metadata":
-                            metadata[row["field"]] = row["value"]
-                        if not row["decoded"]:
-                            unsupported.add(row["type"])
-                    if row["kind"] == "cycle":
-                        timestamp_min = timestamp_min or row["timestamp_ns"]
-                        timestamp_max = row["timestamp_ns"]
-                    lines.append(encode(row) + "\n")
-                    if len(lines) >= DATASET_WRITE_BATCH_ROWS:
-                        flush_lines()
-                flush_lines()
-                if sink is not None:
-                    sink.close()
+                try:
+                    for row in extract(self._path(raw_path), profile):
+                        row["source_sha256"] = digest
+                        row["extractor_version"] = extractor_version
+                        row["profile"] = profile
+                        row["mapping_revision"] = mapping_revision
+                        if self.resource_guard is not None:self.resource_guard.decoded_row(row)
+                        counts[row["kind"]] = counts.get(row["kind"], 0) + 1
+                        if row["kind"] == "observation":
+                            if row["category"] == "metadata":
+                                metadata[row["field"]] = row["value"]
+                            if not row["decoded"]:
+                                unsupported.add(row["type"])
+                        if row["kind"] == "cycle":
+                            timestamp_min = timestamp_min or row["timestamp_ns"]
+                            timestamp_max = row["timestamp_ns"]
+                        encoded_line = encode(row) + "\n"
+                        if self.resource_guard is not None:
+                            line_bytes=len(encoded_line.encode("utf-8"))
+                            if guarded_batch_bytes+line_bytes>1024*1024:
+                                flush_lines();guarded_batch_bytes=0
+                            guarded_batch_bytes+=line_bytes
+                        lines.append(encoded_line)
+                        if len(lines) >= DATASET_WRITE_BATCH_ROWS:
+                            flush_lines();guarded_batch_bytes=0
+                    flush_lines()
+                    if sink is not None:
+                        sink.close()
+                finally:
+                    if self.resource_guard is not None and sink is not None and not sink.closed:
+                        sink.close()
                 output.flush()
                 os.fsync(output.fileno())
             if request_id is not None:
@@ -358,6 +373,7 @@ class Importer:
                 manifest["dataset_encoding"] = "gzip"
             temporary, output = _temporary(self.root / "derived", ".manifest.tmp")
             output.close()
+            if self.resource_guard is not None:self.resource_guard.before_write("manifest",len(_ENCODER.encode(manifest).encode("utf-8"))+1)
             _write_json(temporary, manifest)
             manifest_digest = _digest(temporary)[0]
             manifest_path = f"derived/{job_id}/manifest.json"
