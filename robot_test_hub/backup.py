@@ -181,6 +181,13 @@ def _integrity(db):
         try:validate_stream(db)
         except (ValueError,sqlite3.DatabaseError):
             raise BackupError('Catalog analysis stream schema is incomplete or modified') from None
+    if version>=11:
+        from .stream_tracking_store import validate_schema as validate_tracking, validate_catalog_work
+        try:
+            validate_tracking(db)
+            validate_catalog_work(db)
+        except (ValueError,sqlite3.DatabaseError):
+            raise BackupError('Catalog tracking work schema is incomplete or modified') from None
     return version
 
 

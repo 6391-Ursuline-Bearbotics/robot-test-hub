@@ -16,6 +16,8 @@ Inspect the run's checks, module coverage, error plots, supporting references an
 
 After a standard test and inspection, explicitly select at least three independent qualified no-finding jobs to approve a baseline. Select that baseline in a plan to compare later runs. New runs never join the approved cohort automatically. Battery/configuration/test/source and component-history incompatibilities prevent comparison rather than being averaged away.
 
+For full-log tracking, the plan editor can explicitly use individual module inputs when the combined measured-state array is absent. Confirm the wheel radius and recorded software/configuration identities first. A present invalid array stays unavailable; selecting individual inputs does not hide it. This option changes only the new streamed policy. Normal small-run and historical policies keep their existing mapping. Streamed plots show retained examples with exact omission counts, not a complete trace or incident export. See [streamed tracking](STREAMING_RUNTIME.md).
+
 ## Plan contract
 
 The local review API accepts `POST /api/v1/review/analysis-plans`; its snapshot includes latest `analysis_plan` records. The existing loopback/origin, 16 KiB request-size and shutdown rules apply. Duplicate/nonfinite JSON is rejected, and shutdown is checked again under the service's settings lock before a write. Matching plans require a complete run with one anchored UTC interval, expanded by its declared clock uncertainty.
@@ -31,6 +33,7 @@ The local review API accepts `POST /api/v1/review/analysis-plans`; its snapshot 
 | `swerve_configuration` | Existing analyzer parameters with exact units and explicit threshold revision |
 | `approved_baseline_id` | Explicit approved cohort identity, or null; never an automatically chosen recent cohort |
 | `ideal_simulation_cycle_policy` | Explicit ideal simulation assumption, default false |
+| `stream_tracking_measurement_source` | Optional full-log tracking source: `measured_array` or explicit `module_io_if_array_absent`. Absent keeps the original array behavior; no key is added to older plans automatically. |
 
 Recorded configuration must agree with the selected context throughout the run. A recorded build hash must also agree; a missing build hash remains visibly human-declared and unverified. Human-declared information remains distinguishable from values actually observed in a log. Unknown fields, invalid values, ambiguous scope and incomplete coverage fail explicitly.
 

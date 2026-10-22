@@ -125,16 +125,25 @@ class StreamIntegrationTests(unittest.TestCase):
             self.assertEqual(restored['descriptor']['selection_chain'],original['descriptor']['selection_chain'])
             self.assertEqual(restored['report'],original['report'])
             restored_runner.close()
-    def test_schema_ten_migration_installs_only_metadata(self):
+    def test_schema_nine_upgrade_installs_only_stream_metadata(self):
         self.db.close()
+        from robot_test_hub import stream_tracking_store
         with closing(sqlite3.connect(self.root/'catalog.sqlite3')) as db,db:
+            for name, statement in stream_tracking_store.SQL.items():
+                ddl = statement.lstrip()
+                kind = 'INDEX' if ddl.startswith('CREATE INDEX') else 'TRIGGER' if ddl.startswith('CREATE TRIGGER') else 'TABLE'
+                db.execute('DROP '+kind+' IF EXISTS '+name)
             for name in stream_analysis.INDEX_SQL:db.execute('DROP INDEX IF EXISTS '+name)
             for name in reversed(tuple(stream_analysis.TABLE_SQL)):db.execute('DROP TABLE IF EXISTS '+name)
             db.execute('DELETE FROM schema_migrations WHERE version>=10');db.execute('PRAGMA user_version=9')
         with patch.object(Importer,'_check_dataset',side_effect=AssertionError('startup scan')),patch.object(stream_analysis.StreamRunner,'step',side_effect=AssertionError('startup work')):
             self.db=open_catalog(self.root)
-        self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0],10)
+        self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0],SCHEMA_VERSION)
+        self.assertEqual([row[0] for row in self.db.execute('SELECT version FROM schema_migrations WHERE version>=10 ORDER BY version')],[10,11])
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM analysis_stream_jobs').fetchone()[0],0)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM analysis_tracking_samples').fetchone()[0],0)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM analysis_tracking_finalization').fetchone()[0],0)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM analysis_tracking_revision').fetchone()[0],0)
     def test_saved_config_limits_reach_the_pipeline_worker(self):
         from robot_test_hub.config import Config
         from robot_test_hub.demo import DemoSource

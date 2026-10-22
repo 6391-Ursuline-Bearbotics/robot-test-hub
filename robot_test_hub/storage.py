@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 class OwnershipError(RuntimeError):
@@ -168,6 +168,15 @@ def open_catalog(root: Path) -> sqlite3.Connection:
             if version<=9:
                 db.execute("INSERT INTO schema_migrations VALUES(10,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
                 db.execute('PRAGMA user_version=10')
+            # Pipeline-10 ordered interval work is metadata-only at migration.
+            from .stream_tracking_store import install_schema as tracking_schema, validate_schema as validate_tracking
+            if version<=10:tracking_schema(db)
+            try:validate_tracking(db)
+            except (ValueError,sqlite3.DatabaseError):
+                raise SchemaError('Catalog tracking work schema is incomplete or modified; preserve the data directory') from None
+            if version<=10:
+                db.execute("INSERT INTO schema_migrations VALUES(11,strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+                db.execute('PRAGMA user_version=11')
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")

@@ -14,7 +14,7 @@ def validate_plan(value):
     if not isinstance(value,dict):raise ValueError('analysis_plan_object_required')
     required={'id','robot_id','start_utc_ns','end_utc_ns','reviewer','rationale','build_hash','config_hash',
               'test_id','surface','battery_id','wheel_radius_m','swerve_configuration'}
-    optional={'revision','expected_revision','approved_baseline_id','ideal_simulation_cycle_policy','steering_configuration'}
+    optional={'revision','expected_revision','approved_baseline_id','ideal_simulation_cycle_policy','steering_configuration','stream_tracking_measurement_source'}
     if not required<=set(value) or set(value)-required-optional:raise ValueError('invalid_analysis_plan_fields')
     value=copy.deepcopy(value)
     for key in ('id','robot_id','test_id','battery_id'):
@@ -47,6 +47,8 @@ def validate_plan(value):
     if 'steering_configuration' in value:
         from .steering import steering_configuration
         value['steering_configuration']=steering_configuration(value['steering_configuration'])
+    if 'stream_tracking_measurement_source' in value and value['stream_tracking_measurement_source'] not in ('measured_array','module_io_if_array_absent'):
+        raise ValueError('invalid_stream_tracking_measurement_source')
     value.setdefault('revision',1);value.setdefault('expected_revision',None)
     if type(value['revision']) is not int or not 1<=value['revision']<=1000000:raise ValueError('invalid_plan_revision')
     previous=value['expected_revision']

@@ -4,7 +4,7 @@ The October 15 audit below is historical. Later source and executed evidence are
 
 The Collect now path obeys matching live REAL status/SFTP admission, continuous disabled idle permission and cancellation. It captures manual snapshots with weak remote metadata identity; it cannot prove source closure or resume mutable partials. Offline use remains folder/USB import. The separate automatic immutable-manifest collector retains its stronger closed-source/resume contract. Setup guidance and offline controls passed an actual headless Edge check; full local suite evidence and remaining limits are in the current validation record.
 
-The next dense-log software dependency is S3 in [STREAMING_ANALYSIS.md](STREAMING_ANALYSIS.md): bounded tracking/steering reducers and exact weighted percentiles. Current streamed quality/Phoenix/SystemCore checks do not implement them. Streaming incident proof, the remaining subsystem analyzers/video integrations and supervised school commissioning also remain open. No overall completion or robot-health claim follows from a passing local suite.
+S3a in [STREAMING_ANALYSIS.md](STREAMING_ANALYSIS.md) now adds bounded tracking and exact weighted percentiles alongside quality/Phoenix/SystemCore status. Independent numerical comparisons and actual report/plan browser checks pass. Streamed steering dynamics remains the next S3 dependency; the measured worker latency and normalized-storage expansion remain material limits. Streaming incident proof, the remaining subsystem analyzers/video integrations and supervised school commissioning also remain open. No overall completion or robot-health claim follows from a passing local suite.
 
 # Software and commissioning audit — October 15, 2026
 

@@ -11,7 +11,7 @@ VERSION='stream-analysis-1'
 INPUT_FORMAT='stream-evidence-1'
 SELECTION='full_source_scoped_rows_1'
 STATES=('pending','verifying','running','canceled','failed','ready')
-PHASES=('scheduled','raw_verify','manifest_verify','dataset_verify','manifest_publish','complete','canceled','failed')
+PHASES=('scheduled','raw_verify','manifest_verify','dataset_verify','work_validate','reducer_finalize','manifest_publish','complete','canceled','failed')
 ERROR_CODES=tuple('stream_'+s for s in ('source_pins_invalid','source_changed','source_hash_mismatch','manifest_invalid','dataset_invalid','line_resource_limit','spool_resource_limit','free_space_unavailable','checkpoint_invalid','chunk_conflict','inventory_invalid','schema_invalid','reducer_failed','sql_resource_limit'))
 INITIAL_CHAIN=hashlib.sha256(b'stream-selection-1\x00').hexdigest()
 MAX_METADATA=1024*1024
@@ -57,8 +57,10 @@ class Limits:
  max_sources:int=128
  line_bytes:int=1024*1024
  chunk_bytes:int=1024*1024
+ work_wal_bytes:int=256*1024**2
+ work_transaction_bytes:int=16*1024**2
  def __post_init__(self):
-  for key in ('max_spool_bytes','max_sources','line_bytes','chunk_bytes'):
+  for key in ('max_spool_bytes','max_sources','line_bytes','chunk_bytes','work_wal_bytes','work_transaction_bytes'):
    if type(getattr(self,key)) is not int or getattr(self,key)<1:raise ValueError('invalid_stream_limits')
   if type(self.min_free_bytes) is not int or self.min_free_bytes<0 or self.max_sources>128 or self.line_bytes>1024*1024 or self.chunk_bytes>1024*1024:raise ValueError('invalid_stream_limits')
 class StreamError(ValueError):
@@ -183,14 +185,17 @@ class StreamRunner:
   if lo>hi:raise StreamError('stream_source_pins_invalid')
   pins=self._pins(run)
   pipeline_version=getattr(self.reducer,'pipeline_version','automatic-reports-8')
-  if pipeline_version not in ('automatic-reports-8','automatic-reports-9'):raise StreamError('stream_source_pins_invalid')
-  if pipeline_version=='automatic-reports-9':
+  if pipeline_version not in ('automatic-reports-8','automatic-reports-9','automatic-reports-10'):raise StreamError('stream_source_pins_invalid')
+  if pipeline_version in ('automatic-reports-9','automatic-reports-10'):
    versions=getattr(self.reducer,'context_versions',{})
    if any(key in context and context[key]!=value for key,value in versions.items()):raise StreamError('stream_source_pins_invalid')
    context={**context,**versions}
   combined={**run,**context,'pipeline_version':pipeline_version,'row_selection':SELECTION,'start_monotonic_ns':str(lo),'end_monotonic_ns':str(hi),'stream_reducer_id':self._reducer_id(),'stream_chunk_bytes':self.limits.chunk_bytes,'stream_line_bytes':self.limits.line_bytes}
   types={pin['source_type'] for pin in pins}
   source_type='synthetic' if 'SYNTHETIC' in types else 'simulation' if run.get('runtime_mode')=='SIM' else 'real' if run.get('runtime_mode')=='REAL' else 'historical'
+  if pipeline_version=='automatic-reports-10':
+   from .stream_tracking_store import validate_schema as validate_tracking
+   validate_tracking(self.db);combined['stream_source_type']=source_type
   combined.update(original_import_source_types=sorted(types),stream_source_type_policy='import_origin_before_runtime_1')
   if len(canonical(combined).encode())>MAX_METADATA or len(canonical(run).encode())>MAX_METADATA:raise StreamError('stream_source_pins_invalid')
   stream_id=identity([VERSION,run,combined,_portable(pins)])
@@ -239,8 +244,34 @@ class StreamRunner:
  def _quota(self,extra=0,free_extra=None):
   used=self.db.execute('SELECT COALESCE(SUM(spool_bytes),0) FROM analysis_stream_jobs').fetchone()[0]
   pages=self.db.execute('PRAGMA page_count').fetchone()[0]*self.db.execute('PRAGMA page_size').fetchone()[0]
+  if getattr(self.reducer,'pipeline_version',None)=='automatic-reports-10':
+   # Ordered covering-index reads require no SQLite sorting. Reserve a bounded
+   # transaction's journal growth before mutation; charge actual WAL/journal too.
+   database=next((row[2] for row in self.db.execute('PRAGMA database_list') if row[1]=='main'),None)
+   journals=sum(Path(database+suffix).stat().st_size for suffix in ('-wal','-journal') if database and Path(database+suffix).exists())
+   if journals>self.limits.work_wal_bytes:raise StreamError('stream_spool_resource_limit')
+   headroom=self.limits.work_transaction_bytes
+   pages+=journals+headroom
+   if shutil.disk_usage(self.root).free-headroom<self.limits.min_free_bytes:raise StreamError('stream_free_space_unavailable')
   if used+pages+extra>self.limits.max_spool_bytes:raise StreamError('stream_spool_resource_limit')
   if shutil.disk_usage(self.root).free-(extra if free_extra is None else free_extra)<self.limits.min_free_bytes:raise StreamError('stream_free_space_unavailable')
+ @contextmanager
+ def _reduction_transaction(self):
+  tracking=getattr(self.reducer,'pipeline_version',None)=='automatic-reports-10'
+  if not tracking:
+   with atomic(self.db):yield
+   return
+  self._quota()
+  before=self.db.execute('PRAGMA page_count').fetchone()[0] if tracking else None
+  with atomic(self.db):
+   yield
+   if tracking:
+    growth=max(0,self.db.execute('PRAGMA page_count').fetchone()[0]-before)*self.db.execute('PRAGMA page_size').fetchone()[0]
+    if growth>self.limits.work_transaction_bytes:raise StreamError('stream_spool_resource_limit')
+   self._quota()
+  # WAL growth becomes fully visible at commit. Overshoot is at most the
+  # admitted bounded transaction; surface it before any later work/publication.
+  self._quota()
  def _read_small(self,path,limit):
   with self._file(path,'rb') as stream:return stream.read(limit+1)
  def _start(self,job):
@@ -262,6 +293,8 @@ class StreamRunner:
    chunk=bytearray(),chunk_rows=0,chunk_start=0,chunk_end=0,chunk_line=0,ordinal=0,chain=INITIAL_CHAIN,
    committed=job['chunk_count'],checkpoint=checkpoint,state=_json(checkpoint['state_json']),scanned=0,selected_bytes=0,verified_bytes=0,replay_bytes=0,
    previous_cycle=None,past_run_end=False,hazards=dict(total=0,references=[],truncated=False))
+  if getattr(self.reducer,'pipeline_version',None)=='automatic-reports-10':
+   rt['phase']='work_validate';rt['work_validation']=self.reducer.validation_initial()
   self._workspace(rt);self._runtime[job['stream_id']]=rt
   with atomic(self.db):
    self.db.execute("UPDATE analysis_stream_jobs SET state='verifying',phase='raw_verify',verified_source_count=0,verified_bytes=0,replay_bytes=0 WHERE stream_id=? AND generation=?",(rt['id'],rt['generation']))
@@ -322,10 +355,13 @@ class StreamRunner:
    else:
     with self._file(path,'xb') as output:output.write(data);output.flush();os.fsync(output.fileno())
    state=copy.deepcopy(rt['state'])
-   with atomic(self.db):
+   with self._reduction_transaction():
     if self.reducer is not None:
      try:
-      for line in data.splitlines():state=self.reducer.consume(self.db,rt['id'],rt['generation'],state,_json(line))
+      for line in data.splitlines():
+       row=_json(line)
+       if getattr(self.reducer,'pipeline_version',None)=='automatic-reports-10':state=self.reducer.consume_chunk(self.db,rt['id'],rt['generation'],state,row,rt['ordinal'])
+       else:state=self.reducer.consume(self.db,rt['id'],rt['generation'],state,row)
      except sqlite3.Error:raise
      except Exception:raise StreamError('stream_reducer_failed') from None
     state_json=canonical(state)
@@ -416,7 +452,10 @@ class StreamRunner:
    rt['source_index']+=1;rt['line']=0;rt['chunk_start']=0;rt['chunk_end']=0
    if rt['source_index']==len(rt['sources']):
     if rt['ordinal']<rt['committed']:raise StreamError('stream_checkpoint_invalid')
-    rt['phase']='manifest_publish';rt['manifest_ordinal']=-1;rt['manifest_hash']=hashlib.sha256();rt['manifest_bytes']=0
+    if getattr(self.reducer,'pipeline_version',None)=='automatic-reports-10':
+     rt['phase']='work_validate';rt['work_validation']=self.reducer.validation_initial();rt['validation_next']='reducer_finalize'
+    else:rt['phase']='manifest_publish'
+    rt['manifest_ordinal']=-1;rt['manifest_hash']=hashlib.sha256();rt['manifest_bytes']=0
  def _descriptor(self,rt):
   return dict(input_format=INPUT_FORMAT,framework=VERSION,profile=PROFILE,importer_version=EXTRACTOR_VERSION,extractor_version=EXTRACTOR_VERSION,
    mapping_revision=MAPPING_REVISION,stream_id=rt['id'],generation=rt['generation'],source_type=rt['source_type'],
@@ -457,11 +496,18 @@ class StreamRunner:
    if _sig(target.stat())[:2]!=_sig(partial.stat())[:2]:raise StreamError('stream_inventory_invalid')
   else:os.link(partial,target)
   self._final_inputs(rt)
+  if getattr(self.reducer,'pipeline_version',None)=='automatic-reports-10':self.reducer.publication_check(self.db,rt['id'],rt['generation'],rt['state'])
   descriptor=self._descriptor(rt)
   descriptor['final_manifest']=dict(path=target.relative_to(self.root).as_posix(),sha256=rt['manifest_hash'].hexdigest(),size_bytes=rt['manifest_bytes'])
+  if 'finalization' in rt:
+   from .stream_tracking_store import finalized_digest
+   descriptor['stream_reduction']=dict(finalized_work_digest=finalized_digest(rt['state']['tracking']['work'],rt['finalization']),quantile_policy='integer_duration_95_over_100')
   descriptor['input_digest']=identity(descriptor)
   if self.reducer is not None:
-   try:descriptor['result']=self.reducer.finish(copy.deepcopy(rt['state']),descriptor)
+   try:
+    state=copy.deepcopy(rt['state'])
+    if 'finalization' in rt:state['finalization']=rt['finalization']
+    descriptor['result']=self.reducer.finish(state,descriptor)
    except Exception:raise StreamError('stream_reducer_failed') from None
   raw=canonical(descriptor)
   if len(raw.encode())>4*MAX_METADATA:raise StreamError('stream_reducer_failed')
@@ -487,7 +533,16 @@ class StreamRunner:
    if stream_id in self._runtime and self._runtime[stream_id]['generation']!=job['generation']:
     self._runtime.pop(stream_id,None);return self.progress(stream_id)
    rt=self._runtime.get(stream_id) or self._start(job)
-   if rt['phase']=='manifest_publish':self._publish_manifest(rt,max_bytes,max_rows,deadline)
+   if rt['phase']=='work_validate':
+    if self.reducer.validate_step(self.db,rt['id'],rt['generation'],rt['state'],rt['work_validation'],min(max_rows,max(1,max_bytes//128)),deadline,time.monotonic):rt['phase']=rt.get('validation_next','raw_verify')
+   elif rt['phase']=='reducer_finalize':
+    with self._reduction_transaction():
+     final=self.reducer.finalize_step(self.db,rt['id'],rt['generation'],rt['state'],min(max_rows,max(1,max_bytes//128)),deadline,time.monotonic)
+     self._quota()
+    rt['finalization']=final
+    if final['complete']:
+     rt['phase']='work_validate';rt['work_validation']=self.reducer.validation_initial();rt['validation_next']='manifest_publish'
+   elif rt['phase']=='manifest_publish':self._publish_manifest(rt,max_bytes,max_rows,deadline)
    else:
     kind='raw' if rt['phase']=='raw_verify' else 'manifest' if rt['phase']=='manifest_verify' else 'dataset'
     source=rt['sources'][rt['source_index'] if kind=='dataset' else rt['verify_index']]
