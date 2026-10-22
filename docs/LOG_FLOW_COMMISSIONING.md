@@ -44,7 +44,7 @@ Do not supply video-config, video-media-config, or marker-config for the first t
 - [ ] Confirm live status identifies the intended robot/boot and advances; confirm the receiver publishes its closed-file manifest.
 - [ ] Confirm logging begins, a normal run followed by sustained permitted disable closes a segment, and a successor recording opens.
 
-Ordinary AdvantageKit logs do not supply this closed-file manifest. Disabled state or a file that appears to stop growing is not sufficient proof that a file is immutable. Existing ordinary WPILOGs can test the [manual import path](IMPORTER.md) before robot deployment, but that does not qualify automatic collection. The current analysis profile supports the pinned Alpha 7/AdvantageKit build; historical 2026 logs are not newly supported.
+Ordinary AdvantageKit logs do not supply this closed-file manifest. Disabled state or a file that appears to stop growing is not sufficient proof that a file is immutable. Existing ordinary WPILOGs can test the [manual import path](IMPORTER.md) before robot deployment, but that does not qualify automatic collection. Use the explicit supported profile for the pinned Alpha 7/AdvantageKit build or historical 2026 imports; do not infer producing versions from a filename. See [import profiles](IMPORTER.md).
 
 ## First lab session
 
@@ -73,6 +73,7 @@ Use separately scoped trials for controlled robot reboot and reader-process fail
 - [ ] Save a local notebook note and verify its incident time can be associated with the intended run.
 - [ ] Open Practice summaries. Confirm conversion completes and recording-quality, tracking, and current results appear; missing evidence must remain unavailable.
 - [ ] For repeated-test comparisons, record an analysis plan and four physical component assignments in Review & maintenance. Do not treat a report as a healthy baseline or mechanical diagnosis.
+- [ ] If a canceled or eligible storage-failed full-log analysis occurs, retain its failure details, address free space/configured allowance, restart after configuration changes and choose **Request fresh analysis attempt** on the selected run. Confirm the old attempt stays separate, the request moves from queued/running to a result, and refresh does not submit more requests. Retry retains old storage; source/hash/schema failures need inspection. Otherwise record this recovery check as unexercised. See [retry behavior](STREAMING_RUNTIME.md#explicit-fresh-attempt-retry).
 - [ ] Measure local disk growth and processing time with representative logs. Allow an end-of-practice disabled window if collection cannot keep up.
 
 ## Complete the school to home round trip
