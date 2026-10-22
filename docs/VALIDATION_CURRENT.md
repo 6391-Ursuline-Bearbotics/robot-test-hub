@@ -1,3 +1,13 @@
+# Windows CI timing correction — October 22, 2026
+
+Current-head CI at 3497a1fc04b9b501d040af7bcff3b99a939659bc ([run 39187465611](https://github.com/6391-Ursuline-Bearbotics/robot-test-hub/actions/runs/39187465611)) passed Linux Python 3.10/3.13, failed two Windows Python 3.10 source-identity tests and canceled Windows Python 3.13 through matrix fail-fast. Windows ran 1,294 tests with two failures and 21 skips. This is a failed run, not qualification of the full newer feature set.
+
+The failures assumed a 25 ms work turn reaches its first read. Source admission/workspace fsync can consume that elapsed budget on a loaded machine, yielding safely with zero verified bytes. Identity tests now use a scoped fixed monotonic clock and retain their byte/row bounds; between-turn mutation uses an explicit phase rather than counting fstat calls. Replacement must still fail on the first bounded read with zero accepted bytes. No production guard or timeout changed.
+
+Sol implementation and independent review each ran the eight cases on actual Windows Python 3.10 and isolated official Python 3.13. Python 3.10 passed seven with the existing pre-3.12 capability skip; Python 3.13 passed all eight. Negative controls compiled temporary in-memory copies with each ctime guard removed separately: the corresponding tests failed, confirming the deterministic clock does not hide missing mutation detection. Full-suite and hosted results for subsequent changes are recorded separately.
+
+A separate current-source audit found that the newer Collect now path bypasses the live idle gate, can connect from offline/demo mode, does not cancel owned pull I/O, and skips equal-sized filename replacements. It also describes non-newest files as finished without closure proof. These are open implementation defects under active correction; do not treat that workflow as physically commissioned. Folder/USB import and the original gated immutable-manifest collector remain separate paths.
+
 # Real-log shakedown (P0.3) — October 18, 2026
 
 First run of the hub on **real robot logs**: seven 2026-season match logs (WPILib 2026 / AdvantageKit 26, roboRIO) from the team's shared Drive, 32–68 MB each, copied privately to the mentor laptop outside the repository. No log, match identifier or robot-specific observation is committed here.
