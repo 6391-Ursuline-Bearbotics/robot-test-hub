@@ -19,7 +19,8 @@ MAX_ROWS = 50000
 STREAM_VERSION = 'automatic-reports-8'
 CURRENT_STREAM_VERSION = 'automatic-reports-9'  # Fixed historical status policy.
 TRACKING_STREAM_VERSION = 'automatic-reports-10'
-DEFAULT_STREAM_VERSION = TRACKING_STREAM_VERSION
+MOTION_STREAM_VERSION = 'automatic-reports-11'
+DEFAULT_STREAM_VERSION = MOTION_STREAM_VERSION
 STREAM_SELECTION = 'full_source_scoped_rows_1'
 STREAM_FRAMEWORK = 'stream-analysis-1'
 STREAM_DISPATCH_SQL_STEP_LIMIT = 5_000_000
@@ -253,7 +254,7 @@ def generate(root, db, document, *, max_rows=MAX_ROWS, pipeline_version=None):
     Large/problematic runs produce explicit unavailable reports, never truncated
     successful health reports. Raw originals and complete imported datasets stay.
     """
-    if pipeline_version in (STREAM_VERSION,CURRENT_STREAM_VERSION,TRACKING_STREAM_VERSION):
+    if pipeline_version in (STREAM_VERSION,CURRENT_STREAM_VERSION,TRACKING_STREAM_VERSION,MOTION_STREAM_VERSION):
         return schedule_stream_reports(root,db,document,pipeline_version=pipeline_version)
     if type(max_rows) is not int or max_rows < 2:
         raise ValueError('max_rows must be at least two')
@@ -367,6 +368,9 @@ def _stream_reducer(pipeline_version):
     if pipeline_version==TRACKING_STREAM_VERSION:
         from .stream_tracking import TrackingReducer
         return TrackingReducer()
+    if pipeline_version==MOTION_STREAM_VERSION:
+        from .stream_motion import MotionReducer
+        return MotionReducer()
     raise ValueError('stream_report_policy_invalid')
 
 
@@ -381,7 +385,7 @@ class StreamReportRunner:
         from .stream_analysis import StreamRunner
         self.db=db
         self.runners={policy:StreamRunner(root,db,reducer=_stream_reducer(policy),limits=limits)
-                      for policy in (STREAM_VERSION,CURRENT_STREAM_VERSION,TRACKING_STREAM_VERSION)}
+                      for policy in (STREAM_VERSION,CURRENT_STREAM_VERSION,TRACKING_STREAM_VERSION,MOTION_STREAM_VERSION)}
     def schedule(self,run,context):
         policy=context.get('pipeline_version',DEFAULT_STREAM_VERSION)
         if policy not in self.runners:raise ValueError('stream_report_policy_invalid')
@@ -453,7 +457,7 @@ def _stream_context(run,document,snapshot,legacy_report=None,*,pipeline_version=
         from .stream_status import PHOENIX_VERSION,SYSTEM_VERSION
         context.update(stream_mapper_version=mapper_version,stream_phoenix_status_version=PHOENIX_VERSION,
                        stream_system_status_version=SYSTEM_VERSION)
-    if pipeline_version==TRACKING_STREAM_VERSION:
+    if pipeline_version in (TRACKING_STREAM_VERSION,MOTION_STREAM_VERSION):
         context.update(_stream_reducer(pipeline_version).context_versions)
         context['stream_motion_measurement_source']=(plan or {}).get('stream_tracking_measurement_source','measured_array')
     if legacy_report is not None:
@@ -495,19 +499,20 @@ def publish_stream_report(db,stream_id,descriptor):
         raise ValueError('stream_report_input_not_verified')
     provenance={key:copy.deepcopy(value) for key,value in descriptor.items() if key!='result'}
     policy=provenance.get('context',{}).get('pipeline_version')
-    if policy not in (STREAM_VERSION,CURRENT_STREAM_VERSION,TRACKING_STREAM_VERSION):raise ValueError('stream_report_policy_invalid')
+    if policy not in (STREAM_VERSION,CURRENT_STREAM_VERSION,TRACKING_STREAM_VERSION,MOTION_STREAM_VERSION):raise ValueError('stream_report_policy_invalid')
     if provenance['context'].get('stream_reducer_id')!=_stream_reducer_identity(policy):
         raise ValueError('stream_report_reducer_invalid')
     if any(provenance['context'].get(key)!=value for key,value in getattr(_stream_reducer(policy),'context_versions',{}).items()):
         raise ValueError('stream_report_policy_invalid')
     status_checks=None
-    if policy in (CURRENT_STREAM_VERSION,TRACKING_STREAM_VERSION):
+    if policy in (CURRENT_STREAM_VERSION,TRACKING_STREAM_VERSION,MOTION_STREAM_VERSION):
         payload=descriptor['result']
-        expected_format='stream-tracking-results-1' if policy==TRACKING_STREAM_VERSION else 'stream-status-results-1'
+        expected_format='stream-motion-results-1' if policy==MOTION_STREAM_VERSION else 'stream-tracking-results-1' if policy==TRACKING_STREAM_VERSION else 'stream-status-results-1'
         if payload.get('stream_result_format')!=expected_format:raise ValueError('stream_report_result_invalid')
         status_checks=payload.get('checks')
         expected_checks={'recording-quality','phoenix-status-observation','system-status-observation'}
-        if policy==TRACKING_STREAM_VERSION:expected_checks.add('swerve-tracking')
+        if policy in (TRACKING_STREAM_VERSION,MOTION_STREAM_VERSION):expected_checks.add('swerve-tracking')
+        if policy==MOTION_STREAM_VERSION:expected_checks.add('recorded-steering-observation')
         if type(status_checks) is not dict or set(status_checks)!=expected_checks:
             raise ValueError('stream_report_result_invalid')
         if any(value.get('outcome') not in OUTCOMES for value in status_checks.values()):raise ValueError('stream_report_result_invalid')
@@ -520,9 +525,12 @@ def publish_stream_report(db,stream_id,descriptor):
         from .stream_status import PHOENIX_VERSION,SYSTEM_VERSION
         definitions[2]=('phoenix-status-observation',PHOENIX_VERSION)
         definitions[3]=('system-status-observation',SYSTEM_VERSION)
-    if policy==TRACKING_STREAM_VERSION:
+    if policy in (TRACKING_STREAM_VERSION,MOTION_STREAM_VERSION):
         from .stream_tracking import VERSION as tracking_version
         definitions[1]=('swerve-tracking',tracking_version)
+    if policy==MOTION_STREAM_VERSION:
+        from .stream_steering import VERSION as steering_version
+        definitions[4]=('recorded-steering-observation',steering_version)
     checks=[]
     plan=provenance['context'].get('analysis_plan') or {}
     for analyzer_id,version in definitions:

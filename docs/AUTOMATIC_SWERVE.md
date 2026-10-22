@@ -33,7 +33,7 @@ The local review API accepts `POST /api/v1/review/analysis-plans`; its snapshot 
 | `swerve_configuration` | Existing analyzer parameters with exact units and explicit threshold revision |
 | `approved_baseline_id` | Explicit approved cohort identity, or null; never an automatically chosen recent cohort |
 | `ideal_simulation_cycle_policy` | Explicit ideal simulation assumption, default false |
-| `stream_tracking_measurement_source` | Optional full-log tracking source: `measured_array` or explicit `module_io_if_array_absent`. Absent keeps the original array behavior; no key is added to older plans automatically. |
+| `stream_tracking_measurement_source` | Optional full-log motion source (tracking and pipeline-11 recorded steering): `measured_array` or explicit `module_io_if_array_absent`. Absent keeps the original array behavior; no key is added to older plans automatically. |
 
 Recorded configuration must agree with the selected context throughout the run. A recorded build hash must also agree; a missing build hash remains visibly human-declared and unverified. Human-declared information remains distinguishable from values actually observed in a log. Unknown fields, invalid values, ambiguous scope and incomplete coverage fail explicitly.
 
@@ -58,3 +58,5 @@ Six author regressions and nine independent importer/HTTP/pipeline regressions p
 An isolated browser checks actual imported native-generated evidence: four modules, 19 eligible intervals each, eight cohort comparisons, explicit simulation assumptions, source references, revisioned context and offline clearing. Editing a loaded plan preserves normalized parameters and its selected cohort and causes a new worker report without a new import. Focused JavaScript checks cover exact nine-digit UTC conversion, normalized revision policy, stale responses, unequal-duration RMS, gaps and projection bounds.
 
 Generated recordings stay outside the public source tree; only generator/test code is published. Existing public fixtures still pass the locked official-reader oracle after adding swerve-array decoding. The native-enabled Windows/Python 3.10.7 suite ran **465 tests in 90.730 seconds: 463 passed, two symbolic-link privilege skips**. Final browser evidence and published checks belong in [VALIDATION_CURRENT.md](VALIDATION_CURRENT.md).
+
+Pipeline 11 requires valid matching recorded build/configuration hashes for this streamed motion source; a human plan alone cannot replace missing identity evidence. Its recorded-steering check can describe REAL logged states without granting physical acquisition freshness. Historical pipeline 10 retains its documented missing-build limitation. See [streamed motion contracts](STREAMING_RUNTIME.md).

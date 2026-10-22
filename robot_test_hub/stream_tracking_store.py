@@ -28,6 +28,19 @@ for action,rows in (('insert',('NEW',)),('delete',('OLD',)),('update',('OLD','NE
     SQL['analysis_tracking_'+action+'_revision']='CREATE TRIGGER IF NOT EXISTS analysis_tracking_'+action+'_revision AFTER '+action.upper()+' ON analysis_tracking_samples BEGIN '+statements+' END'
 
 METRICS = ('drive','steering')
+MOTION_VERSION = 'motion-work-2'
+MOTION_METRICS = ('drive','steering','recorded_steering')
+
+def _metrics(work):
+    version=work.get('version')
+    if version==VERSION:return METRICS
+    if version==MOTION_VERSION:return MOTION_METRICS
+    raise ValueError('motion_work_layout_invalid')
+
+def _initial_chain(version):
+    if version not in (VERSION,MOTION_VERSION):raise ValueError('motion_work_layout_invalid')
+    return hashlib.sha256((version+'\0').encode()).hexdigest()
+
 
 def install_schema(db):
     for statement in SQL.values(): db.execute(statement)
@@ -41,8 +54,8 @@ def validate_schema(db):
 def chain(previous,record):
     return hashlib.sha256(bytes.fromhex(previous)+canonical(record).encode()).hexdigest()
 
-def initial():
-    return dict(version=VERSION,count=0,chain=INITIAL_CHAIN,weights={str(i)+':'+m:'0' for i in range(4) for m in METRICS})
+def initial(version=VERSION):
+    return dict(version=version,count=0,chain=_initial_chain(version),weights={str(i)+':'+m:'0' for i in range(4) for m in _metrics({'version':version})})
 
 def assert_revision(db,sid,generation,work):
     row=db.execute('SELECT revision FROM analysis_tracking_revision WHERE stream_id=? AND generation=?',(sid,generation)).fetchone()
@@ -59,8 +72,8 @@ def contribute(db,sid,generation,state,chunk,row,module,metric,error,duration):
     state.update(count=state['count']+1,chain=chain(state['chain'],record))
     state['weights'][key]=str(total)
 
-def validation_initial():
-    return dict(cursor=-1,count=0,chain=INITIAL_CHAIN,weights={str(i)+':'+m:0 for i in range(4) for m in METRICS},contributions_done=False,final_replay=None)
+def validation_initial(version=VERSION):
+    return dict(cursor=-1,count=0,chain=_initial_chain(version),weights={str(i)+':'+m:0 for i in range(4) for m in _metrics({'version':version})},contributions_done=False,final_replay=None)
 
 def validate_step(db,sid,generation,expected,state,limit,deadline,clock):
     assert_revision(db,sid,generation,expected)
@@ -73,7 +86,7 @@ def validate_step(db,sid,generation,expected,state,limit,deadline,clock):
     for row in rows:
         if clock()>=deadline:break
         record=list(row)
-        if record[0]!=state['count'] or record[4] not in range(4) or record[5] not in METRICS or not math.isfinite(record[6]) or record[6]<0 or type(record[7]) is not int or record[7]<=0:
+        if record[0]!=state['count'] or record[4] not in range(4) or record[5] not in _metrics(expected) or not math.isfinite(record[6]) or record[6]<0 or type(record[7]) is not int or record[7]<=0:
             raise ValueError('tracking_work_invalid')
         state['chain']=chain(state['chain'],record)
         state['weights'][str(record[4])+':'+record[5]]+=record[7]
@@ -86,7 +99,7 @@ def validate_step(db,sid,generation,expected,state,limit,deadline,clock):
     return False
 
 def _empty_final(work):
-    return dict(version=VERSION,sample_chain=work['chain'],sample_count=work['count'],metric_index=0,cursor=None,cumulative='0',quantiles={},complete=False)
+    return dict(version=work['version'],sample_chain=work['chain'],sample_count=work['count'],metric_index=0,cursor=None,cumulative='0',quantiles={},complete=False)
 
 def _load(db,sid,generation,work):
     row=db.execute('SELECT state_json,state_sha256 FROM analysis_tracking_finalization WHERE stream_id=? AND generation=?',(sid,generation)).fetchone()
@@ -95,11 +108,12 @@ def _load(db,sid,generation,work):
     if len(row[0].encode())>65536 or hashlib.sha256(row[0].encode()).hexdigest()!=row[1]:
         raise ValueError('tracking_finalization_checkpoint_invalid')
     state=json.loads(row[0])
-    if state.get('version')!=VERSION or state.get('sample_chain')!=work['chain'] or state.get('sample_count')!=work['count']:
+    if state.get('version')!=work['version'] or state.get('sample_chain')!=work['chain'] or state.get('sample_count')!=work['count']:
         raise ValueError('tracking_finalization_input_changed')
-    if type(state.get('metric_index')) is not int or not 0<=state['metric_index']<=8 or state.get('complete') is not (state['metric_index']==8):
+    metrics=_metrics(work);slots=4*len(metrics)
+    if type(state.get('metric_index')) is not int or not 0<=state['metric_index']<=slots or state.get('complete') is not (state['metric_index']==slots):
         raise ValueError('tracking_finalization_cursor_invalid')
-    if not isinstance(state.get('quantiles'),dict) or set(state['quantiles'])!={str(i//2)+':'+METRICS[i%2] for i in range(state['metric_index'])}:
+    if not isinstance(state.get('quantiles'),dict) or set(state['quantiles'])!={str(i//len(metrics))+':'+metrics[i%len(metrics)] for i in range(state['metric_index'])}:
         raise ValueError('tracking_finalization_quantiles_invalid')
     return state
 
@@ -113,15 +127,15 @@ def _target_reached(state,target):
 
 def _advance(db,sid,generation,work,state,limit,deadline,clock,target=None):
     if _target_reached(state,target):return True
-    consumed=0
-    while state['metric_index']<8 and consumed<limit and clock()<deadline:
-        module,offset=divmod(state['metric_index'],2);metric=METRICS[offset];key=str(module)+':'+metric
+    consumed=0;metrics=_metrics(work);slots=4*len(metrics)
+    while state['metric_index']<slots and consumed<limit and clock()<deadline:
+        module,offset=divmod(state['metric_index'],len(metrics));metric=metrics[offset];key=str(module)+':'+metric
         total=int(work['weights'][key])
         if not total:
             state['quantiles'][key]=None
             state.update(metric_index=state['metric_index']+1,cursor=None,cumulative='0')
             consumed+=1
-            state['complete']=state['metric_index']==8
+            state['complete']=state['metric_index']==slots
             if _target_reached(state,target):return True
             continue
         cursor=state['cursor']
@@ -143,11 +157,11 @@ def _advance(db,sid,generation,work,state,limit,deadline,clock,target=None):
             if 100*cumulative>=95*total:
                 state['quantiles'][key]=error
                 state.update(metric_index=state['metric_index']+1,cursor=None,cumulative='0')
-                state['complete']=state['metric_index']==8
+                state['complete']=state['metric_index']==slots
                 if _target_reached(state,target):return True
                 break
             if _target_reached(state,target):return True
-    state['complete']=state['metric_index']==8
+    state['complete']=state['metric_index']==slots
     if target is not None and state['complete'] and not _target_reached(state,target):
         raise ValueError('tracking_finalization_cursor_unreachable')
     return state['complete'] if target is None else False
@@ -170,26 +184,24 @@ def finalize_step(db,sid,generation,work,limit,deadline,clock):
 
 def finalized_digest(work,state):
     if not state['complete']:raise ValueError('tracking_quantiles_incomplete')
-    return identity([VERSION,work,state])
+    return identity([work['version'],work,state])
 
 
 def validate_catalog_work(db):
-    """Coherent backup verification: bounded Python pages, never materialize history."""
-    checkpoints=db.execute("SELECT stream_id,generation,state_json,state_sha256 FROM analysis_stream_checkpoints WHERE reducer_id=? ORDER BY stream_id,generation",
-                           ('recorded-status-tracking@stream-recorded-status-tracking-1',))
-    for sid,generation,raw,digest in checkpoints:
-        if len(raw.encode())>1024*1024 or hashlib.sha256(raw.encode()).hexdigest()!=digest:
-            raise ValueError('tracking_checkpoint_invalid')
-        expected=json.loads(raw)['tracking']['work'];cursor=validation_initial()
-        while not validate_step(db,sid,generation,expected,cursor,256,1.,lambda:0.):pass
-        # A finalization record can be absent for a still-scanning stream.
-        _load(db,sid,generation,expected)
-    orphan=db.execute("SELECT 1 FROM analysis_tracking_samples s WHERE NOT EXISTS (SELECT 1 FROM analysis_stream_checkpoints c "
-                      "WHERE c.stream_id=s.stream_id AND c.generation=s.generation AND c.reducer_id=?) LIMIT 1",
-                      ('recorded-status-tracking@stream-recorded-status-tracking-1',)).fetchone()
-    if orphan:raise ValueError('tracking_orphan_work')
-    for table in ('analysis_tracking_finalization','analysis_tracking_revision'):
+    """Coherent backup verification with explicit fixed reducer/work contracts."""
+    registry={'recorded-status-tracking@stream-recorded-status-tracking-1':VERSION,
+              'recorded-status-motion@stream-recorded-status-motion-1':MOTION_VERSION}
+    for reducer,version in registry.items():
+        checkpoints=db.execute("SELECT stream_id,generation,state_json,state_sha256 FROM analysis_stream_checkpoints WHERE reducer_id=? ORDER BY stream_id,generation",(reducer,))
+        for sid,generation,raw,digest in checkpoints:
+            if len(raw.encode())>1024*1024 or hashlib.sha256(raw.encode()).hexdigest()!=digest:
+                raise ValueError('tracking_checkpoint_invalid')
+            expected=json.loads(raw)['tracking']['work']
+            if expected.get('version')!=version:raise ValueError('motion_work_layout_invalid')
+            cursor=validation_initial(version)
+            while not validate_step(db,sid,generation,expected,cursor,256,1.,lambda:0.):pass
+            _load(db,sid,generation,expected)
+    for table in ('analysis_tracking_samples','analysis_tracking_finalization','analysis_tracking_revision'):
         orphan=db.execute('SELECT 1 FROM '+table+' s WHERE NOT EXISTS (SELECT 1 FROM analysis_stream_checkpoints c '
-                          'WHERE c.stream_id=s.stream_id AND c.generation=s.generation AND c.reducer_id=?) LIMIT 1',
-                          ('recorded-status-tracking@stream-recorded-status-tracking-1',)).fetchone()
+                          'WHERE c.stream_id=s.stream_id AND c.generation=s.generation AND c.reducer_id IN (?,?)) LIMIT 1',tuple(registry)).fetchone()
         if orphan:raise ValueError('tracking_orphan_work')

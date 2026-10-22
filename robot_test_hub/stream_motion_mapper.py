@@ -1,5 +1,6 @@
 """Pipeline-10 motion mapping; mapper-1 and status reducer policy stay untouched."""
 import math
+import re
 from .analysis import identity
 from .swerve import ROBOT_FIELDS, MODULE_POSITIONS, SAMPLE_PROFILE
 from .stream_quality import _unique
@@ -126,13 +127,23 @@ def samples(snapshot,context,source_type):
     enabled_value=enabled.get('value') if enabled.get('validity')=='valid' and type(enabled.get('value')) is bool else None
     if enabled_value is None:reasons.append('enabled_status_unknown_or_invalid')
     ideal=plan.get('ideal_simulation_cycle_policy') is True and source_type=='simulation'
+    strict=context.get('pipeline_version')=='automatic-reports-11'
+    if strict:
+        if context.get('stream_motion_build_policy')!='recorded_build_and_configuration_required_1':
+            raise ValueError('stream_motion_build_policy_invalid')
+        for name,declared in (('source_sha256',plan.get('build_hash')),('configuration_sha256',plan.get('config_hash'))):
+            observed=aliases.get(name,{})
+            if (observed.get('validity')!='valid' or not isinstance(observed.get('value'),str)
+                    or not re.fullmatch('[a-f0-9]{64}',observed['value']) or observed['value']!=declared):
+                reasons.append('strict_recorded_'+name+'_unavailable_or_changed')
+    strict_invalid=strict and bool(reasons)
     outputs=[]
     for module,position in enumerate(MODULE_POSITIONS):
         command=held.get(ROBOT_FIELDS['commands']);measured=held.get(ROBOT_FIELDS['measured'])
         velocity=held.get(f'/Drive/Module{module}/DriveVelocityRadPerSec')
         turn=held.get(f'/Drive/Module{module}/TurnPosition')
         array_measurement=snapshot['measurement_array_seen']
-        valid=all(field in held for field in SCHEMAS) and command is not None
+        valid=all(field in held for field in SCHEMAS) and command is not None and not strict_invalid
         a=command['value'][module] if command else None
         radius=context.get('wheel_radius_m')
         if array_measurement:

@@ -185,15 +185,15 @@ class StreamRunner:
   if lo>hi:raise StreamError('stream_source_pins_invalid')
   pins=self._pins(run)
   pipeline_version=getattr(self.reducer,'pipeline_version','automatic-reports-8')
-  if pipeline_version not in ('automatic-reports-8','automatic-reports-9','automatic-reports-10'):raise StreamError('stream_source_pins_invalid')
-  if pipeline_version in ('automatic-reports-9','automatic-reports-10'):
+  if pipeline_version not in ('automatic-reports-8','automatic-reports-9','automatic-reports-10','automatic-reports-11'):raise StreamError('stream_source_pins_invalid')
+  if pipeline_version in ('automatic-reports-9','automatic-reports-10','automatic-reports-11'):
    versions=getattr(self.reducer,'context_versions',{})
    if any(key in context and context[key]!=value for key,value in versions.items()):raise StreamError('stream_source_pins_invalid')
    context={**context,**versions}
   combined={**run,**context,'pipeline_version':pipeline_version,'row_selection':SELECTION,'start_monotonic_ns':str(lo),'end_monotonic_ns':str(hi),'stream_reducer_id':self._reducer_id(),'stream_chunk_bytes':self.limits.chunk_bytes,'stream_line_bytes':self.limits.line_bytes}
   types={pin['source_type'] for pin in pins}
   source_type='synthetic' if 'SYNTHETIC' in types else 'simulation' if run.get('runtime_mode')=='SIM' else 'real' if run.get('runtime_mode')=='REAL' else 'historical'
-  if pipeline_version=='automatic-reports-10':
+  if pipeline_version in ('automatic-reports-10','automatic-reports-11'):
    from .stream_tracking_store import validate_schema as validate_tracking
    validate_tracking(self.db);combined['stream_source_type']=source_type
   combined.update(original_import_source_types=sorted(types),stream_source_type_policy='import_origin_before_runtime_1')
@@ -244,7 +244,7 @@ class StreamRunner:
  def _quota(self,extra=0,free_extra=None):
   used=self.db.execute('SELECT COALESCE(SUM(spool_bytes),0) FROM analysis_stream_jobs').fetchone()[0]
   pages=self.db.execute('PRAGMA page_count').fetchone()[0]*self.db.execute('PRAGMA page_size').fetchone()[0]
-  if getattr(self.reducer,'pipeline_version',None)=='automatic-reports-10':
+  if getattr(self.reducer,'pipeline_version',None) in ('automatic-reports-10','automatic-reports-11'):
    # Ordered covering-index reads require no SQLite sorting. Reserve a bounded
    # transaction's journal growth before mutation; charge actual WAL/journal too.
    database=next((row[2] for row in self.db.execute('PRAGMA database_list') if row[1]=='main'),None)
@@ -257,7 +257,7 @@ class StreamRunner:
   if shutil.disk_usage(self.root).free-(extra if free_extra is None else free_extra)<self.limits.min_free_bytes:raise StreamError('stream_free_space_unavailable')
  @contextmanager
  def _reduction_transaction(self):
-  tracking=getattr(self.reducer,'pipeline_version',None)=='automatic-reports-10'
+  tracking=getattr(self.reducer,'pipeline_version',None) in ('automatic-reports-10','automatic-reports-11')
   if not tracking:
    with atomic(self.db):yield
    return
@@ -293,7 +293,7 @@ class StreamRunner:
    chunk=bytearray(),chunk_rows=0,chunk_start=0,chunk_end=0,chunk_line=0,ordinal=0,chain=INITIAL_CHAIN,
    committed=job['chunk_count'],checkpoint=checkpoint,state=_json(checkpoint['state_json']),scanned=0,selected_bytes=0,verified_bytes=0,replay_bytes=0,
    previous_cycle=None,past_run_end=False,hazards=dict(total=0,references=[],truncated=False))
-  if getattr(self.reducer,'pipeline_version',None)=='automatic-reports-10':
+  if getattr(self.reducer,'pipeline_version',None) in ('automatic-reports-10','automatic-reports-11'):
    rt['phase']='work_validate';rt['work_validation']=self.reducer.validation_initial()
   self._workspace(rt);self._runtime[job['stream_id']]=rt
   with atomic(self.db):
@@ -360,7 +360,7 @@ class StreamRunner:
      try:
       for line in data.splitlines():
        row=_json(line)
-       if getattr(self.reducer,'pipeline_version',None)=='automatic-reports-10':state=self.reducer.consume_chunk(self.db,rt['id'],rt['generation'],state,row,rt['ordinal'])
+       if getattr(self.reducer,'pipeline_version',None) in ('automatic-reports-10','automatic-reports-11'):state=self.reducer.consume_chunk(self.db,rt['id'],rt['generation'],state,row,rt['ordinal'])
        else:state=self.reducer.consume(self.db,rt['id'],rt['generation'],state,row)
      except sqlite3.Error:raise
      except Exception:raise StreamError('stream_reducer_failed') from None
@@ -452,7 +452,7 @@ class StreamRunner:
    rt['source_index']+=1;rt['line']=0;rt['chunk_start']=0;rt['chunk_end']=0
    if rt['source_index']==len(rt['sources']):
     if rt['ordinal']<rt['committed']:raise StreamError('stream_checkpoint_invalid')
-    if getattr(self.reducer,'pipeline_version',None)=='automatic-reports-10':
+    if getattr(self.reducer,'pipeline_version',None) in ('automatic-reports-10','automatic-reports-11'):
      rt['phase']='work_validate';rt['work_validation']=self.reducer.validation_initial();rt['validation_next']='reducer_finalize'
     else:rt['phase']='manifest_publish'
     rt['manifest_ordinal']=-1;rt['manifest_hash']=hashlib.sha256();rt['manifest_bytes']=0
@@ -496,7 +496,7 @@ class StreamRunner:
    if _sig(target.stat())[:2]!=_sig(partial.stat())[:2]:raise StreamError('stream_inventory_invalid')
   else:os.link(partial,target)
   self._final_inputs(rt)
-  if getattr(self.reducer,'pipeline_version',None)=='automatic-reports-10':self.reducer.publication_check(self.db,rt['id'],rt['generation'],rt['state'])
+  if getattr(self.reducer,'pipeline_version',None) in ('automatic-reports-10','automatic-reports-11'):self.reducer.publication_check(self.db,rt['id'],rt['generation'],rt['state'])
   descriptor=self._descriptor(rt)
   descriptor['final_manifest']=dict(path=target.relative_to(self.root).as_posix(),sha256=rt['manifest_hash'].hexdigest(),size_bytes=rt['manifest_bytes'])
   if 'finalization' in rt:
